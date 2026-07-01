@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PhotonGrid Demo</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      height: 100%;
+      overflow: hidden;
+      font-family: system-ui, sans-serif;
+      display: flex;
+      flex-direction: column;
+      background: #f1f5f9;
+      transition: background 200ms ease;
+    }
+    #demo-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 20px;
+      height: 48px;
+      flex-shrink: 0;
+      background: #ffffff;
+      border-bottom: 1px solid #e2e8f0;
+      transition: background 200ms ease, border-color 200ms ease;
+    }
+    #demo-toolbar .toolbar-logo {
+      font-size: 14px;
+      font-weight: 700;
+      color: #0f172a;
+      letter-spacing: -0.01em;
+      margin-right: 8px;
+    }
+    #demo-toolbar .toolbar-logo span { color: #2563eb; }
+    #demo-toolbar label {
+      font-size: 12px;
+      font-weight: 500;
+      color: #64748b;
+      white-space: nowrap;
+    }
+    #theme-select {
+      height: 32px;
+      padding: 0 28px 0 10px;
+      border: 1px solid #d9d9db;
+      border-radius: 6px;
+      font-size: 13px;
+      font-family: inherit;
+      background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2364748b'/%3E%3C/svg%3E") no-repeat right 10px center;
+      -webkit-appearance: none;
+      appearance: none;
+      color: #0f172a;
+      cursor: pointer;
+      outline: none;
+      transition: border-color 150ms;
+      min-width: 160px;
+    }
+    #theme-select:focus { border-color: #2563eb; }
+    #grid-wrapper {
+      flex: 1;
+      min-height: 0;
+      padding: 20px;
+    }
+    #grid-container { width: 100%; height: 100%; }
+
+    /* Dark page adaptation */
+    body.demo-dark { background: #0a101c; }
+    body.demo-dark #demo-toolbar {
+      background: #1e293b;
+      border-bottom-color: #334155;
+    }
+    body.demo-dark #demo-toolbar .toolbar-logo { color: #e2e8f0; }
+    body.demo-dark #demo-toolbar label { color: #94a3b8; }
+    body.demo-dark #theme-select {
+      background-color: #0f172a;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2394a3b8'/%3E%3C/svg%3E");
+      border-color: #334155;
+      color: #e2e8f0;
+    }
+  </style>
+</head>
+<body>
+  <div id="demo-toolbar">
+    <span class="toolbar-logo">Photon<span>Grid</span></span>
+    <label for="theme-select">Theme</label>
+    <select id="theme-select">
+      <option value="pg-quartz-theme">Quartz (Default)</option>
+      <option value="pg-alpine-theme">Alpine</option>
+      <option value="pg-balham-theme">Balham</option>
+      <option value="pg-material-theme">Material</option>
+      <option value="pg-dark-theme">Dark</option>
+    </select>
+  </div>
+  <div id="grid-wrapper">
+    <div id="grid-container"></div>
+  </div>
+  <script src="./demo.bundle.js"></script>
+</body>
+</html>

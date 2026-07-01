@@ -1,0 +1,1335 @@
+import type { GridOptions, CellRange } from '../types/grid.types';
+import type { RowNode } from '../types/row.types';
+import type { ColumnDef } from '../types/column.types';
+import type { GridStore } from '../core/grid-store';
+import type { EventBus } from '../event-bus/event-bus';
+import type { ColumnModel } from '../core/column-model';
+import type { PaginationEngine } from '../engines/pagination/pagination-engine';
+import type { IconRenderer } from '../icons/icon-renderer';
+import type { SortEngine } from '../engines/sort/sort-engine';
+import type { RowSelectionEngine } from '../engines/selection/row-selection-engine';
+import type { GroupingEngine } from '../engines/grouping/grouping-engine';
+import type { FilterEngine } from '../engines/filter/filter-engine';
+import type { FilterModel } from '../types/filter.types';
+import type { ColumnGroupModel } from '../column-groups/column-group-model';
+import type { ColumnGroupHeaderBuilder } from '../column-groups/column-group-header-builder';
+import { ColumnGroupDragHandler } from '../column-groups/column-group-drag-handler';
+import type { DisplayGroupEngine } from '../column-groups/display-group-engine';
+import { GridEventType } from '../types/event.types';
+import { GroupDropZone } from './group-drop-zone';
+import { HeaderRenderer } from './header-renderer';
+import { BodyRenderer } from './body-renderer';
+import { RowDragRenderer } from './row-drag-renderer';
+import { FooterRenderer } from './footer-renderer';
+import { OverlayRenderer } from './overlay-renderer';
+import { ColumnStyleManager } from './column-style-manager';
+import { RowPositionSheet } from './row-position-sheet';
+import { ScrollController } from './scroll-controller';
+import { AutoScroller } from './auto-scroller';
+import { CellSelectionEngine } from '../cell-selection/cell-selection-engine';
+import { RowAnimator } from './row-animator';
+import { FilterPanel } from '../engines/filter/filter-panel';
+import type { FilterSetOption } from '../engines/filter/filter-panel';
+import { createDiv } from './dom-utils';
+
+const CHECKBOX_COL_WIDTH = 44;
+const SERIAL_COL_WIDTH = 52;
+const ROW_BUFFER = 5;
+const COL_BUFFER = 2;
+const AUTO_GROUP_COL_WIDTH = 200;
+
+export class GridRenderer {
+  private wrapperEl: HTMLElement | null = null;
+
+  // Header panel elements
+  private leftHeaderPanelEl: HTMLElement | null = null;
+  private centerHeaderInnerEl: HTMLElement | null = null;
+  private rightHeaderPanelEl: HTMLElement | null = null;
+
+  // Body panel elements
+  private leftBodyPanelEl: HTMLElement | null = null;
+  private centerBodyEl: HTMLElement | null = null;      // the .pg-panel__body for viewport size
+  private centerBodyContentEl: HTMLElement | null = null;
+  private rightBodyPanelEl: HTMLElement | null = null;
+  private leftBodyContentEl: HTMLElement | null = null;
+  private rightBodyContentEl: HTMLElement | null = null;
+
+  private footerContainerEl: HTMLElement | null = null;
+  private bodyWrapEl: HTMLElement | null = null;
+
+  /** Exposed for {@link DisplayGroupEngine} construction in `GridCore`. */
+  readonly colStyles: ColumnStyleManager;
+  private rowPositionSheet: RowPositionSheet;
+  private scrollController: ScrollController;
+  private headerRenderer: HeaderRenderer;
+  private bodyRenderer: BodyRenderer;
+  private footerRenderer: FooterRenderer;
+  private overlayRenderer: OverlayRenderer;
+  private groupDropZone: GroupDropZone | null = null;
+  private rowDragRenderer: RowDragRenderer | null = null;
+
+  private rafId: number | null = null;
+  private autoScroller: AutoScroller | null = null;
+  private unsubscribers: Array<() => void> = [];
+  private headerRendered = false;
+  private lastCenterColStart = -1;
+  private lastCenterColEnd = -1;
+  private rowAnimator = new RowAnimator();
+
+  // ── Column-group support ──────────────────────────────────────────────────
+  private columnGroupModel:   ColumnGroupModel | null = null;
+  private groupHeaderBuilder: ColumnGroupHeaderBuilder | null = null;
+  private groupDragHandler:   ColumnGroupDragHandler | null = null;
+  /** New Display Group Engine — takes priority over the legacy ColumnGroupModel when set. */
+  private displayGroupEngine: DisplayGroupEngine | null = null;
+
+  // ── Filter panel management ────────────────────────────────────────────────
+  private filterEngine: FilterEngine | null = null;
+  private filterRefreshFn: (() => void) | null = null;
+  private activeFilterPanel: FilterPanel | null = null;
+
+  // ── Render caches ─────────────────────────────────────────────────────────
+  // Column/row computation is skipped on scroll-only frames by comparing the
+  // store array reference — a new reference means data/columns actually changed.
+  /** Last `columns` array reference seen — guards column-width recomputation. */
+  private _lastColumnsRef: ColumnDef[] | null = null;
+  /** Last `groupedColumnIds` array reference seen — guards grouping recomputation. */
+  private _lastGroupedIdsRef: string[] | null = null;
+  /** Last `visibleRows` array reference seen — guards total-height recomputation. */
+  private _lastRowsRef: RowNode[] | null = null;
+  /** Cached total content height in pixels (sum of all visible row heights). */
+  private _cachedTotalHeight = 0;
+  /** Cached center-panel content width in pixels. */
+  private _cachedCenterW = 0;
+
+  constructor(
+    private containerEl: HTMLElement,
+    private store: GridStore,
+    private eventBus: EventBus,
+    private columnModel: ColumnModel,
+    private paginationEngine: PaginationEngine,
+    private iconRenderer: IconRenderer,
+    private cellSelectionEngine: CellSelectionEngine,
+    private sortEngine: SortEngine,
+    private rowSelectionEngine: RowSelectionEngine,
+    private groupingEngine: GroupingEngine,
+    private options: GridOptions,
+  ) {
+    this.colStyles = new ColumnStyleManager();
+    this.rowPositionSheet = new RowPositionSheet();
+    this.scrollController = new ScrollController();
+
+    this.headerRenderer = new HeaderRenderer(
+      store, eventBus, iconRenderer, columnModel, sortEngine, this.colStyles,
+    );
+
+    if (options.showGroupingBar) {
+      this.groupDropZone = new GroupDropZone(store, groupingEngine, iconRenderer);
+      this.headerRenderer.setGroupDropZone(this.groupDropZone);
+    }
+    this.bodyRenderer = new BodyRenderer(
+      store, eventBus, iconRenderer, rowSelectionEngine,
+    );
+    this.footerRenderer = new FooterRenderer(eventBus, iconRenderer, paginationEngine);
+    this.overlayRenderer = new OverlayRenderer(iconRenderer);
+  }
+
+  mount(): void {
+    this.colStyles.mount();
+    this.rowPositionSheet.mount();
+    this.buildLayout();
+    if (this.wrapperEl && this.bodyWrapEl) {
+      this.rowDragRenderer = new RowDragRenderer(this.store, this.eventBus, this.iconRenderer);
+      this.rowDragRenderer.mount(
+        this.wrapperEl,
+        this.bodyWrapEl,
+        (dy) => this.scrollController.scrollToY(this.scrollController.getScrollTop() + dy),
+      );
+    }
+    this.subscribeToStore();
+    this.scheduleRender();
+  }
+
+  scheduleRender(): void {
+    if (this.rafId !== null) return;
+    this.rafId = requestAnimationFrame(() => {
+      this.rafId = null;
+      this.performRender();
+    });
+  }
+
+  forceRender(): void {
+    if (this.rafId !== null) {
+      cancelAnimationFrame(this.rafId);
+      this.rafId = null;
+    }
+    this.performRender();
+  }
+
+  /**
+   * Clears the body-renderer's row cache so the next render fully rebuilds every
+   * visible row from the data model.  Use this after in-place data mutations
+   * (paste, cut) where the `visibleRows` reference is unchanged but cell values
+   * have been updated — `updatePanelRow` only refreshes row-level classes, not
+   * cell content, so a cache invalidation + re-render is required.
+   */
+  invalidateBodyRows(): void {
+    this.bodyRenderer.clear();
+    this.scheduleRender();
+  }
+
+  /**
+   * Evicts only the rows with the given node IDs from the render cache and
+   * schedules a repaint.  All other rows keep their cached DOM elements so
+   * custom cell renderers (images, flags, etc.) are not needlessly re-executed.
+   *
+   * Prefer this over `invalidateBodyRows` whenever the set of mutated rows is
+   * known (fill, cut, paste, undo/redo).
+   *
+   * @param nodeIds - Node IDs of the rows whose cache entries should be evicted.
+   */
+  invalidateBodyRowsByIds(nodeIds: Set<string>): void {
+    this.bodyRenderer.invalidateRowsByNodeId(nodeIds);
+    this.scheduleRender();
+  }
+
+  // ── Filter panel public API ────────────────────────────────────────────────
+
+  /**
+   * Provides the renderer with a `FilterEngine` reference so it can read the
+   * current filter model and write column filters when the user interacts with
+   * the filter panel.  Called from `GridApi` after construction.
+   */
+  setFilterEngine(engine: FilterEngine): void {
+    this.filterEngine = engine;
+  }
+
+  /**
+   * Registers a callback that runs the full sort/filter pipeline and triggers
+   * a render whenever the filter state changes from within the panel.
+   * Called from `GridApi` after construction.
+   */
+  setFilterRefreshCallback(fn: () => void): void {
+    this.filterRefreshFn = fn;
+  }
+
+  /**
+   * Wire the column-group model and header builder into the renderer.
+   *
+   * Must be called **before** the first `mount()` so that `renderInPanels`
+   * can insert group header rows above the leaf row.  Called by `GridCore`
+   * when any top-level `ColumnDef` has a `children` array.
+   *
+   * @param model   - The live tree model.
+   * @param builder - The DOM builder instance.
+   */
+  setColumnGroupModel(model: ColumnGroupModel, builder: ColumnGroupHeaderBuilder): void {
+    this.columnGroupModel   = model;
+    this.groupHeaderBuilder = builder;
+
+    // Create the drag handler — gridElGetter returns wrapperEl which is set
+    // during mount(); drag can only start after mount so it is always non-null.
+    this.groupDragHandler = new ColumnGroupDragHandler(
+      this.columnModel,
+      model,
+      builder,
+      this.colStyles,
+      this.eventBus,
+      () => this.wrapperEl,
+    );
+
+    // Wire drag handler into builder so every group cell gets drag listeners
+    builder.setDragConfig(this.groupDragHandler, () => this.wrapperEl);
+
+    // Forward references into HeaderRenderer
+    this.headerRenderer.setColumnGroupModel(model, builder);
+    this.headerRenderer.setGroupDragHandler(this.groupDragHandler);
+
+    // Wire collapse/expand: toggle model state, sync leaf visibility, rebuild header
+    this.headerRenderer.setGroupToggleCallback((groupId: string) => {
+      this.handleGroupToggle(groupId);
+    });
+
+    // Wire group resize: distribute delta proportionally across all leaf columns
+    this.headerRenderer.setGroupResizeCallback((groupId: string, newWidth: number) => {
+      this.handleGroupResize(groupId, newWidth);
+    });
+  }
+
+  /**
+   * Wire the new Display Group Engine into the renderer.
+   *
+   * Creates the drag handler, forwards the engine into `HeaderRenderer`, and
+   * subscribes to the events that trigger header rebuilds.  Must be called
+   * before `mount()` when the grid's column definitions contain groups.
+   *
+   * Takes priority over the legacy `setColumnGroupModel` path.
+   *
+   * @param engine - Fully-initialised `DisplayGroupEngine` instance.
+   */
+  setDisplayGroupEngine(engine: DisplayGroupEngine): void {
+    this.displayGroupEngine = engine;
+
+    // Create the drag handler bound to this engine
+    engine.createDragHandler(() => this.wrapperEl);
+
+    // Forward engine into HeaderRenderer
+    this.headerRenderer.setDisplayGroupEngine(engine);
+
+    // Wire toggle/resize callbacks (HeaderRenderer fires these on user interaction)
+    this.headerRenderer.setGroupToggleCallback((groupId: string) => {
+      this.handleGroupToggle(groupId);
+    });
+    this.headerRenderer.setGroupResizeCallback((groupId: string, newWidth: number) => {
+      this.handleGroupResize(groupId, newWidth);
+    });
+
+    // Subscribe to group collapse/expand events from the event bus
+    this.unsubscribers.push(
+      this.eventBus.on(GridEventType.COLUMN_GROUP_HEADER_COLLAPSED, () => {
+        this.rebuildHeader();
+      }),
+      this.eventBus.on(GridEventType.COLUMN_GROUP_HEADER_EXPANDED, () => {
+        this.rebuildHeader();
+      }),
+      // Group drag-drop (and leaf clone) completion fires COLUMN_MOVED with
+      // fromIndex === -1 as a sentinel.  Sync the flat store.columns order from
+      // the group tree so body rows reflect the new column sequence, then rebuild.
+      this.eventBus.on(GridEventType.COLUMN_MOVED, (payload: unknown) => {
+        const p = payload as { fromIndex: number };
+        if (p?.fromIndex === -1) {
+          if (this.columnGroupModel) {
+            const newLeaves    = this.columnGroupModel.getAllLeaves();
+            const storeColumns = this.store.get('columns') as ColumnDef[];
+            const colMap       = new Map(storeColumns.map((c: ColumnDef) => [c.colId, c]));
+            const reordered    = newLeaves
+              .map((l) => colMap.get(l.colId))
+              .filter((c): c is ColumnDef => c !== undefined);
+            // Only update the store when the order actually changed so we don't
+            // trigger an unnecessary store.watch('columns') rebuild cycle.
+            const orderChanged = reordered.some((c, i) => c.colId !== storeColumns[i]?.colId);
+            if (orderChanged) {
+              this.store.set('columns', reordered);
+            }
+          }
+          this.bodyRenderer.clear();
+          this.rebuildHeader();
+        }
+      }),
+    );
+  }
+
+  /**
+   * Opens (or replaces) the floating filter panel for the given column.
+   * Called by `HeaderRenderer` when the user clicks a column's filter icon.
+   *
+   * @param colDef   - Column definition the filter applies to.
+   * @param anchorEl - Filter-icon button element — panel positions below this.
+   */
+  openFilterPanel(colDef: ColumnDef, anchorEl: HTMLElement): void {
+    if (!this.filterEngine || !this.wrapperEl) return;
+
+    // If the same column's panel is already open, close it (toggle behaviour)
+    if (this.activeFilterPanel) {
+      this.activeFilterPanel.destroy();
+      this.activeFilterPanel = null;
+      return;
+    }
+
+    const currentFilter = this.filterEngine.getFilterModel()[colDef.colId] ?? null;
+    const uniqueOptions = this.extractUniqueOptions(colDef);
+
+    this.activeFilterPanel = new FilterPanel({
+      colDef,
+      anchorEl,
+      containerEl: this.wrapperEl,
+      currentFilter,
+      uniqueOptions,
+      onFilterChange: (filter) => {
+        this.filterEngine!.setColumnFilter(colDef.colId, filter);
+        this.filterRefreshFn?.();
+      },
+      onClose: () => {
+        this.activeFilterPanel = null;
+      },
+    });
+
+    this.activeFilterPanel.open();
+  }
+
+  /**
+   * Extracts unique display value/label pairs for set-type (dropdown / array)
+   * filter panels.  For `dropdown` columns the predefined `dropdownOptions`
+   * are used directly; for other types unique values are scanned from `allRows`.
+   */
+  private extractUniqueOptions(colDef: ColumnDef): FilterSetOption[] {
+    // Dropdown: use predefined options list
+    if (colDef.type === 'dropdown' && colDef.dropdownOptions?.length) {
+      return colDef.dropdownOptions.map((o) => ({
+        value: String(o.value),
+        label: o.label ?? String(o.value),
+      }));
+    }
+
+    const allRows = this.store.get('allRows') as RowNode[];
+    const field = colDef.field;
+    const parts = field.split('.');
+    const nested = field.includes('.');
+    const seen = new Set<string>();
+
+    for (const row of allRows) {
+      if (row.type !== 'data') continue;
+      let val: unknown;
+      if (nested) {
+        val = row.data;
+        for (const part of parts) {
+          if (val == null) break;
+          val = (val as Record<string, unknown>)[part];
+        }
+      } else {
+        val = row.data[field];
+      }
+
+      if (Array.isArray(val)) {
+        for (const v of val) { if (v != null && v !== '') seen.add(String(v)); }
+      } else if (val != null && val !== '') {
+        seen.add(String(val));
+      }
+    }
+
+    return Array.from(seen)
+      .sort((a, b) => a.localeCompare(b))
+      .map((v) => ({ value: v, label: v }));
+  }
+
+  /**
+   * Snapshot current row positions so the next render animates the transition.
+   * Call this **before** any pipeline that reorders or hides rows.
+   *
+   * @param rows - Current visible rows before the pipeline runs.
+   * @param type - `'sort'` (default) or `'filter'` — controls duration and entrance style.
+   */
+  captureRowAnimation(
+    rows: ReadonlyArray<{ nodeId: string; top: number }>,
+    type: import('./row-animator').RowAnimationType = 'sort',
+  ): void {
+    this.rowAnimator.capture(rows, type);
+  }
+
+  /** Wire up the group-bar search input to an external handler (e.g. api.setQuickFilter). */
+  setSearchCallback(fn: (term: string) => void): void {
+    this.groupDropZone?.setSearchCallback(fn);
+  }
+
+  scrollToRow(rowIndex: number): void {
+    const rows = this.store.get('visibleRows');
+    this.scrollController.scrollToRow(rowIndex, rows);
+  }
+
+  scrollToTop(): void {
+    this.scrollController.scrollToTop();
+  }
+
+  /**
+   * Scrolls the grid body (vertically and horizontally) so that the cell at
+   * `rowIndex` / `colIndex` is fully visible — mirrors AG Grid's auto-scroll
+   * behaviour on keyboard navigation.
+   *
+   * - For pinned-left/right columns only vertical scrolling is applied.
+   * - For center columns both axes are adjusted when the cell is out of view.
+   *
+   * @param rowIndex - Index into `visibleRows`
+   * @param colIndex - Index in the flat visible-columns array (left + center + right)
+   */
+  scrollToCell(rowIndex: number, colIndex: number): void {
+    const rows    = this.store.get('visibleRows') as RowNode[];
+    const allCols = (this.store.get('columns') as ColumnDef[]).filter((c) => c.visible !== false);
+
+    const row = rows[rowIndex];
+    if (!row) return;
+    // colIndex −1 is the virtual auto-group label column — vertical scroll is
+    // still needed, but there is no horizontal column descriptor for it.
+    const col = colIndex >= 0 ? allCols[colIndex] : null;
+
+    // ── Vertical ──────────────────────────────────────────────────────────────
+    const rowH      = row.height ?? (this.options.rowHeight ?? 48);
+    const scrollTop = this.scrollController.getScrollTop();
+    const vpH       = this.scrollController.getViewportHeight();
+
+    if (row.top < scrollTop) {
+      this.scrollController.scrollToY(row.top);
+    } else if (row.top + rowH > scrollTop + vpH) {
+      this.scrollController.scrollToY(row.top + rowH - vpH);
+    }
+
+    // ── Horizontal (center columns only) ──────────────────────────────────────
+    // col is null for the virtual auto-group label column — it is always visible
+    // within the fixed-width group column area, so no horizontal scroll is needed.
+    if (!col || col.pinned === 'left' || col.pinned === 'right') return;
+
+    const leftCols   = allCols.filter((c) => c.pinned === 'left');
+    const centerCols = allCols.filter((c) => c.pinned !== 'left' && c.pinned !== 'right');
+    const centerIdx  = colIndex - leftCols.length;
+    if (centerIdx < 0 || centerIdx >= centerCols.length) return;
+
+    const groupedIds  = this.store.get('groupedColumnIds') as string[];
+    const groupOffset = groupedIds.length > 0 ? AUTO_GROUP_COL_WIDTH : 0;
+    const colX = groupOffset + this.colStyles.getTotalWidth(centerCols.slice(0, centerIdx).map((c) => c.colId));
+    const colW = this.colStyles.getWidth(centerCols[centerIdx].colId);
+
+    const scrollLeft = this.scrollController.getScrollLeft();
+    const vpW        = this.scrollController.getCenterViewportWidth();
+
+    if (colX < scrollLeft) {
+      this.scrollController.scrollToX(colX);
+    } else if (colX + colW > scrollLeft + vpW) {
+      this.scrollController.scrollToX(colX + colW - vpW);
+    }
+  }
+
+  getCellRect(rowIndex: number, colIndex: number): DOMRect | null {
+    for (const content of [this.leftBodyContentEl, this.centerBodyContentEl, this.rightBodyContentEl]) {
+      if (!content) continue;
+      const cellEl = content.querySelector<HTMLElement>(
+        `[data-row-index="${rowIndex}"][data-col-index="${colIndex}"]`,
+      );
+      if (cellEl) return cellEl.getBoundingClientRect();
+    }
+    return null;
+  }
+
+  enterFullScreen(): void {
+    if (!this.wrapperEl) return;
+    this.wrapperEl.requestFullscreen?.();
+    this.wrapperEl.classList.add('pg-grid--fullscreen');
+    this.store.set('fullScreen', true);
+  }
+
+  exitFullScreen(): void {
+    if (document.fullscreenElement === this.wrapperEl) {
+      document.exitFullscreen?.();
+    }
+    this.wrapperEl?.classList.remove('pg-grid--fullscreen');
+    this.store.set('fullScreen', false);
+  }
+
+  destroy(): void {
+    if (this.rafId !== null) {
+      cancelAnimationFrame(this.rafId);
+      this.rafId = null;
+    }
+    for (const unsub of this.unsubscribers) unsub();
+    this.unsubscribers = [];
+
+    this.headerRenderer.destroy();
+    this.bodyRenderer.destroy();
+    this.footerRenderer.destroy();
+    this.overlayRenderer.destroy();
+    this.scrollController.destroy();
+    this.groupDropZone?.destroy();
+    this.rowDragRenderer?.destroy();
+    this.groupDragHandler?.destroy();
+    this.rowPositionSheet.destroy();
+    this.rowAnimator.destroy();
+    this.colStyles.destroy();
+    this.autoScroller?.stop();
+    this.autoScroller = null;
+    this.wrapperEl?.remove();
+    this.wrapperEl = null;
+  }
+
+  // ─── Layout ──────────────────────────────────────────────────────────────
+
+  private buildLayout(): void {
+    this.wrapperEl = createDiv('pg-grid');
+    this.wrapperEl.setAttribute('role', 'grid');
+    this.wrapperEl.setAttribute('data-photon-grid-id', this.generateId());
+    if (!this.options.showVerticalBorders) {
+      this.wrapperEl.classList.add('pg-grid--no-v-borders');
+    }
+    if (this.options.rowHeightMode === 'auto') {
+      this.wrapperEl.classList.add('pg-grid--auto-row-height');
+    }
+    this.containerEl.appendChild(this.wrapperEl);
+
+    // Apply custom row heights as CSS vars
+    if (this.options.headerRowHeight) {
+      this.wrapperEl.style.setProperty('--pg-header-row-height', `${this.options.headerRowHeight}px`);
+    }
+    if (this.options.filterRowHeight) {
+      this.wrapperEl.style.setProperty('--pg-filter-row-height', `${this.options.filterRowHeight}px`);
+    }
+
+    // ── Outer flex-row (contains group zone when left/right docked + main col) ─
+    const outerRowEl = createDiv('pg-grid-outer');
+    this.wrapperEl.appendChild(outerRowEl);
+
+    // ── Main flex-col (header + body + scrollbar) ────────────────────────────
+    const mainColEl = createDiv('pg-grid-main');
+    outerRowEl.appendChild(mainColEl);
+
+    // ── Group drop zone (defaults to top of mainColEl) ───────────────────────
+    if (this.groupDropZone) {
+      this.groupDropZone.mount(outerRowEl, mainColEl);
+    }
+
+    // ── Header ──────────────────────────────────────────────────────────────
+    const headerWrapEl = createDiv('pg-grid__header');
+    mainColEl.appendChild(headerWrapEl);
+
+    // Left header panel
+    const leftHeaderPanelEl = createDiv('pg-panel pg-panel--left');
+    const leftHeaderInner = createDiv('pg-panel__header');
+    leftHeaderPanelEl.appendChild(leftHeaderInner);
+    headerWrapEl.appendChild(leftHeaderPanelEl);
+    this.leftHeaderPanelEl = leftHeaderInner;
+
+    // Center header panel
+    const centerHeaderPanelEl = createDiv('pg-panel pg-panel--center');
+    const centerHeaderOuter = createDiv('pg-panel__header');
+    const centerHeaderInnerEl = createDiv('pg-panel__header-inner');
+    centerHeaderOuter.appendChild(centerHeaderInnerEl);
+    centerHeaderPanelEl.appendChild(centerHeaderOuter);
+    headerWrapEl.appendChild(centerHeaderPanelEl);
+    this.centerHeaderInnerEl = centerHeaderInnerEl;
+
+    // Right header panel
+    const rightHeaderPanelEl = createDiv('pg-panel pg-panel--right');
+    const rightHeaderInner = createDiv('pg-panel__header');
+    rightHeaderPanelEl.appendChild(rightHeaderInner);
+    headerWrapEl.appendChild(rightHeaderPanelEl);
+    this.rightHeaderPanelEl = rightHeaderInner;
+
+    // Spacer that mirrors the vertical scrollbar flex item in the body row so
+    // the center header panel is exactly as wide as the center body panel.
+    // Without this the header center is scrollbar_width wider and the right
+    // pinned-column header is shifted right relative to the body cells.
+    const headerVScrollSpacerEl = createDiv('pg-header-vscroll-spacer');
+    headerWrapEl.appendChild(headerVScrollSpacerEl);
+
+    // ── Body ─────────────────────────────────────────────────────────────────
+    const bodyWrapEl = createDiv('pg-grid__body');
+    mainColEl.appendChild(bodyWrapEl);
+    this.bodyWrapEl = bodyWrapEl;
+
+    // Left body panel
+    const leftBodyPanelEl = createDiv('pg-panel pg-panel--left');
+    const leftBodyEl = createDiv('pg-panel__body');
+    const leftBodyContentEl = createDiv('pg-panel__content');
+    leftBodyEl.appendChild(leftBodyContentEl);
+    leftBodyPanelEl.appendChild(leftBodyEl);
+    bodyWrapEl.appendChild(leftBodyPanelEl);
+    this.leftBodyPanelEl = leftBodyPanelEl;
+    this.leftBodyContentEl = leftBodyContentEl;
+
+    // Center body panel
+    const centerBodyPanelEl = createDiv('pg-panel pg-panel--center');
+    const centerBodyEl = createDiv('pg-panel__body');
+    const centerBodyContentEl = createDiv('pg-panel__content');
+    centerBodyEl.appendChild(centerBodyContentEl);
+    centerBodyPanelEl.appendChild(centerBodyEl);
+    bodyWrapEl.appendChild(centerBodyPanelEl);
+    this.centerBodyEl = centerBodyEl;
+    this.centerBodyContentEl = centerBodyContentEl;
+
+    // Right body panel
+    const rightBodyPanelEl = createDiv('pg-panel pg-panel--right');
+    const rightBodyEl = createDiv('pg-panel__body');
+    const rightBodyContentEl = createDiv('pg-panel__content');
+    rightBodyEl.appendChild(rightBodyContentEl);
+    rightBodyPanelEl.appendChild(rightBodyEl);
+    bodyWrapEl.appendChild(rightBodyPanelEl);
+    this.rightBodyPanelEl = rightBodyPanelEl;
+    this.rightBodyContentEl = rightBodyContentEl;
+
+    // Native vertical scrollbar: a flex item beside the panels (not absolutely
+    // positioned) so it never overlaps cell content.  The height is governed by
+    // the flex container; the scroll range by the inner height spacer.
+    const sbVNative = createDiv('pg-scrollbar-v-native');
+    const sbVSpacer = createDiv('pg-scrollbar-v-spacer');
+    sbVNative.appendChild(sbVSpacer);
+    bodyWrapEl.appendChild(sbVNative);
+
+    // Read the actual rendered width of the scrollbar element itself — this is
+    // always exact because it is the same element whose width we need to mirror.
+    // Accessing offsetWidth forces a synchronous reflow; safe here because
+    // sbVNative is already attached to the live DOM tree.
+    const sbVWidth = sbVNative.offsetWidth;
+    this.wrapperEl!.style.setProperty('--pg-scrollbar-v-width', `${sbVWidth}px`);
+
+    // Horizontal scrollbar row: left spacer | native scroll container | right spacer | v-scroll spacer
+    const sbHRowEl = createDiv('pg-scrollbar-h-row');
+    const sbHLeftEl = createDiv('pg-scrollbar-h-spacer pg-scrollbar-h-spacer--left');
+    const sbHNative = createDiv('pg-scrollbar-h-native');
+    const sbHSpacer = createDiv('pg-scrollbar-h-content');
+    sbHNative.appendChild(sbHSpacer);
+    const sbHRightEl = createDiv('pg-scrollbar-h-spacer pg-scrollbar-h-spacer--right');
+    // Mirrors the vertical scrollbar column so the h-scroll track aligns with the center panel
+    const sbHVScrollEl = createDiv('pg-scrollbar-h-spacer pg-scrollbar-h-spacer--vscroll');
+    sbHRowEl.appendChild(sbHLeftEl);
+    sbHRowEl.appendChild(sbHNative);
+    sbHRowEl.appendChild(sbHRightEl);
+    sbHRowEl.appendChild(sbHVScrollEl);
+    mainColEl.appendChild(sbHRowEl);
+
+    // Footer
+    if (this.options.showFooter !== false && this.options.pagination?.enabled) {
+      this.footerContainerEl = createDiv('pg-grid__footer');
+      this.wrapperEl.appendChild(this.footerContainerEl);
+    }
+
+    // Mount scroll controller — both V and H use native browser scrollbars
+    this.scrollController.mount(this.wrapperEl, bodyWrapEl, centerBodyEl, sbVNative, sbVSpacer, sbHNative, sbHSpacer, sbHRowEl);
+
+    this.scrollController.onScrollY(() => this.scheduleRender());
+    this.scrollController.onScrollX(() => this.scheduleRender());
+
+    // Expose horizontal scroll to header renderer for column drag auto-scroll
+    this.headerRenderer.setScrollCallback(
+      (dx) => this.scrollController.scrollToX(this.scrollController.getScrollLeft() + dx),
+      (dir) => dir < 0 ? this.scrollController.canScrollLeft() : this.scrollController.canScrollRight(),
+    );
+
+    // Re-render during column resize so the horizontal scrollbar updates in real time
+    this.headerRenderer.setResizeCallback(() => this.scheduleRender());
+
+    // Mount overlay on body (spans all panels)
+    this.overlayRenderer.mount(bodyWrapEl);
+
+    // Attach cell selection to center content
+    this.cellSelectionEngine.attach(centerBodyContentEl);
+
+    // Pass panels to body renderer
+    this.bodyRenderer.setPanels(leftBodyContentEl, centerBodyContentEl, rightBodyContentEl);
+
+    // Pass body content panels to cell selection engine for CSS class-based highlighting
+    this.cellSelectionEngine.setBodyPanels([leftBodyContentEl, centerBodyContentEl, rightBodyContentEl]);
+
+    // Wire auto-scroll: whenever the active cell changes, scroll it into view
+    this.cellSelectionEngine.setScrollToCellCallback((r, c) => this.scrollToCell(r, c));
+
+    // Wire PageUp/PageDown: return the number of fully visible rows so the
+    // engine can jump by exactly one viewport height worth of rows.
+    this.cellSelectionEngine.setGetViewportRowCountCallback(() => {
+      const vpH    = this.scrollController.getViewportHeight();
+      const rowH   = this.options.rowHeight ?? 48;
+      return Math.max(1, Math.floor(vpH / rowH));
+    });
+
+    // Wire paste/fill/cut invalidation: evict only the mutated rows from the
+    // cache so custom cell renderers in unchanged rows are not re-executed.
+    this.cellSelectionEngine.setDataChangedCallback((nodeIds) => {
+      if (nodeIds && nodeIds.size > 0) {
+        this.invalidateBodyRowsByIds(nodeIds);
+      } else {
+        this.invalidateBodyRows();
+      }
+    });
+
+    // Wire filter-panel opening: header filter icon click → open panel overlay
+    this.headerRenderer.setOpenFilterPanelCallback((col, anchor) => this.openFilterPanel(col, anchor));
+
+    // ── Edge auto-scroller ───────────────────────────────────────────────────
+    // A single RAF-based AutoScroller handles both cell-range selection drag
+    // and fill-handle drag.  When the cursor is within 60 px of the body
+    // viewport edges it applies a proportional scroll delta each frame.
+    // After each scrolled frame `onScrolled` re-evaluates which cell lies
+    // under the cursor so the selection or fill preview stays accurate.
+    this.autoScroller = new AutoScroller(
+      () => this.bodyWrapEl?.getBoundingClientRect() ?? null,
+      (dy) => this.scrollController.scrollToY(this.scrollController.getScrollTop() + dy),
+      (dx) => this.scrollController.scrollToX(this.scrollController.getScrollLeft() + dx),
+      (cx, cy) => {
+        if (this.cellSelectionEngine.isSelecting) {
+          // Re-hit-test after the grid scrolled so the selection follows.
+          const el = document.elementFromPoint(cx, cy) as HTMLElement | null;
+          const cellEl = el?.closest<HTMLElement>('[data-row-index][data-col-index]');
+          if (!cellEl || !cellEl.hasAttribute('data-col-id')) return;
+          const ri = Number(cellEl.getAttribute('data-row-index'));
+          const ci = Number(cellEl.getAttribute('data-col-index'));
+          if (!isNaN(ri) && !isNaN(ci)) this.cellSelectionEngine.extendSelection(ri, ci);
+        } else {
+          // Fill-handle drag: re-process fill position after scroll.
+          this.cellSelectionEngine.updateFillPosition(cx, cy);
+        }
+      },
+    );
+
+    // Wire fill-handle drag into the auto-scroller via CellSelectionEngine callbacks.
+    this.cellSelectionEngine.setFillDragScrollCallback((cx, cy) => this.autoScroller!.updateMouse(cx, cy));
+    this.cellSelectionEngine.setFillDragEndCallback(() => this.autoScroller?.stop());
+
+    // Provide the body viewport rect so fill drag can clamp its hit-test
+    // coordinates when the cursor exits the grid boundary.
+    this.cellSelectionEngine.setDragViewportRectCallback(() => this.bodyWrapEl?.getBoundingClientRect() ?? null);
+
+    // Mouse drag to extend selection.
+    // Guard on e.buttons: if no mouse button is held (e.g. touchpad hover after
+    // keyboard navigation left _isSelecting true), cancel the drag immediately
+    // instead of extending the selection on every pointer movement.
+    bodyWrapEl.addEventListener('mousemove', (e) => {
+      if (!this.cellSelectionEngine.isSelecting) return;
+      if (e.buttons === 0) {
+        this.cellSelectionEngine.endSelection();
+        this.autoScroller?.stop();
+        return;
+      }
+      // Feed cursor position to the auto-scroller — triggers edge scrolling
+      // when the cursor is within the threshold of the viewport boundary.
+      this.autoScroller?.updateMouse(e.clientX, e.clientY);
+      const cellEl = (e.target as HTMLElement).closest<HTMLElement>('[data-row-index][data-col-index]');
+      if (!cellEl || !cellEl.hasAttribute('data-col-id')) return;
+      const ri = Number(cellEl.getAttribute('data-row-index'));
+      const ci = Number(cellEl.getAttribute('data-col-index'));
+      if (!isNaN(ri) && !isNaN(ci)) this.cellSelectionEngine.extendSelection(ri, ci);
+    });
+
+    bodyWrapEl.addEventListener('mouseup', () => {
+      this.cellSelectionEngine.endSelection();
+      this.autoScroller?.stop();
+    });
+
+    // The bodyWrapEl mouseup only fires when the pointer is released inside the
+    // grid.  When the auto-scroller is running the user's cursor is outside the
+    // viewport edge — releasing there fires no bodyWrapEl event, so scrolling
+    // never stops.  A document-level listener catches the release everywhere and
+    // is removed in destroy() to prevent leaks.
+    const docMouseUp = () => {
+      if (this.cellSelectionEngine.isSelecting) {
+        this.cellSelectionEngine.endSelection();
+      }
+      this.autoScroller?.stop();
+    };
+    document.addEventListener('mouseup', docMouseUp);
+    this.unsubscribers.push(() => document.removeEventListener('mouseup', docMouseUp));
+  }
+
+  // ─── Render ───────────────────────────────────────────────────────────────
+
+  private performRender(): void {
+    const rows       = this.store.get('visibleRows') as RowNode[];
+    const rawCols    = this.store.get('columns') as ColumnDef[];
+    const groupedIds = this.store.get('groupedColumnIds') as string[];
+    const loading    = this.store.get('loading') as boolean;
+
+    const allColumns = rawCols.filter((c) => c.visible !== false);
+    const leftCols   = allColumns.filter((c) => c.pinned === 'left');
+    const centerCols = allColumns.filter((c) => c.pinned !== 'left' && c.pinned !== 'right');
+    const rightCols  = allColumns.filter((c) => c.pinned === 'right');
+
+    const rowHeight = this.options.rowHeight ?? 48;
+    const w = this.wrapperEl!;
+
+    // ── Column / grouping-dependent work ──────────────────────────────────────
+    // Skipped on scroll-only frames: columns and grouping never change during
+    // a scroll event, so the store returns the same array reference each time.
+    // initFromColumns calls flush() which rewrites the entire column <style> tag —
+    // running it at 60 fps wastes ~1 ms/frame for nothing.
+    const colsChanged     = rawCols    !== this._lastColumnsRef;
+    const groupingChanged = groupedIds !== this._lastGroupedIdsRef;
+
+    // Derived from groupedIds — always available for the horizontal scroll logic below.
+    const hasGroupedColumns = groupedIds.length > 0;
+
+    // ColumnDef for the deepest grouping field — used by leaf data rows in the
+    // auto-group column.  Looked up in rawCols (all columns, including hidden
+    // ones) so that grouping by a hidden column still shows leaf values.
+    const leafGroupColDef = hasGroupedColumns
+      ? (rawCols.find((c) => c.colId === groupedIds[groupedIds.length - 1]) ?? null)
+      : null;
+
+    if (colsChanged || groupingChanged) {
+      this._lastColumnsRef    = rawCols;
+      this._lastGroupedIdsRef = groupedIds;
+
+      this.colStyles.initFromColumns(allColumns);
+
+      const showCb = this.options.showCheckboxes ? CHECKBOX_COL_WIDTH : 0;
+      const showSn = this.options.showSerialNumber ? SERIAL_COL_WIDTH : 0;
+      const leftPinnedWidth   = this.colStyles.getTotalWidth(leftCols.map((c) => c.colId));
+      const rightContentWidth = this.colStyles.getTotalWidth(rightCols.map((c) => c.colId));
+
+      const hasLeft  = showCb > 0 || showSn > 0 || leftCols.length > 0;
+      const hasRight = rightCols.length > 0;
+
+      // Set left/right panel CSS vars BEFORE resolving flex so that
+      // centerBodyEl.clientWidth reflects the true center panel width.
+      w.style.setProperty('--pg-left-panel-width',  hasLeft  ? `${showCb + showSn + leftPinnedWidth}px` : '0px');
+      w.style.setProperty('--pg-right-panel-width', hasRight ? `${rightContentWidth}px`                 : '0px');
+
+      // Resolve flex columns — clientWidth read forces a layout reflow;
+      // done here so it only happens when column definitions change.
+      const centerColIds = centerCols.map((c) => c.colId);
+      if (this.colStyles.hasFlex(centerColIds)) {
+        const centerPanelW = this.centerBodyEl?.clientWidth ?? 0;
+        if (centerPanelW > 0) this.colStyles.resolveFlex(centerColIds, centerPanelW);
+      }
+
+      const centerContentWidth = this.colStyles.getTotalWidth(centerColIds)
+        + (hasGroupedColumns ? AUTO_GROUP_COL_WIDTH : 0);
+      this._cachedCenterW = centerContentWidth;
+
+      // Show/hide left/right panels
+      if (this.leftBodyPanelEl) {
+        this.leftBodyPanelEl.style.setProperty('display', hasLeft ? '' : 'none');
+        if (this.leftHeaderPanelEl?.parentElement) {
+          this.leftHeaderPanelEl.parentElement.style.setProperty('display', hasLeft ? '' : 'none');
+        }
+      }
+      if (this.rightBodyPanelEl) {
+        this.rightBodyPanelEl.style.setProperty('display', hasRight ? '' : 'none');
+        if (this.rightHeaderPanelEl?.parentElement) {
+          this.rightHeaderPanelEl.parentElement.style.setProperty('display', hasRight ? '' : 'none');
+        }
+      }
+
+      w.style.setProperty('--pg-center-content-width', `${centerContentWidth}px`);
+    }
+
+    // ── Row-dependent work ────────────────────────────────────────────────────
+    // The total-height O(n) loop and scrollController.updateSizes are skipped
+    // when the rows reference hasn't changed (i.e. during scroll-only frames).
+    const rowsChanged = rows !== this._lastRowsRef;
+    if (rowsChanged) {
+      this._lastRowsRef = rows;
+
+      let totalHeight = 0;
+      for (const row of rows) totalHeight += row.height ?? rowHeight;
+      this._cachedTotalHeight = totalHeight;
+
+      w.style.setProperty('--pg-content-height', `${totalHeight}px`);
+      this.scrollController.updateSizes(totalHeight, this._cachedCenterW);
+    } else if (colsChanged || groupingChanged) {
+      // Center width changed but row count did not — update the horizontal size only.
+      this.scrollController.updateSizes(this._cachedTotalHeight, this._cachedCenterW);
+    }
+
+    if (loading) {
+      this.overlayRenderer.showLoading(this.options.loadingOverlayText);
+      return;
+    }
+    this.overlayRenderer.hideLoading();
+
+    if (rows.length === 0) {
+      this.overlayRenderer.showNoRows(this.options.noRowsOverlayHtml, this.options.noRowsOverlayText);
+    } else {
+      this.overlayRenderer.hideNoRows();
+    }
+
+    // ── Horizontal virtual scroll: compute visible center col range ───────────
+    const scrollLeft = this.scrollController.getScrollLeft();
+    const centerViewportW = this.centerBodyEl?.clientWidth ?? 800;
+
+    // Accumulate column positions to find the first/last visible col
+    let accumX = hasGroupedColumns ? AUTO_GROUP_COL_WIDTH : 0;
+    let visColStart = centerCols.length; // pessimistic
+    let visColEnd = 0;
+    for (let i = 0; i < centerCols.length; i++) {
+      const cw = this.colStyles.getWidth(centerCols[i].colId);
+      const colLeft = accumX;
+      const colRight = accumX + cw;
+      if (colRight > scrollLeft && visColStart > i) visColStart = i;
+      if (colLeft < scrollLeft + centerViewportW) visColEnd = i + 1;
+      accumX += cw;
+    }
+    if (visColStart === centerCols.length) { visColStart = 0; visColEnd = 0; }
+
+    // During a column drag, expand the virtual column range to all center columns
+    // so the dragged column and every potential drop target remain in the DOM for
+    // both header and body.  The pg-grid--col-autoscrolling class added at drag
+    // start suppresses the 180 ms transition during this initial range expansion,
+    // preventing newly-added body cells from animating in from transform:0.
+    const isDraggingCol = this.headerRenderer.isDraggingCol;
+    const isDraggingGroup = this.displayGroupEngine?.isDraggingGroup ?? false;
+    const colBuf = (isDraggingCol || isDraggingGroup) ? centerCols.length : COL_BUFFER;
+    const colStart = Math.max(0, visColStart - colBuf);
+    const colEnd   = Math.min(centerCols.length, visColEnd + colBuf);
+
+    // Spacer widths represent off-screen columns
+    const leftSpacerW  = this.colStyles.getTotalWidth(centerCols.slice(0, colStart).map((c) => c.colId));
+    const rightSpacerW = this.colStyles.getTotalWidth(centerCols.slice(colEnd).map((c) => c.colId));
+    const visibleCenterCols = centerCols.slice(colStart, colEnd);
+
+    // Build header once (rebuilt when columns change)
+    const headerOptions = {
+      showCheckboxes: this.options.showCheckboxes,
+      showSerialNumber: this.options.showSerialNumber,
+      showColumnMenu: this.options.showColumnMenu !== false,
+      showFilterRow: this.options.showFilterRow,
+      headerRowHeight: this.options.headerRowHeight,
+      filterRowHeight: this.options.filterRowHeight,
+      hasGroupedColumns,
+      autoGroupColWidth: AUTO_GROUP_COL_WIDTH,
+    };
+    if (!this.headerRendered && this.leftHeaderPanelEl && this.centerHeaderInnerEl && this.rightHeaderPanelEl) {
+      this.headerRenderer.renderInPanels(
+        this.leftHeaderPanelEl,
+        this.centerHeaderInnerEl,
+        this.rightHeaderPanelEl,
+        allColumns,
+        headerOptions,
+      );
+      this.headerRendered = true;
+    }
+
+    // Update center header when the column range changes.
+    if (colStart !== this.lastCenterColStart || colEnd !== this.lastCenterColEnd) {
+      this.headerRenderer.updateCenterVisibleCols(visibleCenterCols, leftSpacerW, rightSpacerW, headerOptions);
+      this.lastCenterColStart = colStart;
+      this.lastCenterColEnd = colEnd;
+    }
+
+    // Vertical virtual scroll range
+    const scrollTop = this.scrollController.getScrollTop();
+    const viewportHeight = this.centerBodyEl?.clientHeight ?? 400;
+    const buffer = this.options.virtualScroll?.rowBuffer ?? ROW_BUFFER;
+    // During animation, expand the render window by one extra viewport so rows
+    // just outside the buffer are already in the DOM and can participate in FLIP.
+    const animExtra = this.rowAnimator.hasPending() ? Math.ceil(viewportHeight / rowHeight) : 0;
+    const isAutoHeight = this.options.rowHeightMode === 'auto';
+    let start: number;
+    let end: number;
+    if (isAutoHeight) {
+      const bufferPx = (buffer + animExtra) * rowHeight;
+      const viewStart = scrollTop - bufferPx;
+      const viewEnd = scrollTop + viewportHeight + bufferPx;
+      start = 0;
+      end = rows.length;
+      for (let i = 0; i < rows.length; i++) {
+        if ((rows[i].top + (rows[i].height ?? rowHeight)) >= viewStart) { start = i; break; }
+      }
+      for (let i = start; i < rows.length; i++) {
+        if (rows[i].top > viewEnd) { end = i; break; }
+      }
+    } else {
+      start = Math.max(0, Math.floor(scrollTop / rowHeight) - buffer - animExtra);
+      end = Math.min(rows.length, Math.ceil((scrollTop + viewportHeight) / rowHeight) + buffer + animExtra);
+    }
+
+    // Update row position stylesheet for visible rows.
+    // In auto-height mode always use rowHeight as min-height so that widening a
+    // column allows rows to shrink back — the previously measured row.height must
+    // not pin min-height or rows can never get shorter.
+    this.rowPositionSheet.update(
+      rows.slice(start, end).map((row) => ({
+        nodeId: row.nodeId,
+        top: row.top,
+        height: isAutoHeight ? rowHeight : (row.height ?? rowHeight),
+      })),
+      isAutoHeight,
+    );
+
+    // Render body rows with visible center col slice + spacer info.
+    // During an active column resize the CSS style tag (ColumnStyleManager) has
+    // already updated every [data-col-id] element's width, so the body DOM is
+    // visually correct without a full renderRows pass.  Calling renderRows on
+    // every mousemove would wipe and rebuild all center panels whenever the
+    // virtual column range shifts by even 1 column — destroying and re-creating
+    // custom cell renderers (images, flags, etc.) and causing visible blinking.
+    // We skip renderRows while resizing and instead only advance the tracked
+    // range so the next normal paint (after mouseup) does not see a stale range.
+    const renderedRows = rows.slice(start, end);
+    if (this.headerRenderer.isResizingColumn) {
+      this.bodyRenderer.syncCenterRange(colStart, colStart + visibleCenterCols.length);
+    } else {
+      this.bodyRenderer.renderRows(renderedRows, leftCols, visibleCenterCols, rightCols, {
+        showCheckboxes: this.options.showCheckboxes,
+        showSerialNumber: this.options.showSerialNumber,
+        showVerticalBorders: this.options.showVerticalBorders,
+        rowShading: this.options.rowShading,
+        rowHeight: this.options.rowHeight,
+        dateFormat: this.options.dateFormat,
+        timeZone: this.options.timeZone,
+        currencySymbol: this.options.currencySymbol,
+        locale: this.options.locale,
+        api: null,
+        showGroupsColumn: hasGroupedColumns,
+        autoGroupColWidth: AUTO_GROUP_COL_WIDTH,
+        leafGroupColDef,
+        centerColStart: colStart,
+        centerLeftSpacerW: leftSpacerW,
+        centerRightSpacerW: rightSpacerW,
+        totalCenterCols: centerCols.length,
+      });
+    }
+
+    // Animate rows after sort (FLIP slide) or filter (FLIP slide + fade-in for new rows)
+    if (this.rowAnimator.hasPending()) {
+      const animContainers = [
+        this.leftBodyContentEl,
+        this.centerBodyContentEl,
+        this.rightBodyContentEl,
+      ].filter(Boolean) as HTMLElement[];
+      this.rowAnimator.animate(animContainers, renderedRows, viewportHeight);
+    }
+
+    // Auto-height measurement pass: read actual row heights and sync all panels
+    if (isAutoHeight) {
+      const nodeIdToRow = new Map(renderedRows.map((r) => [r.nodeId, r]));
+      const measured = new Map<string, number>();
+
+      for (const panel of [this.leftBodyContentEl, this.centerBodyContentEl, this.rightBodyContentEl]) {
+        if (!panel) continue;
+        for (const el of panel.querySelectorAll<HTMLElement>('[data-node-id]')) {
+          const nodeId = el.getAttribute('data-node-id');
+          if (!nodeId) continue;
+          const h = el.offsetHeight;
+          if (h > 0) measured.set(nodeId, Math.max(measured.get(nodeId) ?? 0, h));
+        }
+      }
+
+      let anyChanged = false;
+      for (const [nodeId, h] of measured) {
+        const row = nodeIdToRow.get(nodeId);
+        if (row && h !== row.height) { row.height = h; anyChanged = true; }
+      }
+
+      if (anyChanged) {
+        let top = 0;
+        for (const row of rows) { row.top = top; top += row.height ?? rowHeight; }
+        this.rowPositionSheet.update(
+          renderedRows.map((r) => ({ nodeId: r.nodeId, top: r.top, height: rowHeight })),
+          true,
+        );
+        this._cachedTotalHeight = top;
+        w.style.setProperty('--pg-content-height', `${top}px`);
+        this.scrollController.updateSizes(top, this._cachedCenterW);
+      }
+    }
+
+    this.store.set('firstRenderedRowIndex', start);
+    this.store.set('lastRenderedRowIndex', end);
+
+    // Footer
+    if (this.footerContainerEl) {
+      if (!this.footerContainerEl.hasChildNodes()) {
+        this.footerRenderer.render(this.footerContainerEl, {
+          showPagination: this.options.pagination?.enabled,
+          showRowCount: true,
+          footerHeight: this.options.footerRowHeight,
+        });
+      } else {
+        this.footerRenderer.updatePaginationState();
+      }
+    }
+
+    // Only query-select and re-classify cells when there is an active selection.
+    // During unselected scroll this querySelectorAll over ~600 cells is pure waste.
+    const hasSelection = (this.store.get('cellRanges') as CellRange[]).length > 0
+      || this.store.get('activeCell') !== null;
+    if (hasSelection) {
+      this.cellSelectionEngine.applySelectionClasses();
+    }
+
+    this.eventBus.emit(GridEventType.ROWS_RENDERED, { renderedCount: renderedRows.length });
+
+  }
+
+  // ─── Store subscriptions ──────────────────────────────────────────────────
+
+  private subscribeToStore(): void {
+    this.unsubscribers.push(
+      this.store.watch('visibleRows', () => this.scheduleRender()),
+
+      this.store.watch('loading', () => this.scheduleRender()),
+
+      this.store.watch('columns', () => {
+        if (this.headerRenderer.isDraggingCol || this.displayGroupEngine?.isDraggingGroup) {
+          // Live drag (leaf column or group): skip header destroy so drag state
+          // and live-preview group rows are preserved. Only reset body + virtual
+          // column range so body cells and panel widths stay in sync.
+          this.wrapperEl?.classList.add('pg-grid--drag-preview-sync');
+          this.lastCenterColStart = -1;
+          this.lastCenterColEnd = -1;
+          this.bodyRenderer.clear();
+          this.scheduleRender();
+          requestAnimationFrame(() => {
+            this.wrapperEl?.classList.remove('pg-grid--drag-preview-sync');
+          });
+          return;
+        }
+        this.headerRendered = false;
+        this.lastCenterColStart = -1;
+        this.lastCenterColEnd = -1;
+        if (this.leftHeaderPanelEl) this.leftHeaderPanelEl.innerHTML = '';
+        if (this.centerHeaderInnerEl) this.centerHeaderInnerEl.innerHTML = '';
+        if (this.rightHeaderPanelEl) this.rightHeaderPanelEl.innerHTML = '';
+        this.headerRenderer.destroy();
+        // Re-wire group model references cleared by destroy() — this is required
+        // whenever columns change due to collapse/expand (setColumnVisible fires
+        // COLUMNS_STATE_CHANGED which updates the store, triggering this watcher).
+        // Without re-wiring here, the next renderInPanels call would build no group rows.
+        this.rewireGroupModelIntoHeaderRenderer();
+        this.bodyRenderer.clear();
+        this.scheduleRender();
+      }),
+
+      this.store.watch('groupedColumnIds', () => {
+        this.groupDropZone?.update();
+      }),
+
+      this.store.watch('filterModel', (model) => {
+        const activeColIds = new Set(Object.keys(model as FilterModel));
+        this.headerRenderer.updateFilterIndicators(activeColIds);
+      }),
+
+      this.store.watch('scrollTop', () => this.scheduleRender()),
+
+      this.store.watch('selectedRowIds', (ids) => {
+        const rows = this.store.get('visibleRows') as RowNode[];
+        for (const row of rows) {
+          this.bodyRenderer.updateRowSelection(row.nodeId, (ids as Set<string>).has(row.nodeId));
+        }
+      }),
+
+      this.store.watch('isAllSelected', (isAll) => {
+        const isInd = this.store.get('isIndeterminate') as boolean;
+        this.headerRenderer.updateAllChecked(isAll as boolean, isInd);
+      }),
+
+      this.store.watch('cellRanges', () => {
+        this.cellSelectionEngine.applySelectionClasses();
+      }),
+
+      this.store.watch('activeCell', () => {
+        this.cellSelectionEngine.applySelectionClasses();
+      }),
+    );
+
+    this.eventBus.on(GridEventType.ALL_ROWS_SELECTED, (payload: unknown) => {
+      const p = payload as { action?: string };
+      if (p?.action === 'selectAll') {
+        this.rowSelectionEngine.selectAll(this.store.get('allRows') as RowNode[]);
+      } else if (p?.action === 'deselectAll') {
+        this.rowSelectionEngine.deselectAll(this.store.get('allRows') as RowNode[]);
+      }
+    });
+
+    // Cell click → start, extend, or multi-range selection
+    this.eventBus.on(GridEventType.CELL_CLICKED, (payload: unknown) => {
+      const p = payload as { rowIndex: number; colIndex: number; event: MouseEvent };
+      if (p.event.shiftKey) {
+        // Shift+Click: extend range from existing anchor to clicked cell
+        this.cellSelectionEngine.extendSelection(p.rowIndex, p.colIndex);
+      } else if (p.event.ctrlKey || p.event.metaKey) {
+        // Ctrl/Cmd+Click: add or remove a single cell from multi-range selection
+        this.cellSelectionEngine.addRangeCell(p.rowIndex, p.colIndex);
+      } else {
+        this.cellSelectionEngine.startSelection(p.rowIndex, p.colIndex);
+      }
+    });
+
+    // Right-click → show context menu (select cell if not already in range)
+    this.eventBus.on(GridEventType.CELL_CONTEXT_MENU, (payload: unknown) => {
+      const p = payload as { rowIndex: number; colIndex: number; x: number; y: number };
+      if (!this.cellSelectionEngine.isCellSelected(p.rowIndex, p.colIndex)) {
+        this.cellSelectionEngine.startSelection(p.rowIndex, p.colIndex);
+      }
+      this.cellSelectionEngine.showContextMenu(p.x, p.y);
+    });
+  } 
+
+  // ── Column-group handlers ─────────────────────────────────────────────────
+
+  /**
+   * Called when the user clicks a group collapse/expand toggle.
+   *
+   * When **collapsing**: hides all leaf columns except the first one (the "peek"
+   * column) so the group header continues to show meaningful data.
+   * When **expanding**: restores all leaf columns to visible.
+   *
+   * `setColumnVisible` fires `COLUMNS_STATE_CHANGED` → full rebuild.
+   */
+  private handleGroupToggle(groupId: string): void {
+    // New Display Group Engine path
+    if (this.displayGroupEngine) {
+      this.displayGroupEngine.toggleGroup(groupId);
+      return;
+    }
+    // Legacy ColumnGroupModel path
+    if (!this.columnGroupModel) return;
+    const group = this.columnGroupModel.getGroup(groupId);
+    if (!group) return;
+    const wasCollapsed = group.collapsed;
+    this.columnGroupModel.toggleGroup(groupId);
+    const isNowCollapsed = !wasCollapsed;
+    const leaves = this.columnGroupModel.getLeavesInGroup(groupId);
+    for (let i = 0; i < leaves.length; i++) {
+      const visible = !isNowCollapsed || i === 0;
+      this.columnModel.setColumnVisible(leaves[i].colId, visible);
+    }
+  }
+
+  /**
+   * Called when the user drags a group resize handle.
+   * Distributes the new width proportionally among all visible leaf columns.
+   */
+  private handleGroupResize(groupId: string, newWidth: number): void {
+    // New Display Group Engine path — instanceId resolves leaves internally
+    if (this.displayGroupEngine) {
+      this.displayGroupEngine.resizeGroup(groupId, newWidth);
+      this.scheduleRender();
+      return;
+    }
+    // Legacy ColumnGroupModel path
+    if (!this.columnGroupModel) return;
+    const group = this.columnGroupModel.getGroup(groupId);
+    if (!group) return;
+    const currentWidth = this.columnGroupModel.computeGroupWidth(groupId, this.colStyles);
+    if (currentWidth <= 0 || Math.abs(newWidth - currentWidth) < 1) return;
+    const ratio  = newWidth / currentWidth;
+    const leaves = this.columnGroupModel.getLeavesInGroup(groupId);
+    for (const leaf of leaves) {
+      const oldW = this.colStyles.getWidth(leaf.colId);
+      const newW = Math.max(leaf.minWidth ?? 40, Math.round(oldW * ratio));
+      this.colStyles.setWidth(leaf.colId, newW);
+      this.columnModel.setColumnWidth(leaf.colId, newW, false);
+    }
+    this.scheduleRender();
+  }
+
+  /**
+   * Re-wires column-group references back into `HeaderRenderer` after
+   * `headerRenderer.destroy()` has cleared them.
+   */
+  private rewireGroupModelIntoHeaderRenderer(): void {
+    // New Display Group Engine path takes priority
+    if (this.displayGroupEngine) {
+      this.headerRenderer.setDisplayGroupEngine(this.displayGroupEngine);
+      this.headerRenderer.setGroupToggleCallback((gid) => this.handleGroupToggle(gid));
+      this.headerRenderer.setGroupResizeCallback((gid, w) => this.handleGroupResize(gid, w));
+      return;
+    }
+    // Legacy ColumnGroupModel path
+    if (!this.columnGroupModel || !this.groupHeaderBuilder) return;
+    this.headerRenderer.setColumnGroupModel(this.columnGroupModel, this.groupHeaderBuilder);
+    this.headerRenderer.setGroupToggleCallback((gid) => this.handleGroupToggle(gid));
+    this.headerRenderer.setGroupResizeCallback((gid, w) => this.handleGroupResize(gid, w));
+    if (this.groupDragHandler) {
+      this.groupHeaderBuilder.setDragConfig(this.groupDragHandler, () => this.wrapperEl);
+      this.headerRenderer.setGroupDragHandler(this.groupDragHandler);
+    }
+  }
+
+  /**
+   * Full header rebuild — clears inner HTML and resets the rendered flag so
+   * the next `performRender` call re-runs `renderInPanels` with the current
+   * group model state.
+   */
+  private rebuildHeader(): void {
+    this.headerRendered = false;
+    this.lastCenterColStart = -1;
+    this.lastCenterColEnd = -1;
+    if (this.leftHeaderPanelEl)   this.leftHeaderPanelEl.innerHTML = '';
+    if (this.centerHeaderInnerEl) this.centerHeaderInnerEl.innerHTML = '';
+    if (this.rightHeaderPanelEl)  this.rightHeaderPanelEl.innerHTML = '';
+    this.headerRenderer.destroy();
+    this.rewireGroupModelIntoHeaderRenderer();
+    this.scheduleRender();
+  }
+
+  private generateId(): string {
+    return `pg_${Math.random().toString(36).slice(2, 9)}`;
+  }
+
+}

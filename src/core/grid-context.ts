@@ -20,6 +20,7 @@ import type { ChartEngine } from '../chart/chart-engine';
 import type { AggregationEngine } from '../engines/aggregation/aggregation-engine';
 import type { GridRenderer } from '../renderer/grid-renderer';
 import type { UndoRedoEngine } from '../engines/undo-redo/undo-redo-engine';
+import type { MasterDetailEngine } from '../engines/master-detail/master-detail-engine';
 
 export interface GridContext {
   options: GridOptions;
@@ -45,5 +46,7 @@ export interface GridContext {
   chartEngine: ChartEngine;
   /** Manages undo/redo history for cell edits, cut, and paste operations. */
   undoRedoEngine: UndoRedoEngine;
+  /** Drives Master/Detail row expansion state, detail-data caching, and height tracking. */
+  masterDetailEngine: MasterDetailEngine;
   renderer: GridRenderer;
 }

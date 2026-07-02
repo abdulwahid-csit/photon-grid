@@ -600,6 +600,7 @@ export const playerColumns: ColumnDef[] = [
         filterable: true,
         editable: true,
         groupable: true,
+        aggFunc: 'count',
         enumOptions: [
           'English',
           'German',
@@ -927,6 +928,40 @@ document.addEventListener('DOMContentLoaded', () => {
     },
     enableCellSelection: true,
     showGroupingBar: true,
+
+    // ── Master/Detail ─────────────────────────────────────────────────────
+    // Expanding a row mounts a fully independent nested Photon Grid showing
+    // that player's monthly earnings — its own sorting/selection/etc., not
+    // just a static template. `getDetailData` derives the nested dataset
+    // synchronously from the player's january..december fields; the same
+    // hook supports returning a `Promise` for real async loading.
+    masterDetail: {
+      enabled: true,
+      toggleColumnId: 'name',
+      detailAutoHeight: true,
+      detailMinHeight: 120,
+      detailMaxHeight: 320,
+      getDetailData: (row) => {
+        const months = [
+          'january', 'february', 'march', 'april', 'may', 'june',
+          'july', 'august', 'september', 'october', 'november', 'december',
+        ];
+        return months.map((month) => ({
+          month: month[0].toUpperCase() + month.slice(1),
+          earnings: row[month] as number,
+        }));
+      },
+      detailGrid: {
+        columns: [
+          { colId: 'month', field: 'month', header: 'Month', type: 'string', width: 160, sortable: true,  },
+          { colId: 'earnings', field: 'earnings', header: 'Earnings', type: 'currency', width: 160, sortable: true,  },
+        ],
+        rowHeight: 32,
+        headerRowHeight: 36,
+        showFooter: false,
+        currencySymbol: '$',
+      },
+    },
   };
 
   const container  = document.getElementById('grid-container')!;

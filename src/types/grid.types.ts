@@ -1,6 +1,7 @@
 import type { ColumnDef, ColumnState } from './column.types';
 import type { FilterModel, QuickFilterConfig } from './filter.types';
 import type { BuiltInThemeName } from './theme.types';
+import type { MasterDetailConfig } from './master-detail.types';
 
 export interface SortConfig {
   colId: string;
@@ -173,6 +174,13 @@ export interface GridOptions {
 
   /** Column-group header configuration. @see {@link ColumnGroupConfig} */
   columnGroups?: ColumnGroupConfig;
+
+  /**
+   * Master/Detail configuration — expandable rows whose detail section is a
+   * fully independent nested Photon Grid instance (or custom content).
+   * @see {@link MasterDetailConfig}
+   */
+  masterDetail?: MasterDetailConfig;
 
   enableStateManagement?: boolean;
   stateKey?: string;

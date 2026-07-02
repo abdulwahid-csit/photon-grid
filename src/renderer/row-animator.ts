@@ -10,8 +10,12 @@ export interface RowPosition {
  *
  * - `'sort'`   – rows reorder; all existing rows slide to new positions.
  * - `'filter'` – rows appear / disappear; shifted rows slide, new rows fade in.
+ * - `'detail'` – a Master/Detail row expanded/collapsed; shares filter's
+ *   slide/fade-in behaviour but runs slightly slower — deliberately distinct
+ *   from `'filter'` so tuning quick-filter typing feedback never affects the
+ *   detail-row expand/collapse feel, and vice versa.
  */
-export type RowAnimationType = 'sort' | 'filter';
+export type RowAnimationType = 'sort' | 'filter' | 'detail';
 
 // ─── Tuning constants ─────────────────────────────────────────────────────────
 
@@ -20,6 +24,7 @@ const FILTER_ENTER_OFFSET_PX = 8;
 
 const SORT_DURATION_MS   = 280;
 const FILTER_DURATION_MS = 200;
+const DETAIL_DURATION_MS = 320;
 
 /**
  * Smooth ease-in-out curve (Material Design "standard").
@@ -98,8 +103,14 @@ export class RowAnimator {
     this.snapshot = null;
     if (!snap || snap.size === 0) return;
 
-    const isFilter = this.animationType === 'filter';
-    const duration = isFilter ? FILTER_DURATION_MS : SORT_DURATION_MS;
+    // 'sort' FLIP-slides only; 'filter' and 'detail' additionally fade in
+    // newly-appearing rows — they share the same appear/disappear semantics,
+    // just at different speeds.
+    const usesFadeIn = this.animationType !== 'sort';
+    const duration =
+      this.animationType === 'filter' ? FILTER_DURATION_MS :
+      this.animationType === 'detail' ? DETAIL_DURATION_MS :
+      SORT_DURATION_MS;
     const newTopMap = new Map(newRows.map((r) => [r.nodeId, r.top]));
 
     const toFlip: Array<{ el: HTMLElement; delta: number }> = [];
@@ -114,8 +125,8 @@ export class RowAnimator {
         const newTop = newTopMap.get(nodeId);
 
         if (oldTop === undefined) {
-          // Row is new — entrance fade only applies to filter operations
-          if (isFilter) toFadeIn.push(el);
+          // Row is new — entrance fade only applies to filter/detail operations
+          if (usesFadeIn) toFadeIn.push(el);
           continue;
         }
         if (newTop === undefined) continue;

@@ -1,5 +1,14 @@
 export type RowNodeType = 'data' | 'group' | 'group-footer' | 'summary' | 'detail' | 'loading';
 
+/**
+ * Deterministic `nodeId` for a master row's detail node — shared by
+ * `RowModel.createDetailNode` (construction) and `DetailRowRenderer`
+ * (lookup) so the two never drift out of sync.
+ */
+export function detailNodeId(parentNodeId: string): string {
+  return `detail_${parentNodeId}`;
+}
+
 export interface RowNode {
   nodeId: string;
   rowIndex: number;
@@ -32,6 +41,12 @@ export interface RowNode {
 
   cssClass?: string;
   detail?: Record<string, unknown>;
+
+  /**
+   * For `type === 'detail'` nodes: the `nodeId` of the master row this
+   * detail section belongs to. Enables O(1) lookup without walking `parent`.
+   */
+  parentNodeId?: string;
 }
 
 export interface RowGroupNode extends RowNode {

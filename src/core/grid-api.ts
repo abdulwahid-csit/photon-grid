@@ -296,6 +296,52 @@ export class GridApi {
     this.refresh();
   }
 
+  // ──────────────────── Master/Detail ────────────────────
+
+  /** Expands `nodeId`'s detail row (a no-op if the row has no detail or is already expanded). */
+  expandDetail(nodeId: string): void {
+    const row = this.ctx.rowModel.getRowNode(nodeId);
+    if (!row) return;
+    this.ctx.masterDetailEngine.expand(row);
+    this.refresh();
+  }
+
+  /** Collapses `nodeId`'s detail row, destroying its nested grid instance (if any). */
+  collapseDetail(nodeId: string): void {
+    const row = this.ctx.rowModel.getRowNode(nodeId);
+    if (!row) return;
+    this.ctx.masterDetailEngine.collapse(row);
+    this.refresh();
+  }
+
+  toggleDetail(nodeId: string): void {
+    const row = this.ctx.rowModel.getRowNode(nodeId);
+    if (!row) return;
+    this.ctx.masterDetailEngine.toggle(row);
+    this.refresh();
+  }
+
+  isDetailExpanded(nodeId: string): boolean {
+    return this.ctx.masterDetailEngine.isExpanded(nodeId);
+  }
+
+  /** Collapses every currently-expanded detail row. */
+  collapseAllDetails(): void {
+    this.ctx.masterDetailEngine.collapseAll(this.ctx.store.get('allRows'));
+    this.refresh();
+  }
+
+  /**
+   * Returns the nested `GridApi` for `nodeId`'s expanded detail row, enabling
+   * programmatic control of the nested grid (sort, filter, selection, etc.).
+   * `undefined` when the row is not expanded or its nested grid has not been
+   * built yet (e.g. still loading, or scrolled outside the render window on
+   * first expand).
+   */
+  getDetailGridApi(nodeId: string): unknown {
+    return this.ctx.renderer.getDetailGridApi(nodeId);
+  }
+
   // ──────────────────── Column Groups ────────────────────
 
   /**
@@ -419,6 +465,16 @@ export class GridApi {
     this.ctx.renderer.scrollToTop();
   }
 
+  /** Whether the grid body can still scroll further up. Used by a Master/Detail parent to chain wheel scroll into a nested grid before forwarding it further up itself. */
+  canScrollUp(): boolean {
+    return this.ctx.renderer.canScrollUp();
+  }
+
+  /** Whether the grid body can still scroll further down. */
+  canScrollDown(): boolean {
+    return this.ctx.renderer.canScrollDown();
+  }
+
   // ──────────────────── Theme ────────────────────
 
   setTheme(nameOrTheme: string): void {
@@ -532,6 +588,7 @@ export class GridApi {
     }
 
     rows = this.ctx.paginationEngine.applyPagination(rows);
+    rows = this.ctx.masterDetailEngine.injectDetailRows(rows);
     this.ctx.rowModel.setVisibleRows(rows);
     this.ctx.store.set('visibleRows', rows);
   }

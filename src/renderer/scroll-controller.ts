@@ -19,9 +19,23 @@ export class ScrollController {
   private resizeObs: ResizeObserver | null = null;
   private scrollYCb: ScrollYCallback | null = null;
   private scrollXCb: (() => void) | null = null;
+  /**
+   * When `true`, the vertical scrollbar column is never collapsed to 0 width
+   * — it stays reserved (a "stable gutter") even while `totalHeight <=
+   * viewportHeight`. Set for Master/Detail grids: expanding/collapsing a
+   * detail row changes total content height, which can tip whether a
+   * scrollbar is needed at all — if the column collapsed and reappeared with
+   * it, every flex column would jump to fill/re-cede that space on every
+   * toggle. Reserving it unconditionally makes that a non-event.
+   */
+  private reserveVerticalGutter = false;
 
   onScrollY(cb: ScrollYCallback): void { this.scrollYCb = cb; }
   onScrollX(cb: () => void): void { this.scrollXCb = cb; }
+
+  setReserveVerticalGutter(reserve: boolean): void {
+    this.reserveVerticalGutter = reserve;
+  }
 
   mount(
     gridEl: HTMLElement,
@@ -84,6 +98,8 @@ export class ScrollController {
   getCenterViewportWidth(): number { return this.centerViewportWidth; }
   canScrollLeft(): boolean { return this.scrollLeft > 0; }
   canScrollRight(): boolean { return this.scrollLeft < Math.max(0, this.totalCenterWidth - this.centerViewportWidth); }
+  canScrollUp(): boolean { return this.scrollTop > 0; }
+  canScrollDown(): boolean { return this.scrollTop < Math.max(0, this.totalHeight - this.viewportHeight); }
 
   scrollToY(y: number): void {
     const max = Math.max(0, this.totalHeight - this.viewportHeight);
@@ -133,7 +149,18 @@ export class ScrollController {
 
   private syncScrollbars(): void {
     if (this.sbVNativeEl) {
-      this.sbVNativeEl.classList.toggle('pg-scrollbar--hidden', this.totalHeight <= this.viewportHeight);
+      const vHidden = !this.reserveVerticalGutter && this.totalHeight <= this.viewportHeight;
+      this.sbVNativeEl.classList.toggle('pg-scrollbar--hidden', vHidden);
+      // Master/Detail's full-width overlay layer spans the entire body
+      // (including the vertical scrollbar's flex-allocated column) so its
+      // rows can be positioned with simple `top` offsets. This live var lets
+      // it carve out exactly the scrollbar's *current* width — 0 when hidden,
+      // matching the real column layout — so it never visually paints over
+      // the native scrollbar when one is showing.
+      this.gridEl?.style.setProperty(
+        '--pg-scrollbar-v-live-width',
+        vHidden ? '0px' : 'var(--pg-scrollbar-v-width, 17px)',
+      );
     }
     if (this.sbHRowEl) {
       this.sbHRowEl.classList.toggle('pg-scrollbar--hidden', this.totalCenterWidth <= this.centerViewportWidth);
@@ -159,6 +186,15 @@ export class ScrollController {
   private readonly onWheel = (e: WheelEvent): void => {
     if (e.ctrlKey) return;
     e.preventDefault();
+    // A nested Master/Detail grid's body sits inside the parent grid's own
+    // `.pg-grid__body` (a sibling of the pinned panels, not a descendant of
+    // them — see DetailRowRenderer). Without stopping propagation here, a
+    // wheel event this grid already handled keeps bubbling and also reaches
+    // the parent grid's own wheel listener on that shared ancestor, scrolling
+    // both grids from a single gesture (most visible on horizontal-dominant
+    // scrolls, and intermittently on trackpads whose "vertical" gestures emit
+    // a small stray deltaX).
+    e.stopPropagation();
     let dx = e.deltaX;
     let dy = e.deltaY;
     if (e.deltaMode === 1 /* DOM_DELTA_LINE */) { dx *= 32; dy *= 32; }

@@ -10,12 +10,29 @@ export class ColumnStyleManager {
   private flexCols = new Map<string, { flex: number; minWidth: number }>();
   // Persists across initFromColumns calls so user-resized widths survive re-renders
   private userResizedWidths = new Map<string, number>();
+  /**
+   * Selector prefix scoping every generated rule to this grid instance's
+   * `[data-photon-grid-id]`. Without it, `[data-col-id="year"]` is a global
+   * selector — with Master/Detail, two independent `GridCore` instances on
+   * the same page can legitimately reuse the same user-provided `colId`
+   * (e.g. both configuring a "year" column), and resizing one would silently
+   * resize the other via this shared, unscoped `<style>` rule. Empty until
+   * `setScopeId` is called (mirrors the scoping already used for column-drag
+   * transforms in `header-renderer.ts` / `display-group-drag-handler.ts`).
+   */
+  private scopePrefix = '';
 
   mount(): void {
     if (this.styleEl) return;
     this.styleEl = document.createElement('style');
     this.styleEl.setAttribute('data-pg-col-widths', '');
     document.head.appendChild(this.styleEl);
+  }
+
+  /** Scopes every subsequent generated rule to `[data-photon-grid-id="id"]`. Call once, right after the grid wrapper element receives that attribute. */
+  setScopeId(id: string): void {
+    this.scopePrefix = id ? `[data-photon-grid-id="${id}"] ` : '';
+    this.flush();
   }
 
   initFromColumns(columns: ColumnDef[]): void {
@@ -85,7 +102,7 @@ export class ColumnStyleManager {
     const rules: string[] = [];
     for (const [colId, width] of this.widths) {
       rules.push(
-        `[data-col-id="${colId}"] { width: ${width}px; min-width: ${width}px; max-width: ${width}px; flex-shrink: 0; }`,
+        `${this.scopePrefix}[data-col-id="${colId}"] { width: ${width}px; min-width: ${width}px; max-width: ${width}px; flex-shrink: 0; }`,
       );
     }
     this.styleEl.textContent = rules.join('\n');

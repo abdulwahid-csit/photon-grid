@@ -18,11 +18,11 @@ var PhotonGridDemo = (() => {
   };
   var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
-  // demo/demo.ts
-  var demo_exports = {};
-  __export(demo_exports, {
-    generatePlayerData: () => generatePlayerData,
-    playerColumns: () => playerColumns
+  // demo/inventory-demo.ts
+  var inventory_demo_exports = {};
+  __export(inventory_demo_exports, {
+    inventoryColumns: () => inventoryColumns,
+    releases: () => releases
   });
 
   // src/styles/themes/theme-quartz.ts
@@ -3297,18 +3297,18 @@ var PhotonGridDemo = (() => {
   right: var(--pg-scrollbar-v-live-width, 0px);
   overflow: hidden;
   pointer-events: none;
-  /* Deliberately BELOW .pg-panel--left/--right's z-index (2, base-styles.ts
-     ~line 335) \u2014 those panels set an explicit z-index for their own pinned-
-     column shadow elevation, which makes each one its OWN stacking context.
-     Anything nested inside them (including .pg-panel__sticky-row) is trapped
-     within that context and can never out-rank a sibling merely by having a
-     higher z-index of its own \u2014 from the outside the whole pinned panel is
-     one layer at z-index 2. Staying below that unconditionally is what lets
-     a stuck Master/Detail row in a pinned column render above this overlay
-     regardless of DOM order. The (non-pinned) center panel has no explicit
-     z-index of its own, so it never establishes that boundary \u2014 this layer
-     already renders above its content correctly at any z-index > 0. */
-  z-index: 1;
+  /* Tied with .pg-panel--left/--right's z-index (2, base-styles.ts ~line
+     335) rather than below it \u2014 this layer is a later DOM sibling of the
+     panels (mounted after them in GridRenderer.buildLayout), so an equal
+     z-index still paints on top per normal stacking-order tie-breaking.
+     This is what lets an expanded detail row's opaque background cover the
+     pinned panels' own edge box-shadow instead of that shadow bleeding
+     across the full-width detail content underneath (the panels are
+     full-viewport-height flex items, so their shadow would otherwise span
+     every detail row too, not just their own pinned cells). Sticky Master/
+     Detail rows are unaffected by this ordering \u2014 they live in the
+     independent, always-on-top .pg-sticky-layer below, not here. */
+  z-index: 2;
 }
 .pg-detail-layer__content {
   position: relative;
@@ -3484,13 +3484,13 @@ var PhotonGridDemo = (() => {
         return String(raw);
     }
   }
-  function formatValue(value, col, options) {
+  function formatValue(value, col, options2) {
     if (value === null || value === void 0) return "";
     switch (col.type) {
       case "number": {
         const n = Number(value);
         if (isNaN(n)) return String(value);
-        const locale = options?.locale ?? "en-US";
+        const locale = options2?.locale ?? "en-US";
         return n.toLocaleString(locale, {
           minimumFractionDigits: 0,
           maximumFractionDigits: 2
@@ -3499,8 +3499,8 @@ var PhotonGridDemo = (() => {
       case "currency": {
         const n = Number(value);
         if (isNaN(n)) return String(value);
-        const symbol = options?.currencySymbol ?? "$";
-        return `${symbol}${n.toLocaleString(options?.locale ?? "en-US", {
+        const symbol = options2?.currencySymbol ?? "$";
+        return `${symbol}${n.toLocaleString(options2?.locale ?? "en-US", {
           minimumFractionDigits: 2,
           maximumFractionDigits: 2
         })}`;
@@ -3508,15 +3508,15 @@ var PhotonGridDemo = (() => {
       case "date": {
         const d = new Date(value);
         if (isNaN(d.getTime())) return String(value);
-        return formatDate(d, options?.dateFormat ?? "dd/MM/yyyy", options?.timeZone);
+        return formatDate(d, options2?.dateFormat ?? "dd/MM/yyyy", options2?.timeZone);
       }
       case "time": {
         const d = new Date(value);
         if (isNaN(d.getTime())) return String(value);
-        return d.toLocaleTimeString(options?.locale ?? "en-US", {
+        return d.toLocaleTimeString(options2?.locale ?? "en-US", {
           hour: "2-digit",
           minute: "2-digit",
-          timeZone: options?.timeZone
+          timeZone: options2?.timeZone
         });
       }
       case "boolean":
@@ -3572,10 +3572,10 @@ var PhotonGridDemo = (() => {
 
   // src/engines/editing/custom-dropdown-editor.ts
   var _CustomDropdownEditor = class _CustomDropdownEditor {
-    constructor(container, cellEl, options, currentValue, callbacks) {
+    constructor(container, cellEl, options2, currentValue, callbacks) {
       this.container = container;
       this.cellEl = cellEl;
-      this.options = options;
+      this.options = options2;
       this.currentValue = currentValue;
       this.callbacks = callbacks;
       this.instanceId = ++_CustomDropdownEditor.instanceCounter;
@@ -5708,7 +5708,7 @@ var PhotonGridDemo = (() => {
      */
     buildMultiSelectEditor(colDef, value, container) {
       const currentValues = new Set(Array.isArray(value) ? value.map(String) : []);
-      const options = colDef.dropdownOptions ?? [];
+      const options2 = colDef.dropdownOptions ?? [];
       const wrapper = document.createElement("div");
       wrapper.className = "pg-editor pg-editor--multiselect";
       wrapper.setAttribute("tabindex", "-1");
@@ -5723,10 +5723,10 @@ var PhotonGridDemo = (() => {
       const panel = document.createElement("div");
       panel.className = "pg-editor__ms-panel";
       const refreshTriggerText = () => {
-        const labels = options.filter((o) => currentValues.has(String(o.value))).map((o) => o.label);
+        const labels = options2.filter((o) => currentValues.has(String(o.value))).map((o) => o.label);
         triggerText.textContent = labels.length > 0 ? labels.join(", ") : "\u2014";
       };
-      for (const opt of options) {
+      for (const opt of options2) {
         const label = document.createElement("label");
         label.className = "pg-editor__ms-option";
         const checkbox = document.createElement("input");
@@ -6255,36 +6255,36 @@ var PhotonGridDemo = (() => {
      *
      * @param options - Label, icon, count badge, and optional avatar metadata.
      */
-    create(options = {}) {
+    create(options2 = {}) {
       this.destroy();
       const preview = document.createElement("div");
       preview.className = "pg-drag-preview";
-      if (options.avatarUrl || options.shape) {
+      if (options2.avatarUrl || options2.shape) {
         const avatar = document.createElement("div");
-        const shape = options.shape ?? "circle";
+        const shape = options2.shape ?? "circle";
         avatar.className = `pg-drag-preview__avatar pg-drag-preview__avatar--${shape}`;
-        if (options.avatarUrl) {
+        if (options2.avatarUrl) {
           const img = document.createElement("img");
           img.className = "pg-drag-preview__avatar-img";
-          img.src = options.avatarUrl;
+          img.src = options2.avatarUrl;
           avatar.appendChild(img);
         }
         preview.appendChild(avatar);
       }
-      if (options.icon) {
+      if (options2.icon) {
         const iconSpan = document.createElement("span");
         iconSpan.className = "pg-drag-preview__icon";
-        iconSpan.innerHTML = options.icon;
+        iconSpan.innerHTML = options2.icon;
         preview.appendChild(iconSpan);
       }
       const labelSpan = document.createElement("span");
       labelSpan.className = "pg-drag-preview__label";
-      labelSpan.textContent = options.label ?? "Dragging";
+      labelSpan.textContent = options2.label ?? "Dragging";
       preview.appendChild(labelSpan);
-      if (options.count && options.count > 1) {
+      if (options2.count && options2.count > 1) {
         const badge = document.createElement("span");
         badge.className = "pg-drag-preview__badge";
-        badge.textContent = String(options.count);
+        badge.textContent = String(options2.count);
         preview.appendChild(badge);
       }
       document.body.appendChild(preview);
@@ -6569,15 +6569,15 @@ var PhotonGridDemo = (() => {
      * grid held that role before (if different). Called on every user-driven
      * selection start (cell click, range extend, ctrl+click).
      */
-    setActive(grid) {
-      if (this.active === grid) return;
+    setActive(grid2) {
+      if (this.active === grid2) return;
       const previous = this.active;
-      this.active = grid;
+      this.active = grid2;
       previous?.clearSelection();
     }
     /** Releases `grid`'s claim on activeness — call from `detach()`/`destroy()` so a torn-down grid is never left "active". */
-    release(grid) {
-      if (this.active === grid) this.active = null;
+    release(grid2) {
+      if (this.active === grid2) this.active = null;
     }
   };
   var activeGridRegistry = new ActiveGridRegistry();
@@ -8411,9 +8411,9 @@ ${body}`;
 
   // src/icons/icon-registry.ts
   var IconRegistry = class {
-    constructor(options = {}) {
+    constructor(options2 = {}) {
       this.icons = new Map(Object.entries(coreIcons));
-      this.options = { defaultSize: 16, defaultColor: "currentColor", ...options };
+      this.options = { defaultSize: 16, defaultColor: "currentColor", ...options2 };
     }
     register(name, svgContent) {
       this.icons.set(name, svgContent);
@@ -8451,12 +8451,12 @@ ${body}`;
     constructor(registry) {
       this.registry = registry;
     }
-    render(name, options = {}) {
+    render(name, options2 = {}) {
       const wrapper = document.createElement("span");
-      wrapper.className = `pg-icon pg-icon--${name}${options.className ? ` ${options.className}` : ""}`;
+      wrapper.className = `pg-icon pg-icon--${name}${options2.className ? ` ${options2.className}` : ""}`;
       wrapper.setAttribute("aria-hidden", "true");
       wrapper.setAttribute("data-icon", name);
-      const size = options.size ?? 16;
+      const size = options2.size ?? 16;
       wrapper.style.cssText = `
       display: inline-flex;
       align-items: center;
@@ -8464,9 +8464,9 @@ ${body}`;
       width: ${size}px;
       height: ${size}px;
       flex-shrink: 0;
-      color: ${options.color ?? "currentColor"};
-      ${options.rotate ? `transform: rotate(${options.rotate}deg);` : ""}
-      ${options.spin ? "animation: pg-spin 0.8s linear infinite;" : ""}
+      color: ${options2.color ?? "currentColor"};
+      ${options2.rotate ? `transform: rotate(${options2.rotate}deg);` : ""}
+      ${options2.spin ? "animation: pg-spin 0.8s linear infinite;" : ""}
       transition: transform var(--pg-transitions-duration-base, 150ms) var(--pg-transitions-easing-base);
     `;
       const svgContent = this.registry.get(name);
@@ -8483,9 +8483,9 @@ ${body}`;
         wrapper.style.borderRadius = "2px";
         wrapper.style.opacity = "0.3";
       }
-      if (options.title) {
-        wrapper.setAttribute("title", options.title);
-        wrapper.setAttribute("aria-label", options.title);
+      if (options2.title) {
+        wrapper.setAttribute("title", options2.title);
+        wrapper.setAttribute("aria-label", options2.title);
         wrapper.removeAttribute("aria-hidden");
       }
       return wrapper;
@@ -8495,9 +8495,9 @@ ${body}`;
       if (!svg) return "";
       return svg.replace("<svg", `<svg width="${size}" height="${size}" style="display:block;"`).replace(/currentColor/g, "currentColor");
     }
-    updateIcon(el, name, options = {}) {
+    updateIcon(el, name, options2 = {}) {
       el.setAttribute("data-icon", name);
-      const size = options.size ?? 16;
+      const size = options2.size ?? 16;
       const svgContent = this.registry.get(name);
       if (svgContent) {
         el.innerHTML = svgContent;
@@ -8531,9 +8531,9 @@ ${body}`;
     "#0891b2"
   ];
   var ChartDataTransformer = class {
-    transform(rows, options) {
+    transform(rows, options2) {
       const dataRows = rows.filter((r) => r.type === "data");
-      const { labelField, valueFields, aggregation = "sum", limit, sortByValue, colors = DEFAULT_COLORS } = options;
+      const { labelField, valueFields, aggregation = "sum", limit, sortByValue, colors = DEFAULT_COLORS } = options2;
       const grouped = /* @__PURE__ */ new Map();
       for (const row of dataRows) {
         const label = String(this.resolveValue(row.data, labelField) ?? "Unknown");
@@ -8676,22 +8676,22 @@ ${body}`;
       this.attachEvents();
     }
     render(data, opts = { type: "column-grouped" }) {
-      const options = { ...DEFAULTS, ...opts };
-      this.canvas.width = options.width;
-      this.canvas.height = options.height;
+      const options2 = { ...DEFAULTS, ...opts };
+      this.canvas.width = options2.width;
+      this.canvas.height = options2.height;
       const coloredData = assignColors(data);
       this.lastData = coloredData;
-      this.lastOptions = options;
+      this.lastOptions = options2;
       this.seriesScales = coloredData.datasets.map(() => 1);
       if (this.rafId !== null) {
         cancelAnimationFrame(this.rafId);
         this.rafId = null;
       }
-      if (options.animationDuration > 0) {
-        this.animate(coloredData, options);
+      if (options2.animationDuration > 0) {
+        this.animate(coloredData, options2);
       } else {
         this.animProgress = 1;
-        this.draw(coloredData, options, 1);
+        this.draw(coloredData, options2, 1);
       }
     }
     destroy() {
@@ -8717,10 +8717,10 @@ ${body}`;
      * @param opts      - Render options matching the current chart configuration.
      */
     toggleSeries(index, toVisible, data, opts = { type: "column-grouped" }) {
-      const options = { ...DEFAULTS, ...opts };
+      const options2 = { ...DEFAULTS, ...opts };
       const coloredData = assignColors(data);
       this.lastData = coloredData;
-      this.lastOptions = options;
+      this.lastOptions = options2;
       while (this.seriesScales.length < coloredData.datasets.length) this.seriesScales.push(1);
       const existing = this.seriesToggleRafs.get(index);
       if (existing !== void 0) {
@@ -8735,13 +8735,13 @@ ${body}`;
         const t = Math.min(1, (now - start) / duration);
         const eased = toVisible ? this.easeOutQuart(t) : 1 - this.easeOutQuart(1 - t);
         this.seriesScales[index] = from + (to - from) * eased;
-        this.draw(coloredData, options, 1);
+        this.draw(coloredData, options2, 1);
         if (t < 1) {
           this.seriesToggleRafs.set(index, requestAnimationFrame(tick));
         } else {
           this.seriesScales[index] = to;
           this.seriesToggleRafs.delete(index);
-          this.draw(coloredData, options, 1);
+          this.draw(coloredData, options2, 1);
         }
       };
       this.seriesToggleRafs.set(index, requestAnimationFrame(tick));
@@ -8988,14 +8988,14 @@ ${body}`;
       ctx.restore();
     }
     // ── Animation ────────────────────────────────────────────────────────────
-    animate(data, options) {
+    animate(data, options2) {
       this.animProgress = 0;
       const start = performance.now();
       const tick = (now) => {
         const elapsed = now - start;
-        this.animProgress = Math.min(1, elapsed / options.animationDuration);
+        this.animProgress = Math.min(1, elapsed / options2.animationDuration);
         const eased = this.easeOutQuart(this.animProgress);
-        this.draw(data, options, eased);
+        this.draw(data, options2, eased);
         if (this.animProgress < 1) {
           this.rafId = requestAnimationFrame(tick);
         } else {
@@ -9020,60 +9020,60 @@ ${body}`;
         legendH
       };
     }
-    draw(data, options, progress = 1) {
+    draw(data, options2, progress = 1) {
       this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-      if (options.backgroundColor !== "transparent") {
-        this.ctx.fillStyle = options.backgroundColor;
+      if (options2.backgroundColor !== "transparent") {
+        this.ctx.fillStyle = options2.backgroundColor;
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
       }
-      let type = options.type;
+      let type = options2.type;
       if (type === "bar") type = "column-grouped";
       switch (type) {
         case "column-grouped":
-          this.drawColumnGrouped(data, options, progress);
+          this.drawColumnGrouped(data, options2, progress);
           break;
         case "column-stacked":
-          this.drawColumnStacked(data, options, progress);
+          this.drawColumnStacked(data, options2, progress);
           break;
         case "column-100stacked":
-          this.drawColumn100Stacked(data, options, progress);
+          this.drawColumn100Stacked(data, options2, progress);
           break;
         case "bar-grouped":
-          this.drawBarGrouped(data, options, progress);
+          this.drawBarGrouped(data, options2, progress);
           break;
         case "bar-stacked":
-          this.drawBarStacked(data, options, progress);
+          this.drawBarStacked(data, options2, progress);
           break;
         case "bar-100stacked":
-          this.drawBar100Stacked(data, options, progress);
+          this.drawBar100Stacked(data, options2, progress);
           break;
         case "line":
-          this.drawLine(data, options, progress);
+          this.drawLine(data, options2, progress);
           break;
         case "area":
-          this.drawArea(data, options, progress);
+          this.drawArea(data, options2, progress);
           break;
         case "pie":
-          this.drawPie(data, options, progress, false);
+          this.drawPie(data, options2, progress, false);
           break;
         case "doughnut":
-          this.drawPie(data, options, progress, true);
+          this.drawPie(data, options2, progress, true);
           break;
         case "scatter":
-          this.drawScatter(data, options, progress);
+          this.drawScatter(data, options2, progress);
           break;
         case "polar":
-          this.drawPolar(data, options, progress);
+          this.drawPolar(data, options2, progress);
           break;
         case "funnel":
-          this.drawFunnel(data, options, progress);
+          this.drawFunnel(data, options2, progress);
           break;
         default:
-          this.drawColumnGrouped(data, options, progress);
+          this.drawColumnGrouped(data, options2, progress);
           break;
       }
-      if (options.showLegend && data.datasets.length > 1) {
-        this.drawLegend(data, options);
+      if (options2.showLegend && data.datasets.length > 1) {
+        this.drawLegend(data, options2);
       }
     }
     // ── Column Grouped ──────────────────────────────────────────────────────────
@@ -11755,8 +11755,8 @@ ${body}`;
      * Configure which sections appear and whether right-click is supported.
      * Call this once after construction or whenever options change.
      */
-    setMenuOptions(options) {
-      this.menuOptions = options;
+    setMenuOptions(options2) {
+      this.menuOptions = options2;
     }
     /**
      * Register row-grouping integration callbacks.
@@ -12932,11 +12932,11 @@ ${body}`;
      *
      * @param options - Header renderer options (passed from last `renderInPanels` call).
      */
-    rebuildGroupRows(options) {
+    rebuildGroupRows(options2) {
       if (!this.groupModel || !this.groupHeaderBuilder) return;
       if (!this.groupModel.hasGroups()) return;
       const maxDepth = this.groupModel.getMaxDepth();
-      const rowHeight = options.headerRowHeight ?? 44;
+      const rowHeight = options2.headerRowHeight ?? 44;
       const cellOpts = this.buildGroupCellOptions(rowHeight);
       const rebuildPanel = (rowEls, panel) => {
         const nodes = this.groupModel.getRootNodes(panel);
@@ -12990,17 +12990,17 @@ ${body}`;
         }
       };
     }
-    renderInPanels(leftContainer, centerInnerEl, rightContainer, allColumns, options = {}) {
+    renderInPanels(leftContainer, centerInnerEl, rightContainer, allColumns, options2 = {}) {
       const leftCols = allColumns.filter((c) => c.pinned === "left");
       const centerCols = allColumns.filter((c) => c.pinned !== "left" && c.pinned !== "right");
       const rightCols = allColumns.filter((c) => c.pinned === "right");
-      this.lastGroupRowHeight = options.headerRowHeight ?? this.lastGroupRowHeight;
+      this.lastGroupRowHeight = options2.headerRowHeight ?? this.lastGroupRowHeight;
       this.leftGroupRowEls = [];
       this.centerGroupRowEls = [];
       this.rightGroupRowEls = [];
       if (this.displayGroupEngine?.hasGroups) {
         const engine = this.displayGroupEngine;
-        const rowHeight = options.headerRowHeight ?? 44;
+        const rowHeight = options2.headerRowHeight ?? 44;
         const dragHandler = engine.getDragHandler();
         const cellOpts = {
           rowHeight,
@@ -13030,7 +13030,7 @@ ${body}`;
         rightContainer.style.setProperty("--pg-group-rows-count", String(this.rightGroupRowEls.length));
       } else if (this.groupModel?.hasGroups() && this.groupHeaderBuilder) {
         const maxDepth = this.groupModel.getMaxDepth();
-        const rowHeight = options.headerRowHeight ?? 44;
+        const rowHeight = options2.headerRowHeight ?? 44;
         const cellOpts = this.buildGroupCellOptions(rowHeight);
         this.leftGroupRowEls = this.groupHeaderBuilder.buildGroupRows(
           this.groupModel.getRootNodes("left"),
@@ -13054,26 +13054,26 @@ ${body}`;
         for (const el of this.centerGroupRowEls) centerInnerEl.appendChild(el);
         for (const el of this.rightGroupRowEls) rightContainer.appendChild(el);
       }
-      this.leftHeaderRowEl = this.buildHeaderRow(leftCols, options, true);
+      this.leftHeaderRowEl = this.buildHeaderRow(leftCols, options2, true);
       leftContainer.appendChild(this.leftHeaderRowEl);
-      if (options.showFilterRow) leftContainer.appendChild(this.buildFilterRow(leftCols, options, true));
-      this.centerHeaderRowEl = this.buildHeaderRow(centerCols, options, false);
-      if (options.hasGroupedColumns) {
+      if (options2.showFilterRow) leftContainer.appendChild(this.buildFilterRow(leftCols, options2, true));
+      this.centerHeaderRowEl = this.buildHeaderRow(centerCols, options2, false);
+      if (options2.hasGroupedColumns) {
         this.centerHeaderRowEl.insertBefore(
-          this.buildAutoGroupTh(options.autoGroupColWidth ?? 200),
+          this.buildAutoGroupTh(options2.autoGroupColWidth ?? 200),
           this.centerHeaderRowEl.firstChild
         );
       }
       centerInnerEl.appendChild(this.centerHeaderRowEl);
-      if (options.showFilterRow) {
-        const filterRow = this.buildFilterRow(centerCols, options, false);
+      if (options2.showFilterRow) {
+        const filterRow = this.buildFilterRow(centerCols, options2, false);
         this.centerFilterRowEl = filterRow;
-        if (options.hasGroupedColumns) filterRow.insertBefore(createDiv("pg-filter-cell pg-filter-cell--auto-group"), filterRow.firstChild);
+        if (options2.hasGroupedColumns) filterRow.insertBefore(createDiv("pg-filter-cell pg-filter-cell--auto-group"), filterRow.firstChild);
         centerInnerEl.appendChild(filterRow);
       }
-      this.rightHeaderRowEl = this.buildHeaderRow(rightCols, options, false);
+      this.rightHeaderRowEl = this.buildHeaderRow(rightCols, options2, false);
       rightContainer.appendChild(this.rightHeaderRowEl);
-      if (options.showFilterRow) rightContainer.appendChild(this.buildFilterRow(rightCols, options, false));
+      if (options2.showFilterRow) rightContainer.appendChild(this.buildFilterRow(rightCols, options2, false));
     }
     updateSortIndicator(colId, order) {
       const rows = [this.leftHeaderRowEl, this.centerHeaderRowEl, this.rightHeaderRowEl].filter((r) => r !== null);
@@ -13117,9 +13117,9 @@ ${body}`;
       this.centerGroupRowEls = [];
       this.rightGroupRowEls = [];
     }
-    updateCenterVisibleCols(visibleCols, leftSpacerW, rightSpacerW, options) {
+    updateCenterVisibleCols(visibleCols, leftSpacerW, rightSpacerW, options2) {
       if (!this.centerHeaderRowEl) return;
-      this.lastGroupRowHeight = options.headerRowHeight ?? this.lastGroupRowHeight;
+      this.lastGroupRowHeight = options2.headerRowHeight ?? this.lastGroupRowHeight;
       if (this.displayGroupEngine?.hasGroups) {
         const allCols = this.store.get("columns");
         const centerCols = allCols.filter(
@@ -13139,7 +13139,7 @@ ${body}`;
       }
       if (this.groupModel?.hasGroups() && this.groupHeaderBuilder && this.centerGroupRowEls.length > 0) {
         const maxDepth = this.groupModel.getMaxDepth();
-        const rowHeight = options.headerRowHeight ?? 44;
+        const rowHeight = options2.headerRowHeight ?? 44;
         const cellOpts = this.buildGroupCellOptions(rowHeight);
         this.groupHeaderBuilder.updateGroupRows(
           this.centerGroupRowEls,
@@ -13156,20 +13156,20 @@ ${body}`;
         dragThEl?.remove();
       }
       this.centerHeaderRowEl.innerHTML = "";
-      if (options.hasGroupedColumns) this.centerHeaderRowEl.appendChild(this.buildAutoGroupTh(options.autoGroupColWidth ?? 200));
+      if (options2.hasGroupedColumns) this.centerHeaderRowEl.appendChild(this.buildAutoGroupTh(options2.autoGroupColWidth ?? 200));
       if (leftSpacerW > 0) this.centerHeaderRowEl.appendChild(this.makeSpacer("pg-th pg-th--h-spacer", leftSpacerW));
       for (let i = 0; i < visibleCols.length; i++) {
         const col = visibleCols[i];
         if (dragThEl && col.colId === dragColId) {
           this.centerHeaderRowEl.appendChild(dragThEl);
         } else {
-          this.centerHeaderRowEl.appendChild(this.buildHeaderCell(col, i, visibleCols, options, this.centerHeaderRowEl));
+          this.centerHeaderRowEl.appendChild(this.buildHeaderCell(col, i, visibleCols, options2, this.centerHeaderRowEl));
         }
       }
       if (rightSpacerW > 0) this.centerHeaderRowEl.appendChild(this.makeSpacer("pg-th pg-th--h-spacer", rightSpacerW));
       if (!this.centerFilterRowEl) return;
       this.centerFilterRowEl.innerHTML = "";
-      if (options.hasGroupedColumns) this.centerFilterRowEl.appendChild(createDiv("pg-filter-cell pg-filter-cell--auto-group"));
+      if (options2.hasGroupedColumns) this.centerFilterRowEl.appendChild(createDiv("pg-filter-cell pg-filter-cell--auto-group"));
       if (leftSpacerW > 0) this.centerFilterRowEl.appendChild(this.makeSpacer("pg-filter-cell pg-filter-cell--h-spacer", leftSpacerW));
       for (const col of visibleCols) this.centerFilterRowEl.appendChild(this.buildFilterCell(col));
       if (rightSpacerW > 0) this.centerFilterRowEl.appendChild(this.makeSpacer("pg-filter-cell pg-filter-cell--h-spacer", rightSpacerW));
@@ -13200,14 +13200,14 @@ ${body}`;
         gatherPD("right", this.rightHeaderRowEl)
       ].filter((pd) => pd !== null);
     }
-    buildHeaderRow(columns, options, isLeft) {
+    buildHeaderRow(columns, options2, isLeft) {
       const row = createDiv("pg-header-row");
       row.setAttribute("role", "row");
       if (isLeft) {
-        if (options.showCheckboxes) row.appendChild(this.buildCheckboxHeaderCell());
-        if (options.showSerialNumber) row.appendChild(this.buildSerialHeaderCell());
+        if (options2.showCheckboxes) row.appendChild(this.buildCheckboxHeaderCell());
+        if (options2.showSerialNumber) row.appendChild(this.buildSerialHeaderCell());
       }
-      for (let i = 0; i < columns.length; i++) row.appendChild(this.buildHeaderCell(columns[i], i, columns, options, row));
+      for (let i = 0; i < columns.length; i++) row.appendChild(this.buildHeaderCell(columns[i], i, columns, options2, row));
       return row;
     }
     buildAutoGroupTh(width) {
@@ -13249,7 +13249,7 @@ ${body}`;
       cell.appendChild(label);
       return cell;
     }
-    buildHeaderCell(col, index, panelColumns, options, panelRowEl) {
+    buildHeaderCell(col, index, panelColumns, options2, panelRowEl) {
       const th = createDiv("pg-th");
       th.setAttribute("role", "columnheader");
       th.setAttribute("data-col-id", col.colId);
@@ -13298,7 +13298,7 @@ ${body}`;
         });
         th.appendChild(filterBtn);
       }
-      if (options.showColumnMenu !== false) {
+      if (options2.showColumnMenu !== false) {
         const menuBtn = createDiv("pg-th__menu-btn");
         menuBtn.innerHTML = this.iconRenderer.renderToString("menuHorizontal", 14);
         menuBtn.title = "Column options";
@@ -13358,12 +13358,12 @@ ${body}`;
       }
       return cell;
     }
-    buildFilterRow(columns, options, isLeft) {
+    buildFilterRow(columns, options2, isLeft) {
       const row = createDiv("pg-filter-row");
       row.setAttribute("role", "row");
       if (isLeft) {
-        if (options.showCheckboxes) row.appendChild(createDiv("pg-filter-cell pg-filter-cell--checkbox"));
-        if (options.showSerialNumber) row.appendChild(createDiv("pg-filter-cell pg-filter-cell--serial"));
+        if (options2.showCheckboxes) row.appendChild(createDiv("pg-filter-cell pg-filter-cell--checkbox"));
+        if (options2.showSerialNumber) row.appendChild(createDiv("pg-filter-cell pg-filter-cell--serial"));
       }
       for (const col of columns) row.appendChild(this.buildFilterCell(col));
       return row;
@@ -14921,8 +14921,8 @@ ${body}`;
         }
       }
     }
-    renderRows(rows, leftCols, centerCols, rightCols, options = {}) {
-      const cStart = options.centerColStart ?? 0;
+    renderRows(rows, leftCols, centerCols, rightCols, options2 = {}) {
+      const cStart = options2.centerColStart ?? 0;
       const cEnd = cStart + centerCols.length;
       if (cStart !== this.lastCenterStart || cEnd !== this.lastCenterEnd) {
         this.lastCenterStart = cStart;
@@ -14944,7 +14944,7 @@ ${body}`;
       const leftFrag = document.createDocumentFragment();
       const centerFrag = document.createDocumentFragment();
       const rightFrag = document.createDocumentFragment();
-      const totalCenterCols = options.totalCenterCols ?? centerCols.length;
+      const totalCenterCols = options2.totalCenterCols ?? centerCols.length;
       const centerOffset = leftCols.length + cStart;
       const rightOffset = leftCols.length + totalCenterCols;
       for (let i = 0; i < rows.length; i++) {
@@ -14959,14 +14959,14 @@ ${body}`;
         }
         if (existing && row.type === "detail") {
         } else if (existing && existing.center !== null) {
-          this.updatePanelRow(existing, row, i, options);
+          this.updatePanelRow(existing, row, i, options2);
         } else if (existing) {
-          this.updatePanelRow(existing, row, i, options);
-          const newCenter = this.buildSingleRow(row, i, "center", centerCols, centerOffset, options);
+          this.updatePanelRow(existing, row, i, options2);
+          const newCenter = this.buildSingleRow(row, i, "center", centerCols, centerOffset, options2);
           existing.center = newCenter;
           centerFrag.appendChild(newCenter);
         } else {
-          const ps = this.buildPanelRow(row, i, leftCols, centerCols, rightCols, centerOffset, rightOffset, options);
+          const ps = this.buildPanelRow(row, i, leftCols, centerCols, rightCols, centerOffset, rightOffset, options2);
           this.renderedRowMap.set(row.nodeId, ps);
           if (ps.left) leftFrag.appendChild(ps.left);
           if (ps.center) centerFrag.appendChild(ps.center);
@@ -15039,17 +15039,17 @@ ${body}`;
       this.clear();
     }
     // ─── Private ─────────────────────────────────────────────────────────────
-    buildPanelRow(row, displayIndex, leftCols, centerCols, rightCols, centerOffset, rightOffset, options) {
+    buildPanelRow(row, displayIndex, leftCols, centerCols, rightCols, centerOffset, rightOffset, options2) {
       if (row.type === "detail") return { left: null, center: null, right: null };
-      const hasLeft = !!(this.leftContent && (options.showCheckboxes || options.showSerialNumber || leftCols.length > 0));
+      const hasLeft = !!(this.leftContent && (options2.showCheckboxes || options2.showSerialNumber || leftCols.length > 0));
       const hasRight = !!(this.rightContent && rightCols.length > 0);
-      const left = hasLeft ? this.buildSingleRow(row, displayIndex, "left", leftCols, 0, options) : null;
-      const center = this.buildSingleRow(row, displayIndex, "center", centerCols, centerOffset, options);
-      const right = hasRight ? this.buildSingleRow(row, displayIndex, "right", rightCols, rightOffset, options) : null;
+      const left = hasLeft ? this.buildSingleRow(row, displayIndex, "left", leftCols, 0, options2) : null;
+      const center = this.buildSingleRow(row, displayIndex, "center", centerCols, centerOffset, options2);
+      const right = hasRight ? this.buildSingleRow(row, displayIndex, "right", rightCols, rightOffset, options2) : null;
       return { left, center, right };
     }
-    buildSingleRow(row, displayIndex, panel, cols, colOffset, options) {
-      const el = createDiv(this.getRowClass(row, displayIndex, options));
+    buildSingleRow(row, displayIndex, panel, cols, colOffset, options2) {
+      const el = createDiv(this.getRowClass(row, displayIndex, options2));
       el.setAttribute("role", "row");
       el.setAttribute("data-node-id", row.nodeId);
       el.setAttribute("data-row-index", String(row.rowIndex));
@@ -15057,47 +15057,47 @@ ${body}`;
       if (row.type === "group" || row.type === "group-footer") {
         el.setAttribute("data-level", String(row.level));
         if (panel === "center") {
-          const leftSpacerW = options.centerLeftSpacerW ?? 0;
+          const leftSpacerW = options2.centerLeftSpacerW ?? 0;
           if (leftSpacerW > 0) {
             const sp = createDiv("pg-cell--h-spacer");
             sp.style.cssText = `width:${leftSpacerW}px;min-width:${leftSpacerW}px;flex-shrink:0;`;
             el.appendChild(sp);
           }
           if (row.type === "group") {
-            this.buildGroupRowContent(el, row, options);
+            this.buildGroupRowContent(el, row, options2);
           } else {
-            this.buildGroupFooterContent(el, row, options);
+            this.buildGroupFooterContent(el, row, options2);
           }
         }
-        this.buildGroupAggregateCells(el, row, cols, colOffset, options);
+        this.buildGroupAggregateCells(el, row, cols, colOffset, options2);
         if (panel === "center") {
-          const rightSpacerW = options.centerRightSpacerW ?? 0;
+          const rightSpacerW = options2.centerRightSpacerW ?? 0;
           if (rightSpacerW > 0) {
             const sp = createDiv("pg-cell--h-spacer");
             sp.style.cssText = `width:${rightSpacerW}px;min-width:${rightSpacerW}px;flex-shrink:0;`;
             el.appendChild(sp);
           }
         }
-        this.attachRowListeners(el, row, cols, colOffset, options);
+        this.attachRowListeners(el, row, cols, colOffset, options2);
         return el;
       }
       if (panel === "left") {
-        if (options.showCheckboxes) {
+        if (options2.showCheckboxes) {
           el.appendChild(this.cellRenderer.renderCheckboxCell(row, row.rowIndex));
         }
-        if (options.showSerialNumber) {
+        if (options2.showSerialNumber) {
           el.appendChild(this.cellRenderer.renderSerialNumberCell(row.rowIndex, displayIndex + 1));
         }
       }
       if (panel === "center") {
-        const leftSpacerW = options.centerLeftSpacerW ?? 0;
+        const leftSpacerW = options2.centerLeftSpacerW ?? 0;
         if (leftSpacerW > 0) {
           const sp = createDiv("pg-cell--h-spacer");
           sp.style.cssText = `width:${leftSpacerW}px;min-width:${leftSpacerW}px;flex-shrink:0;`;
           el.appendChild(sp);
         }
-        if (options.showGroupsColumn) {
-          this.buildLeafGroupCell(el, row, options);
+        if (options2.showGroupsColumn) {
+          this.buildLeafGroupCell(el, row, options2);
         }
       }
       for (let i = 0; i < cols.length; i++) {
@@ -15108,13 +15108,13 @@ ${body}`;
           colIndex: colOffset + i,
           // global index across all panels
           iconRenderer: this.iconRenderer,
-          dateFormat: options.dateFormat,
-          timeZone: options.timeZone,
-          currencySymbol: options.currencySymbol,
-          locale: options.locale,
-          api: options.api ?? null
+          dateFormat: options2.dateFormat,
+          timeZone: options2.timeZone,
+          currencySymbol: options2.currencySymbol,
+          locale: options2.locale,
+          api: options2.api ?? null
         });
-        if (options.showVerticalBorders) cellEl.classList.add("pg-cell--v-border");
+        if (options2.showVerticalBorders) cellEl.classList.add("pg-cell--v-border");
         if (cols[i].rowDrag && row.type !== "summary") {
           const handle = createDiv("pg-row-drag-handle");
           handle.setAttribute("data-row-drag", "");
@@ -15127,18 +15127,18 @@ ${body}`;
             cellEl.insertBefore(handle, cellEl.firstChild);
           }
         }
-        this.applyMasterDetailToggle(cellEl, row, cols[i], options);
+        this.applyMasterDetailToggle(cellEl, row, cols[i], options2);
         el.appendChild(cellEl);
       }
       if (panel === "center") {
-        const rightSpacerW = options.centerRightSpacerW ?? 0;
+        const rightSpacerW = options2.centerRightSpacerW ?? 0;
         if (rightSpacerW > 0) {
           const sp = createDiv("pg-cell--h-spacer");
           sp.style.cssText = `width:${rightSpacerW}px;min-width:${rightSpacerW}px;flex-shrink:0;`;
           el.appendChild(sp);
         }
       }
-      this.attachRowListeners(el, row, cols, colOffset, options);
+      this.attachRowListeners(el, row, cols, colOffset, options2);
       return el;
     }
     /**
@@ -15156,9 +15156,9 @@ ${body}`;
      * @param row     - Leaf data `RowNode` being rendered.
      * @param options - Renderer options; `autoGroupColWidth` controls cell width.
      */
-    buildLeafGroupCell(el, row, options) {
-      const w = options.autoGroupColWidth ?? 200;
-      const colDef = options.leafGroupColDef;
+    buildLeafGroupCell(el, row, options2) {
+      const w = options2.autoGroupColWidth ?? 200;
+      const colDef = options2.leafGroupColDef;
       if (!colDef) {
         const spacer = createDiv("pg-cell pg-cell--auto-group-spacer");
         spacer.style.width = `${w}px`;
@@ -15173,11 +15173,11 @@ ${body}`;
         colIndex: -1,
         // virtual auto-group column index
         iconRenderer: this.iconRenderer,
-        dateFormat: options.dateFormat,
-        timeZone: options.timeZone,
-        currencySymbol: options.currencySymbol,
-        locale: options.locale,
-        api: options.api ?? null
+        dateFormat: options2.dateFormat,
+        timeZone: options2.timeZone,
+        currencySymbol: options2.currencySymbol,
+        locale: options2.locale,
+        api: options2.api ?? null
       });
       cellEl.setAttribute("data-col-index", "-1");
       cellEl.setAttribute("data-col-id", "__group__");
@@ -15186,13 +15186,13 @@ ${body}`;
       cellEl.style.flex = "none";
       el.appendChild(cellEl);
     }
-    buildGroupRowContent(el, row, options) {
+    buildGroupRowContent(el, row, options2) {
       const cell = createDiv("pg-cell pg-row-group__cell");
       cell.setAttribute("data-row-index", String(row.rowIndex));
       cell.setAttribute("data-col-index", "-1");
       cell.setAttribute("data-col-id", "__group__");
       cell.setAttribute("role", "gridcell");
-      const groupColW = options.autoGroupColWidth ?? 200;
+      const groupColW = options2.autoGroupColWidth ?? 200;
       cell.style.width = `${groupColW}px`;
       cell.style.minWidth = `${groupColW}px`;
       cell.style.flex = "none";
@@ -15219,13 +15219,13 @@ ${body}`;
      * The cell participates in cell selection (colIndex −1) identically to the
      * group header's label cell.
      */
-    buildGroupFooterContent(el, row, options) {
+    buildGroupFooterContent(el, row, options2) {
       const cell = createDiv("pg-cell pg-row-group__cell");
       cell.setAttribute("data-row-index", String(row.rowIndex));
       cell.setAttribute("data-col-index", "-1");
       cell.setAttribute("data-col-id", "__group__");
       cell.setAttribute("role", "gridcell");
-      const groupColW = options.autoGroupColWidth ?? 200;
+      const groupColW = options2.autoGroupColWidth ?? 200;
       cell.style.width = `${groupColW}px`;
       cell.style.minWidth = `${groupColW}px`;
       cell.style.flex = "none";
@@ -15245,7 +15245,7 @@ ${body}`;
      * Column widths are automatically applied by the {@link ColumnStyleManager}
      * via the `[data-col-id]` CSS rules — no inline width needed here.
      */
-    buildGroupAggregateCells(el, row, cols, colOffset, options) {
+    buildGroupAggregateCells(el, row, cols, colOffset, options2) {
       const aggValues = row.aggregatedValues;
       for (let i = 0; i < cols.length; i++) {
         const col = cols[i];
@@ -15260,11 +15260,11 @@ ${body}`;
         if (hasValue) {
           const align = col.textAlign ?? "right";
           if (align !== "left") cell.classList.add(`pg-cell--align-${align}`);
-          if (options.showVerticalBorders) cell.classList.add("pg-cell--v-border");
+          if (options2.showVerticalBorders) cell.classList.add("pg-cell--v-border");
           const inner = createDiv("pg-cell__inner");
           const span = document.createElement("span");
           span.className = "pg-cell__value";
-          span.textContent = this.formatAggValue(aggVal, col, options);
+          span.textContent = this.formatAggValue(aggVal, col, options2);
           inner.appendChild(span);
           cell.appendChild(inner);
         }
@@ -15282,21 +15282,21 @@ ${body}`;
      * @param col     - Column definition (used for type and formatting options).
      * @param options - Renderer options (locale, currency symbol, etc.).
      */
-    formatAggValue(value, col, options) {
+    formatAggValue(value, col, options2) {
       if (col.aggFunc === "count") {
         return String(typeof value === "number" ? Math.round(value) : value ?? "");
       }
       const num = typeof value === "number" ? value : parseFloat(String(value ?? ""));
       if (!isFinite(num)) return "\u2014";
       return formatValue(num, col, {
-        locale: options.locale,
-        currencySymbol: options.currencySymbol,
-        dateFormat: options.dateFormat,
-        timeZone: options.timeZone
+        locale: options2.locale,
+        currencySymbol: options2.currencySymbol,
+        dateFormat: options2.dateFormat,
+        timeZone: options2.timeZone
       }) || "\u2014";
     }
-    updatePanelRow(ps, row, displayIndex, options) {
-      const cls = this.getRowClass(row, displayIndex, options);
+    updatePanelRow(ps, row, displayIndex, options2) {
+      const cls = this.getRowClass(row, displayIndex, options2);
       const els = [ps.left, ps.center, ps.right].filter((e) => e !== null);
       const rowIndexStr = String(row.rowIndex);
       for (const el of els) {
@@ -15316,8 +15316,8 @@ ${body}`;
           toggleBtn.setAttribute("aria-label", row.expanded ? "Collapse group" : "Expand group");
         }
       }
-      if (row.type === "data" && options.masterDetail) {
-        const isExpanded = options.masterDetail.isExpandedFn(row.nodeId);
+      if (row.type === "data" && options2.masterDetail) {
+        const isExpanded = options2.masterDetail.isExpandedFn(row.nodeId);
         for (const el of els) {
           const toggleBtn = el.querySelector(".pg-detail-toggle");
           if (!toggleBtn) continue;
@@ -15334,8 +15334,8 @@ ${body}`;
      * `renderCellValue`), which would silently destroy a toggle placed inside it
      * the first time this column is edited.
      */
-    applyMasterDetailToggle(cellEl, row, colDef, options) {
-      const md = options.masterDetail;
+    applyMasterDetailToggle(cellEl, row, colDef, options2) {
+      const md = options2.masterDetail;
       if (!md || row.type !== "data" || colDef.colId !== md.toggleColumnId) return;
       if (!md.hasDetailFn(row.data)) return;
       const isExpanded = md.isExpandedFn(row.nodeId);
@@ -15355,7 +15355,7 @@ ${body}`;
         this.eventBus.emit(GridEventType.ROW_DETAIL_TOGGLE_CLICKED, { row, colDef });
       });
     }
-    attachRowListeners(el, row, cols, colOffset, options) {
+    attachRowListeners(el, row, cols, colOffset, options2) {
       el.addEventListener("click", (e) => {
         const checkboxEl = e.target.closest(".pg-checkbox");
         if (checkboxEl) {
@@ -15375,7 +15375,7 @@ ${body}`;
         if (!cellEl) return;
         const globalColIndex = Number(cellEl.getAttribute("data-col-index"));
         const colId = cellEl.getAttribute("data-col-id") ?? "";
-        const colDef = cols.find((c) => c.colId === colId) ?? (colId === "__group__" ? row.type === "data" ? options.leafGroupColDef ?? null : GROUP_LABEL_COL_DEF : null);
+        const colDef = cols.find((c) => c.colId === colId) ?? (colId === "__group__" ? row.type === "data" ? options2.leafGroupColDef ?? null : GROUP_LABEL_COL_DEF : null);
         if (!colDef) return;
         this.eventBus.emit(GridEventType.CELL_CLICKED, {
           row,
@@ -15405,7 +15405,7 @@ ${body}`;
         if (!cellEl) return;
         const globalColIndex = Number(cellEl.getAttribute("data-col-index"));
         const colId = cellEl.getAttribute("data-col-id") ?? "";
-        const colDef = cols.find((c) => c.colId === colId) ?? (colId === "__group__" ? row.type === "data" ? options.leafGroupColDef ?? null : GROUP_LABEL_COL_DEF : null);
+        const colDef = cols.find((c) => c.colId === colId) ?? (colId === "__group__" ? row.type === "data" ? options2.leafGroupColDef ?? null : GROUP_LABEL_COL_DEF : null);
         if (!colDef) return;
         this.eventBus.emit(GridEventType.CELL_DOUBLE_CLICKED, {
           row,
@@ -15417,13 +15417,13 @@ ${body}`;
         });
       });
     }
-    getRowClass(row, displayIndex, options) {
+    getRowClass(row, displayIndex, options2) {
       const cls = ["pg-row"];
       if (row.selected) cls.push("pg-row--selected");
       if (row.type === "group") cls.push("pg-row--group");
       if (row.type === "group-footer") cls.push("pg-row--group-footer");
       if (row.type === "detail") cls.push("pg-row--detail");
-      if (options.rowShading && displayIndex % 2 === 1) cls.push("pg-row--alt");
+      if (options2.rowShading && displayIndex % 2 === 1) cls.push("pg-row--alt");
       if (row.cssClass) cls.push(row.cssClass);
       return cls.join(" ");
     }
@@ -15750,14 +15750,14 @@ ${body}`;
       this.pageInfoEl = null;
       this.pageInputEl = null;
     }
-    render(containerEl, options = {}) {
+    render(containerEl, options2 = {}) {
       this.footerEl = createDiv("pg-footer");
-      const h = options.footerHeight ?? 44;
+      const h = options2.footerHeight ?? 44;
       this.footerEl.style.height = `${h}px`;
-      if (options.showPagination) {
+      if (options2.showPagination) {
         this.footerEl.appendChild(this.buildPaginationControls());
       }
-      if (options.showRowCount) {
+      if (options2.showRowCount) {
         const rowCount = createDiv("pg-footer__row-count");
         this.pageInfoEl = rowCount;
         this.footerEl.appendChild(rowCount);
@@ -16136,6 +16136,7 @@ ${body}`;
       this.onWheel = (e) => {
         if (e.ctrlKey) return;
         e.preventDefault();
+        e.stopPropagation();
         let dx = e.deltaX;
         let dy = e.deltaY;
         if (e.deltaMode === 1) {
@@ -16217,6 +16218,12 @@ ${body}`;
     }
     canScrollRight() {
       return this.scrollLeft < Math.max(0, this.totalCenterWidth - this.centerViewportWidth);
+    }
+    canScrollUp() {
+      return this.scrollTop > 0;
+    }
+    canScrollDown() {
+      return this.scrollTop < Math.max(0, this.totalHeight - this.viewportHeight);
     }
     scrollToY(y) {
       const max = Math.max(0, this.totalHeight - this.viewportHeight);
@@ -17053,11 +17060,18 @@ ${body}`;
 
   // src/renderer/detail-row-renderer.ts
   var DETAIL_ROW_PADDING_PX = 20;
+  var DEFAULT_KEEP_DETAIL_GRIDS_COUNT = 10;
   var DetailRowRenderer = class {
     constructor() {
       this.layerEl = null;
       this.contentEl = null;
       this.entries = /* @__PURE__ */ new Map();
+      /**
+       * Collapsed entries kept alive for instant, stateful re-expansion. Map
+       * insertion order doubles as LRU order — re-inserting a key on access
+       * moves it to the end, and eviction always removes the first (oldest) key.
+       */
+      this.collapsedCache = /* @__PURE__ */ new Map();
       this.masterDetailEngine = null;
       this.nestedGridFactory = null;
       this.iconRenderer = null;
@@ -17117,13 +17131,22 @@ ${body}`;
       for (const row of windowedDetailRows) {
         let entry = this.entries.get(row.nodeId);
         if (!entry) {
-          entry = this.buildEntry(row);
+          entry = this.reviveOrBuildEntry(row);
           this.entries.set(row.nodeId, entry);
           this.playEnterAnimation(entry);
         }
         entry.containerEl.style.display = "";
         if (!entry.contentBuilt) this.tryBuildContent(entry, row);
       }
+    }
+    /** Reuses a cached collapsed entry (preserving its nested grid's live state) when one exists, otherwise builds a fresh one. */
+    reviveOrBuildEntry(row) {
+      const cached = this.collapsedCache.get(row.nodeId);
+      if (cached) {
+        this.collapsedCache.delete(row.nodeId);
+        return cached;
+      }
+      return this.buildEntry(row);
     }
     /**
      * Begins the shrink/fade-out for `parentNodeId`'s detail row, called by
@@ -17151,8 +17174,8 @@ ${body}`;
         finished = true;
         entry.containerEl.removeEventListener("transitionend", onTransitionEnd);
         if (this.entries.get(nodeId) === entry) {
-          this.destroyEntry(entry);
           this.entries.delete(nodeId);
+          this.cacheCollapsedEntry(nodeId, entry);
         }
       };
       const onTransitionEnd = (e) => {
@@ -17182,6 +17205,8 @@ ${body}`;
     destroy() {
       for (const entry of this.entries.values()) this.destroyEntry(entry);
       this.entries.clear();
+      for (const entry of this.collapsedCache.values()) this.destroyEntry(entry);
+      this.collapsedCache.clear();
       this.layerEl?.remove();
       this.layerEl = null;
       this.contentEl = null;
@@ -17196,6 +17221,31 @@ ${body}`;
       containerEl.setAttribute("data-node-id", row.nodeId);
       this.contentEl.appendChild(containerEl);
       return { containerEl, instance: null, contentBuilt: false, collapsing: false, cleanupFns: [] };
+    }
+    /**
+     * Moves a just-collapsed entry into {@link collapsedCache} instead of
+     * destroying it, so the next expand of the same row is instant and starts
+     * from exactly where the user left it. Clears the transient collapse
+     * animation's inline `top`/`height` overrides first — `RowPositionSheet`
+     * governs this row's position again the moment its node id reappears in
+     * the pipeline output on re-expand.
+     */
+    cacheCollapsedEntry(nodeId, entry) {
+      entry.collapsing = false;
+      entry.containerEl.classList.remove("pg-row--detail-collapsing");
+      entry.containerEl.style.removeProperty("top");
+      entry.containerEl.style.removeProperty("height");
+      entry.containerEl.style.display = "none";
+      this.collapsedCache.delete(nodeId);
+      this.collapsedCache.set(nodeId, entry);
+      const keepCount = this.masterDetailEngine?.getConfig()?.keepDetailGridsCount ?? DEFAULT_KEEP_DETAIL_GRIDS_COUNT;
+      while (this.collapsedCache.size > keepCount) {
+        const oldestKey = this.collapsedCache.keys().next().value;
+        if (oldestKey === void 0) break;
+        const oldest = this.collapsedCache.get(oldestKey);
+        this.collapsedCache.delete(oldestKey);
+        this.destroyEntry(oldest);
+      }
     }
     /**
      * Builds real detail content once the row's data is ready — shows a
@@ -17236,26 +17286,32 @@ ${body}`;
       } else if (config?.detailAutoHeight !== false) {
         this.observeAutoHeight(entry, parentNodeId, instance);
       }
-      this.attachWheelForwarding(entry);
+      this.attachWheelForwarding(entry, instance);
     }
     /**
-     * Redirects *vertical* wheel gestures over a nested grid to the parent
-     * grid's own vertical scroll instead of letting the nested grid scroll
-     * itself — this is what makes the parent and its detail sections read as
-     * one continuous scrollable surface. Horizontal gestures (shift+wheel,
-     * trackpad horizontal) are left alone entirely: the nested grid has its
-     * own columns and needs to scroll them itself.
+     * Chains vertical wheel scroll between a nested grid and the parent, the
+     * same way a native scrollable element nested in another one behaves:
+     * the nested grid scrolls its own content first, and only once it has
+     * reached its scroll boundary in the gesture's direction does the
+     * remaining scroll pass through to the parent grid's own vertical scroll.
+     * This is what makes an unlimited-height parent and a height-constrained
+     * detail section (`detailMaxHeight`, `detailAutoHeight: false`) both fully
+     * usable by wheel alone. Horizontal gestures are left alone entirely: the
+     * nested grid has its own columns and always scrolls them itself.
      *
      * Attached in the *capture* phase on `entry.containerEl` — an ancestor of
-     * the nested grid's own wheel listeners (which live on its `bodyEl` and
-     * header, added in the bubble phase by `ScrollController.mount`). Capture
-     * fires first and, combined with `stopPropagation`, keeps the event from
-     * ever reaching those listeners at all, so there is no double-scroll.
+     * the nested grid's own wheel listener (added in the bubble phase by
+     * `ScrollController.mount`). Capture fires first, so returning early here
+     * (nested can still scroll) simply lets that bubble-phase listener handle
+     * the event normally; forwarding instead calls `stopPropagation` to keep
+     * the event from ever reaching it, so there is no double-scroll either way.
      */
-    attachWheelForwarding(entry) {
+    attachWheelForwarding(entry, instance) {
       const handler = (e) => {
         if (e.ctrlKey) return;
         if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+        const nestedCanContinue = e.deltaY < 0 ? instance.api.canScrollUp() : instance.api.canScrollDown();
+        if (nestedCanContinue) return;
         e.preventDefault();
         e.stopPropagation();
         this.parentScrollForwarder?.(e.deltaY);
@@ -17393,7 +17449,7 @@ ${body}`;
   var COL_BUFFER = 2;
   var AUTO_GROUP_COL_WIDTH = 200;
   var GridRenderer = class {
-    constructor(containerEl, store, eventBus, columnModel, paginationEngine, iconRenderer, cellSelectionEngine, sortEngine, rowSelectionEngine, groupingEngine, options) {
+    constructor(containerEl, store, eventBus, columnModel, paginationEngine, iconRenderer, cellSelectionEngine, sortEngine, rowSelectionEngine, groupingEngine, options2) {
       this.containerEl = containerEl;
       this.store = store;
       this.eventBus = eventBus;
@@ -17404,7 +17460,7 @@ ${body}`;
       this.sortEngine = sortEngine;
       this.rowSelectionEngine = rowSelectionEngine;
       this.groupingEngine = groupingEngine;
-      this.options = options;
+      this.options = options2;
       this.wrapperEl = null;
       // Header panel elements
       this.leftHeaderPanelEl = null;
@@ -17477,7 +17533,7 @@ ${body}`;
       this.colStyles = new ColumnStyleManager();
       this.rowPositionSheet = new RowPositionSheet();
       this.scrollController = new ScrollController();
-      this.masterDetailEnabledAtConstruction = options.masterDetail?.enabled ?? false;
+      this.masterDetailEnabledAtConstruction = options2.masterDetail?.enabled ?? false;
       if (this.masterDetailEnabledAtConstruction) {
         this.scrollController.setReserveVerticalGutter(true);
       }
@@ -17489,7 +17545,7 @@ ${body}`;
         sortEngine,
         this.colStyles
       );
-      if (options.showGroupingBar) {
+      if (options2.showGroupingBar) {
         this.groupDropZone = new GroupDropZone(store, groupingEngine, iconRenderer);
         this.headerRenderer.setGroupDropZone(this.groupDropZone);
       }
@@ -17501,7 +17557,7 @@ ${body}`;
       );
       this.footerRenderer = new FooterRenderer(eventBus, iconRenderer, paginationEngine);
       this.overlayRenderer = new OverlayRenderer(iconRenderer);
-      if (options.masterDetail?.enabled) {
+      if (options2.masterDetail?.enabled) {
         this.detailRowRenderer = new DetailRowRenderer();
         this.detailRowRenderer.setParentScrollForwarder((delta) => {
           this.scrollController.scrollToY(this.scrollController.getScrollTop() + delta);
@@ -17780,6 +17836,14 @@ ${body}`;
     }
     scrollToTop() {
       this.scrollController.scrollToTop();
+    }
+    /** Whether the body can still scroll further up. Used by a Master/Detail parent to chain wheel scroll into this grid before forwarding it further up itself. */
+    canScrollUp() {
+      return this.scrollController.canScrollUp();
+    }
+    /** Whether the body can still scroll further down. */
+    canScrollDown() {
+      return this.scrollController.canScrollDown();
     }
     /**
      * Scrolls the grid body (vertically and horizontally) so that the cell at
@@ -19022,6 +19086,14 @@ ${body}`;
     scrollToTop() {
       this.ctx.renderer.scrollToTop();
     }
+    /** Whether the grid body can still scroll further up. Used by a Master/Detail parent to chain wheel scroll into a nested grid before forwarding it further up itself. */
+    canScrollUp() {
+      return this.ctx.renderer.canScrollUp();
+    }
+    /** Whether the grid body can still scroll further down. */
+    canScrollDown() {
+      return this.ctx.renderer.canScrollDown();
+    }
     // ──────────────────── Theme ────────────────────
     setTheme(nameOrTheme) {
       this.ctx.themeManager.applyTheme(nameOrTheme, this.ctx.containerEl);
@@ -19692,9 +19764,9 @@ ${body}`;
      * @param tree    - Fully-computed display header tree.
      * @param options - Callbacks and configuration for interactive cells.
      */
-    buildGroupRows(tree, options) {
+    buildGroupRows(tree, options2) {
       if (tree.maxGroupDepth === 0) return [];
-      return tree.groupRows.map((row) => this.buildRow(row, options));
+      return tree.groupRows.map((row) => this.buildRow(row, options2));
     }
     /**
      * Rebuild the contents of existing group-row elements in place.
@@ -19704,28 +19776,28 @@ ${body}`;
      * @param tree    - Updated display header tree.
      * @param options - Callbacks and configuration.
      */
-    updateGroupRows(rowEls, tree, options) {
+    updateGroupRows(rowEls, tree, options2) {
       if (rowEls.length === 0 || tree.maxGroupDepth === 0) return;
       const count = Math.min(rowEls.length, tree.groupRows.length);
       for (let d = 0; d < count; d++) {
         rowEls[d].innerHTML = "";
-        this.populateRow(rowEls[d], tree.groupRows[d], options);
+        this.populateRow(rowEls[d], tree.groupRows[d], options2);
       }
     }
     // ── Private: DOM building ─────────────────────────────────────────────────
-    buildRow(row, options) {
+    buildRow(row, options2) {
       const el = createDiv(`pg-header-group-row pg-header-group-row--depth-${row.depth}`);
       el.setAttribute("role", "row");
       el.setAttribute("data-group-depth", String(row.depth));
-      this.populateRow(el, row, options);
+      this.populateRow(el, row, options2);
       return el;
     }
-    populateRow(rowEl, row, options) {
+    populateRow(rowEl, row, options2) {
       for (const cell of row.cells) {
-        rowEl.appendChild(this.buildCell(cell, options));
+        rowEl.appendChild(this.buildCell(cell, options2));
       }
     }
-    buildCell(cell, options) {
+    buildCell(cell, options2) {
       if (cell.kind === "filler") {
         const filler = createDiv("pg-th pg-th--depth-filler");
         filler.setAttribute("data-filler-id", cell.id);
@@ -19734,7 +19806,7 @@ ${body}`;
         filler.style.width = `${cell.width}px`;
         return filler;
       }
-      return this.buildGroupCell(cell.node, cell.left, cell.width, options);
+      return this.buildGroupCell(cell.node, cell.left, cell.width, options2);
     }
     /**
      * Build a single interactive group header cell.
@@ -19744,7 +19816,7 @@ ${body}`;
      * @param width   - Pixel width of the cell.
      * @param options - Interactive callbacks.
      */
-    buildGroupCell(group, left, width, options) {
+    buildGroupCell(group, left, width, options2) {
       const isCollapsed = group.collapsed;
       const classes = ["pg-th", "pg-th--group"];
       if (isCollapsed) classes.push("pg-th--group--collapsed");
@@ -19784,34 +19856,34 @@ ${body}`;
         handle.addEventListener("mousedown", (e) => {
           e.stopPropagation();
           e.preventDefault();
-          this.startGroupResize(e, group, width, options);
+          this.startGroupResize(e, group, width, options2);
         });
         th.appendChild(handle);
       }
       th.addEventListener("mousedown", (e) => {
         if (e.target.closest(".pg-th__resize-handle")) return;
-        options.onGroupHeaderMouseDown?.(e, group, th);
+        options2.onGroupHeaderMouseDown?.(e, group, th);
       });
       th.addEventListener("click", (e) => {
         if (e.target.closest(".pg-th__resize-handle")) return;
-        if (options.didJustDragFn?.()) return;
-        options.onCollapseToggle?.(group.instanceId);
+        if (options2.didJustDragFn?.()) return;
+        options2.onCollapseToggle?.(group.instanceId);
       });
       th.addEventListener("contextmenu", (e) => {
         e.preventDefault();
         e.stopPropagation();
-        options.onGroupContextMenu?.(e, group, th);
+        options2.onGroupContextMenu?.(e, group, th);
       });
       th.addEventListener("keydown", (e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
-          options.onCollapseToggle?.(group.instanceId);
+          options2.onCollapseToggle?.(group.instanceId);
         } else if (e.key === "ArrowLeft" && !isCollapsed) {
           e.preventDefault();
-          options.onCollapseToggle?.(group.instanceId);
+          options2.onCollapseToggle?.(group.instanceId);
         } else if (e.key === "ArrowRight" && isCollapsed) {
           e.preventDefault();
-          options.onCollapseToggle?.(group.instanceId);
+          options2.onCollapseToggle?.(group.instanceId);
         }
       });
       return th;
@@ -19844,17 +19916,17 @@ ${body}`;
      * @param startWidth - Pixel width at drag start.
      * @param options    - Contains the `onGroupResize` callback.
      */
-    startGroupResize(e, group, startWidth, options) {
+    startGroupResize(e, group, startWidth, options2) {
       const startX = e.clientX;
       document.body.style.cursor = "col-resize";
       document.body.style.userSelect = "none";
       const onMove = (ev) => {
         const newW = Math.max(group.collapsedWidth, startWidth + ev.clientX - startX);
-        options.onGroupResize?.(group.instanceId, newW);
+        options2.onGroupResize?.(group.instanceId, newW);
       };
       const onUp = (ev) => {
         const newW = Math.max(group.collapsedWidth, startWidth + ev.clientX - startX);
-        options.onGroupResize?.(group.instanceId, newW);
+        options2.onGroupResize?.(group.instanceId, newW);
         document.body.style.cursor = "";
         document.body.style.userSelect = "";
         document.removeEventListener("mousemove", onMove);
@@ -20835,17 +20907,17 @@ ${body}`;
     return result;
   }
   var GridCore = class _GridCore {
-    constructor(containerEl, options) {
+    constructor(containerEl, options2) {
       /** Set during `buildContext` when any top-level `ColumnDef` has `children`. */
       this.columnGroupModel = null;
       this.groupHeaderBuilder = null;
       /** New Display Group Engine — replaces `columnGroupModel` for group rendering. */
       this.displayGroupEngine = null;
-      this.ctx = this.buildContext(containerEl, options);
+      this.ctx = this.buildContext(containerEl, options2);
       this.api = new GridApi(this.ctx);
       this.initialize();
     }
-    buildContext(containerEl, options) {
+    buildContext(containerEl, options2) {
       const eventBus = new EventBus();
       const store = new GridStore(eventBus);
       const columnModel = new ColumnModel(store, eventBus);
@@ -20879,9 +20951,9 @@ ${body}`;
         sortEngine,
         rowSelectionEngine,
         groupingEngine,
-        options
+        options2
       );
-      const hasGroups = options.columns?.some((c) => Array.isArray(c.children) && c.children.length > 0) ?? false;
+      const hasGroups = options2.columns?.some((c) => Array.isArray(c.children) && c.children.length > 0) ?? false;
       if (hasGroups) {
         const engine = new DisplayGroupEngine(
           renderer.colStyles,
@@ -20890,7 +20962,7 @@ ${body}`;
           store,
           iconRenderer
         );
-        engine.parse(options.columns);
+        engine.parse(options2.columns);
         this.displayGroupEngine = engine;
         renderer.setDisplayGroupEngine(engine);
       }
@@ -20906,7 +20978,7 @@ ${body}`;
         this.api.refresh();
       });
       return {
-        options,
+        options: options2,
         containerEl,
         eventBus,
         store,
@@ -20934,54 +21006,54 @@ ${body}`;
     }
     initialize() {
       injectBaseStyles();
-      const options = this.ctx.options;
+      const options2 = this.ctx.options;
       const ctx = this.ctx;
-      if (options.theme) {
-        ctx.themeManager.applyTheme(options.theme, ctx.containerEl);
+      if (options2.theme) {
+        ctx.themeManager.applyTheme(options2.theme, ctx.containerEl);
       } else {
         ctx.themeManager.applyTheme("light", ctx.containerEl);
       }
-      if (options.selection) {
-        ctx.rowSelectionEngine.configure(options.selection);
+      if (options2.selection) {
+        ctx.rowSelectionEngine.configure(options2.selection);
       }
-      if (options.editing) {
-        ctx.cellEditorEngine.configure(options.editing);
+      if (options2.editing) {
+        ctx.cellEditorEngine.configure(options2.editing);
       }
-      if (options.pagination) {
+      if (options2.pagination) {
         ctx.paginationEngine.configure({
-          enabled: options.pagination.enabled ?? false,
-          page: options.pagination.page ?? 1,
-          pageSize: options.pagination.pageSize ?? 50,
-          pageSizeOptions: options.pagination.pageSizeOptions ?? [10, 25, 50, 100],
-          serverSide: options.pagination.serverSide ?? false,
-          totalRows: options.pagination.totalRows
+          enabled: options2.pagination.enabled ?? false,
+          page: options2.pagination.page ?? 1,
+          pageSize: options2.pagination.pageSize ?? 50,
+          pageSizeOptions: options2.pagination.pageSizeOptions ?? [10, 25, 50, 100],
+          serverSide: options2.pagination.serverSide ?? false,
+          totalRows: options2.pagination.totalRows
         });
       }
-      if (options.columns?.length) {
+      if (options2.columns?.length) {
         if (this.displayGroupEngine) {
-          ctx.columnModel.initColumns(collectLeaves(options.columns));
+          ctx.columnModel.initColumns(collectLeaves(options2.columns));
         } else if (this.columnGroupModel) {
-          this.columnGroupModel.init(options.columns);
+          this.columnGroupModel.init(options2.columns);
           ctx.columnModel.initColumns(this.columnGroupModel.getAllLeaves());
         } else {
-          ctx.columnModel.initColumns(options.columns);
+          ctx.columnModel.initColumns(options2.columns);
         }
       }
-      if (options.columnState) {
-        ctx.columnModel.applyColumnStates(options.columnState);
+      if (options2.columnState) {
+        ctx.columnModel.applyColumnStates(options2.columnState);
       }
-      if (options.sortConfig?.length) {
-        ctx.sortEngine.multiSort(options.sortConfig);
+      if (options2.sortConfig?.length) {
+        ctx.sortEngine.multiSort(options2.sortConfig);
       }
-      if (options.filterModel) {
-        ctx.filterEngine.setFilterModel(options.filterModel);
+      if (options2.filterModel) {
+        ctx.filterEngine.setFilterModel(options2.filterModel);
       }
-      if (options.grouping?.groupedColumns?.length) {
-        for (const colId of options.grouping.groupedColumns) {
+      if (options2.grouping?.groupedColumns?.length) {
+        for (const colId of options2.grouping.groupedColumns) {
           ctx.groupingEngine.addGroupColumn(colId);
         }
       }
-      ctx.masterDetailEngine.configure(options.masterDetail);
+      ctx.masterDetailEngine.configure(options2.masterDetail);
       ctx.renderer.mount();
       ctx.renderer.setParentApiForDetail(this.api);
       const gridWrapper = ctx.containerEl.querySelector(".pg-grid") ?? ctx.containerEl;
@@ -20998,16 +21070,16 @@ ${body}`;
       if (this.columnGroupModel) {
         this.api.setColumnGroupModel(this.columnGroupModel);
       }
-      if (options.data?.length) {
-        this.api.setData(options.data);
+      if (options2.data?.length) {
+        this.api.setData(options2.data);
       }
-      if (options.enableStateManagement && options.stateKey) {
-        this.loadState(options.stateKey);
+      if (options2.enableStateManagement && options2.stateKey) {
+        this.loadState(options2.stateKey);
       }
       this.wireEventHandlers(ctx);
       this.wireEditing(ctx);
       ctx.eventBus.emit(GridEventType.READY, { api: this.api });
-      options.onReady?.(this.api);
+      options2.onReady?.(this.api);
     }
     wireEventHandlers(ctx) {
       ctx.eventBus.on(GridEventType.SORT_CHANGED, () => {
@@ -21294,848 +21366,2680 @@ ${body}`;
     }
   };
 
-  // demo/demo.ts
-  function generateEmployees(count) {
-    const firstNames2 = [
-      "James",
-      "Mary",
-      "John",
-      "Patricia",
-      "Robert",
-      "Jennifer",
-      "Michael",
-      "Linda",
-      "William",
-      "Barbara",
-      "David",
-      "Elizabeth",
-      "Richard",
-      "Susan",
-      "Joseph",
-      "Jessica",
-      "Thomas",
-      "Sarah",
-      "Charles",
-      "Karen",
-      "Christopher",
-      "Lisa",
-      "Daniel",
-      "Nancy",
-      "Matthew",
-      "Betty",
-      "Anthony",
-      "Margaret",
-      "Mark",
-      "Sandra",
-      "Donald",
-      "Ashley",
-      "Steven",
-      "Dorothy",
-      "Paul",
-      "Kimberly",
-      "Andrew",
-      "Emily",
-      "Joshua",
-      "Donna",
-      "Kevin",
-      "Michelle",
-      "Brian",
-      "Carol",
-      "George",
-      "Amanda",
-      "Timothy",
-      "Melissa",
-      "Ronald",
-      "Deborah",
-      "Ryan",
-      "Stephanie",
-      "Jacob",
-      "Rebecca",
-      "Gary",
-      "Sharon",
-      "Eric",
-      "Laura",
-      "Jonathan",
-      "Cynthia",
-      "Stephen",
-      "Kathleen",
-      "Larry",
-      "Amy"
-    ];
-    const lastNames2 = [
-      "Smith",
-      "Johnson",
-      "Williams",
-      "Brown",
-      "Jones",
-      "Garcia",
-      "Miller",
-      "Davis",
-      "Rodriguez",
-      "Martinez",
-      "Hernandez",
-      "Lopez",
-      "Gonzalez",
-      "Wilson",
-      "Anderson",
-      "Thomas",
-      "Taylor",
-      "Moore",
-      "Jackson",
-      "Martin",
-      "Lee",
-      "Perez",
-      "Thompson",
-      "White",
-      "Harris",
-      "Sanchez",
-      "Clark",
-      "Ramirez",
-      "Lewis",
-      "Robinson",
-      "Walker",
-      "Young",
-      "Allen",
-      "King",
-      "Wright",
-      "Scott",
-      "Torres",
-      "Nguyen",
-      "Hill",
-      "Flores",
-      "Green",
-      "Adams",
-      "Nelson",
-      "Baker",
-      "Hall",
-      "Rivera",
-      "Campbell",
-      "Mitchell",
-      "Carter",
-      "Roberts",
-      "Phillips",
-      "Evans",
-      "Turner",
-      "Torres",
-      "Parker",
-      "Collins",
-      "Edwards",
-      "Stewart",
-      "Flores",
-      "Morris",
-      "Nguyen",
-      "Murphy",
-      "Rivera",
-      "Cook",
-      "Choudhry Asghar khan kiyani"
-    ];
-    const departments = [
-      "Engineering",
-      "Finance",
-      "Human Resources",
-      "Marketing",
-      "Sales",
-      "Operations",
-      "Legal",
-      "IT Support",
-      "Product",
-      "Design"
-    ];
-    const genders = ["Male", "Female", "Non-binary", "Prefer not to say"];
-    const employeeTypes = ["Full-time", "Part-time", "Contract", "Intern"];
-    const accountStatuses = ["Active", "Inactive", "Suspended"];
-    const attendancePolicies = ["Standard (9-5)", "Flexible Hours", "Remote", "Shift-based", "Hybrid"];
-    const paySchedules = ["Weekly", "Bi-weekly", "Monthly", "Semi-monthly"];
-    const paymentMethods = ["Direct Deposit", "Check", "Wire Transfer", "ACH"];
-    const weekHourOptions = [20, 30, 35, 40, 45, 48];
-    const otRateOptions = [1.25, 1.5, 1.75, 2];
-    const rolesByDept = {
-      "Engineering": ["Software Engineer", "Senior Engineer", "Tech Lead", "DevOps Engineer", "QA Engineer"],
-      "Finance": ["Financial Analyst", "Accountant", "CFO", "Budget Analyst", "Controller"],
-      "Human Resources": ["HR Manager", "Recruiter", "HR Specialist", "Talent Acquisition", "HR Business Partner"],
-      "Marketing": ["Marketing Manager", "Content Strategist", "SEO Specialist", "Brand Manager", "Campaign Manager"],
-      "Sales": ["Sales Executive", "Account Manager", "Sales Director", "Business Development Rep", "Inside Sales Rep"],
-      "Operations": ["Operations Manager", "Supply Chain Analyst", "Logistics Coordinator", "Process Manager", "Ops Analyst"],
-      "Legal": ["Legal Counsel", "Paralegal", "Compliance Officer", "Contract Manager", "General Counsel"],
-      "IT Support": ["IT Specialist", "Systems Administrator", "Network Engineer", "Help Desk Analyst", "IT Manager"],
-      "Product": ["Product Manager", "Product Owner", "Product Analyst", "Product Director", "VP of Product"],
-      "Design": ["UX Designer", "UI Designer", "Graphic Designer", "Design Lead", "Creative Director"]
-    };
-    const geography = {
-      "United States": {
-        regions: ["California", "Texas", "New York", "Florida", "Illinois", "Washington", "Colorado", "Georgia"],
-        cities: {
-          "California": ["Los Angeles", "San Francisco", "San Diego", "San Jose"],
-          "Texas": ["Houston", "Dallas", "Austin", "San Antonio"],
-          "New York": ["New York City", "Buffalo", "Albany", "Rochester"],
-          "Florida": ["Miami", "Orlando", "Tampa", "Jacksonville"],
-          "Illinois": ["Chicago", "Aurora", "Rockford", "Naperville"],
-          "Washington": ["Seattle", "Spokane", "Tacoma", "Bellevue"],
-          "Colorado": ["Denver", "Colorado Springs", "Aurora", "Fort Collins"],
-          "Georgia": ["Atlanta", "Augusta", "Savannah", "Athens"]
-        }
-      },
-      "United Kingdom": {
-        regions: ["England", "Scotland", "Wales", "Northern Ireland"],
-        cities: {
-          "England": ["London", "Manchester", "Birmingham", "Leeds"],
-          "Scotland": ["Edinburgh", "Glasgow", "Aberdeen", "Dundee"],
-          "Wales": ["Cardiff", "Swansea", "Newport", "Bangor"],
-          "Northern Ireland": ["Belfast", "Derry", "Lisburn", "Armagh"]
-        }
-      },
-      "Canada": {
-        regions: ["Ontario", "Quebec", "British Columbia", "Alberta"],
-        cities: {
-          "Ontario": ["Toronto", "Ottawa", "Hamilton", "London"],
-          "Quebec": ["Montreal", "Quebec City", "Laval", "Gatineau"],
-          "British Columbia": ["Vancouver", "Victoria", "Kelowna", "Surrey"],
-          "Alberta": ["Calgary", "Edmonton", "Red Deer", "Lethbridge"]
-        }
-      },
-      "Germany": {
-        regions: ["Bavaria", "Berlin", "Hamburg", "North Rhine-Westphalia"],
-        cities: {
-          "Bavaria": ["Munich", "Nuremberg", "Augsburg", "Regensburg"],
-          "Berlin": ["Berlin", "Potsdam", "Brandenburg", "Frankfurt (Oder)"],
-          "Hamburg": ["Hamburg", "L\xFCbeck", "Flensburg", "Kiel"],
-          "North Rhine-Westphalia": ["Cologne", "D\xFCsseldorf", "Dortmund", "Essen"]
-        }
-      },
-      "France": {
-        regions: ["\xCEle-de-France", "Provence", "Occitanie", "Nouvelle-Aquitaine"],
-        cities: {
-          "\xCEle-de-France": ["Paris", "Versailles", "Boulogne-Billancourt", "Saint-Denis"],
-          "Provence": ["Marseille", "Nice", "Toulon", "Aix-en-Provence"],
-          "Occitanie": ["Toulouse", "Montpellier", "N\xEEmes", "Perpignan"],
-          "Nouvelle-Aquitaine": ["Bordeaux", "Limoges", "Pau", "Bayonne"]
-        }
-      },
-      "Australia": {
-        regions: ["New South Wales", "Victoria", "Queensland", "Western Australia"],
-        cities: {
-          "New South Wales": ["Sydney", "Newcastle", "Wollongong", "Canberra"],
-          "Victoria": ["Melbourne", "Geelong", "Ballarat", "Bendigo"],
-          "Queensland": ["Brisbane", "Gold Coast", "Sunshine Coast", "Townsville"],
-          "Western Australia": ["Perth", "Fremantle", "Bunbury", "Mandurah"]
-        }
-      },
-      "India": {
-        regions: ["Maharashtra", "Karnataka", "Delhi", "Tamil Nadu"],
-        cities: {
-          "Maharashtra": ["Mumbai", "Pune", "Nagpur", "Nashik"],
-          "Karnataka": ["Bengaluru", "Mysuru", "Hubli", "Mangaluru"],
-          "Delhi": ["New Delhi", "Noida", "Gurugram", "Faridabad"],
-          "Tamil Nadu": ["Chennai", "Coimbatore", "Madurai", "Salem"]
-        }
-      },
-      "United Arab Emirates": {
-        regions: ["Dubai", "Abu Dhabi", "Sharjah", "Ajman"],
-        cities: {
-          "Dubai": ["Dubai", "Deira", "Bur Dubai", "Jumeirah"],
-          "Abu Dhabi": ["Abu Dhabi", "Al Ain", "Ruwais", "Khalifa City"],
-          "Sharjah": ["Sharjah", "Khor Fakkan", "Kalba", "Dibba Al Hisn"],
-          "Ajman": ["Ajman", "Al Jurf", "Al Rashidiya", "Al Hamidiyah"]
-        }
-      },
-      "Pakistan": {
-        regions: ["Islamabad", "KPK", "Sindh", "Balochistan"],
-        cities: {
-          "Islamabad": ["Gulberg", "DHA", "G12", "I8"],
-          "KPK": ["Abu Dhabi", "Dir", "Peshawer", "Mardan"],
-          "Sindh": ["Kashmor", "Karachi", "Faisalabad", "Haiderabad"],
-          "Balochistan": ["Abu City", "Lahore", "Queta", "Gulshan Iqbal"]
-        }
-      }
-    };
-    const countries2 = Object.keys(geography);
-    const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
-    const rand = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
-    const pad = (n, len) => String(n).padStart(len, "0");
-    const isoDate = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1, 2)}-${pad(d.getDate(), 2)}`;
-    const randomPastDate = (yearsBack) => {
-      const now = Date.now();
-      const past = now - yearsBack * 365.25 * 24 * 60 * 60 * 1e3;
-      return new Date(past + Math.random() * (now - past));
-    };
-    const addDays = (d, days) => {
-      const r = new Date(d);
-      r.setDate(r.getDate() + days);
-      return r;
-    };
-    const records = [];
-    for (let i = 0; i < count; i++) {
-      const firstName = pick(firstNames2);
-      const lastName = pick(lastNames2);
-      const dept = pick(departments);
-      const country = pick(countries2);
-      const countryGeo = geography[country];
-      const region = pick(countryGeo.regions);
-      const city = pick(countryGeo.cities[region] ?? ["Unknown"]);
-      const hiringD = randomPastDate(6);
-      const joiningD = addDays(hiringD, rand(7, 90));
-      const baseSalary = rand(32e3, 195e3);
-      let value = Math.floor(Math.random() * 100) + 1;
-      const salaryHistory = Array.from({ length: 30 }, () => {
-        value += Math.floor(Math.random() * 11) - 5;
-        value = Math.max(1, Math.min(100, value));
-        return value;
-      });
-      records.push({
-        id: `EMP-${pad(i + 1, 5)}`,
-        employeeName: `${firstName} ${lastName}`,
-        department: dept,
-        gender: pick(genders),
-        contactNo: `+1 ${rand(200, 999)}-${rand(100, 999)}-${pad(rand(1e3, 9999), 4)}`,
-        email: `${firstName.toLowerCase()}.${lastName.toLowerCase()}${rand(1, 99)}@company.com`,
-        employeeType: pick(employeeTypes),
-        accountStatus: Math.random() < 0.82 ? "Active" : pick(accountStatuses.filter((s) => s !== "Active")),
-        authPin: rand(1e3, 9999),
-        attendancePolicy: pick(attendancePolicies),
-        role: pick(rolesByDept[dept] ?? ["Associate"]),
-        weekHourLimit: pick(weekHourOptions),
-        otRate: pick(otRateOptions),
-        paySchedule: pick(paySchedules),
-        country,
-        state: region,
-        city,
-        hiringDate: isoDate(hiringD),
-        joiningDate: isoDate(joiningD),
-        salary: baseSalary,
-        paymentMethod: pick(paymentMethods),
-        salaryHistory
-      });
+  // demo/inventory-demo.ts
+  function asRelease(row) {
+    return row;
+  }
+  function asVariant(row) {
+    return row;
+  }
+  var STOCK_WAREHOUSES = [
+    { warehouse: "Central DC", city: "London" },
+    { warehouse: "North Hub", city: "Manchester" },
+    { warehouse: "Overseas DC", city: "Rotterdam" }
+  ];
+  function buildStockLocations(variant) {
+    if (variant.available <= 0) return [];
+    const count = Math.min(STOCK_WAREHOUSES.length, Math.max(1, Math.ceil(variant.available / 4)));
+    const locations = STOCK_WAREHOUSES.slice(0, count);
+    const perLocation = Math.floor(variant.available / locations.length);
+    const remainder = variant.available - perLocation * locations.length;
+    return locations.map((loc, i) => ({
+      warehouse: loc.warehouse,
+      city: loc.city,
+      qty: perLocation + (i === 0 ? remainder : 0),
+      restockDate: `2026-08-0${i + 1}`
+    }));
+  }
+  var releases = [
+    {
+      id: 1,
+      albumName: "Dreams of You",
+      genre: "Soft Rock",
+      coverGradient: "linear-gradient(135deg, #fb923c, #ec4899)",
+      coverLabel: "DY",
+      artist: "David Nearing",
+      year: 1978,
+      status: "Active",
+      stock: 8,
+      incoming: 20,
+      price: 32,
+      priceChangePct: 5,
+      sold: 18,
+      estProfit: 57.6,
+      variants: [
+        { title: "Dreams of You", available: 5, format: "LP, Album, Reissue", label: "Amberline Records", country: "Worldwide", catNo: "ARL1978-01", year: 2024 },
+        { title: "Dreams of You", available: 3, format: "CD, Album, Remastered", label: "Amberline Records", country: "Europe", catNo: "ARCD-78X", year: 2024 },
+        { title: "Dreams of You", available: 3, format: "CD, Album, Remastered", label: "Amberline Records", country: "Europe", catNo: "ARCD-78X", year: 2024 },
+        { title: "Dreams of You", available: 3, format: "CD, Album, Remastered", label: "Amberline Records", country: "Europe", catNo: "ARCD-78X", year: 2024 },
+        { title: "Dreams of You", available: 3, format: "CD, Album, Remastered", label: "Amberline Records", country: "Europe", catNo: "ARCD-78X", year: 2024 },
+        { title: "Dreams of You", available: 3, format: "CD, Album, Remastered", label: "Amberline Records", country: "Europe", catNo: "ARCD-78X", year: 2024 },
+        { title: "Dreams of You", available: 3, format: "CD, Album, Remastered", label: "Amberline Records", country: "Europe", catNo: "ARCD-78X", year: 2024 },
+        { title: "Dreams of You", available: 3, format: "CD, Album, Remastered", label: "Amberline Records", country: "Europe", catNo: "ARCD-78X", year: 2024 },
+        { title: "Dreams of You", available: 3, format: "CD, Album, Remastered", label: "Amberline Records", country: "Europe", catNo: "ARCD-78X", year: 2024 },
+        { title: "Dreams of You", available: 3, format: "CD, Album, Remastered", label: "Amberline Records", country: "Europe", catNo: "ARCD-78X", year: 2024 },
+        { title: "Dreams of You", available: 3, format: "CD, Album, Remastered", label: "Amberline Records", country: "Europe", catNo: "ARCD-78X", year: 2024 },
+        { title: "Dreams of You", available: 3, format: "CD, Album, Remastered", label: "Amberline Records", country: "Europe", catNo: "ARCD-78X", year: 2024 },
+        { title: "Dreams of You", available: 3, format: "CD, Album, Remastered", label: "Amberline Records", country: "Europe", catNo: "ARCD-78X", year: 2024 },
+        { title: "Dreams of You", available: 3, format: "CD, Album, Remastered", label: "Amberline Records", country: "Europe", catNo: "ARCD-78X", year: 2024 },
+        { title: "Dreams of You", available: 3, format: "CD, Album, Remastered", label: "Amberline Records", country: "Europe", catNo: "ARCD-78X", year: 2024 },
+        { title: "Dreams of You", available: 3, format: "CD, Album, Remastered", label: "Amberline Records", country: "Europe", catNo: "ARCD-78X", year: 2024 },
+        { title: "Dreams of You", available: 3, format: "CD, Album, Remastered", label: "Amberline Records", country: "Europe", catNo: "ARCD-78X", year: 2024 },
+        { title: "Dreams of You", available: 3, format: "CD, Album, Remastered", label: "Amberline Records", country: "Europe", catNo: "ARCD-78X", year: 2024 },
+        { title: "Dreams of You", available: 3, format: "CD, Album, Remastered", label: "Amberline Records", country: "Europe", catNo: "ARCD-78X", year: 2024 },
+        { title: "Dreams of You", available: 3, format: "CD, Album, Remastered", label: "Amberline Records", country: "Europe", catNo: "ARCD-78X", year: 2024 },
+        { title: "Dreams of You", available: 3, format: "CD, Album, Remastered", label: "Amberline Records", country: "Europe", catNo: "ARCD-78X", year: 2024 },
+        { title: "Dreams of You", available: 3, format: "CD, Album, Remastered", label: "Amberline Records", country: "Europe", catNo: "ARCD-78X", year: 2024 },
+        { title: "Dreams of You", available: 3, format: "CD, Album, Remastered", label: "Amberline Records", country: "Europe", catNo: "ARCD-78X", year: 2024 },
+        { title: "Dreams of You", available: 3, format: "CD, Album, Remastered", label: "Amberline Records", country: "Europe", catNo: "ARCD-78X", year: 2024 },
+        { title: "Dreams of You", available: 3, format: "CD, Album, Remastered", label: "Amberline Records", country: "Europe", catNo: "ARCD-78X", year: 2024 },
+        { title: "Dreams of You", available: 3, format: "CD, Album, Remastered", label: "Amberline Records", country: "Europe", catNo: "ARCD-78X", year: 2024 },
+        { title: "Dreams of You", available: 3, format: "CD, Album, Remastered", label: "Amberline Records", country: "Europe", catNo: "ARCD-78X", year: 2024 }
+      ]
+    },
+    {
+      id: 2,
+      albumName: "Blue Skies",
+      genre: "Pop",
+      coverGradient: "linear-gradient(135deg, #38bdf8, #6366f1)",
+      coverLabel: "BS",
+      artist: "Maya Allen",
+      year: 2022,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 0,
+      price: 25,
+      priceChangePct: 10,
+      sold: 12,
+      estProfit: 30,
+      variants: [
+        { title: "Blue Skies", available: 0, format: "LP, Album", label: "Skyline Records", country: "Worldwide", catNo: "SKY2022-01", year: 2022 }
+      ]
+    },
+    {
+      id: 3,
+      albumName: "Heaven",
+      genre: "Synth-pop",
+      coverGradient: "linear-gradient(135deg, #a855f7, #6366f1)",
+      coverLabel: "HV",
+      artist: "Velvet Wave",
+      year: 1989,
+      status: "Active",
+      stock: 10,
+      incoming: 5,
+      price: 20,
+      priceChangePct: 10,
+      sold: 5,
+      estProfit: 10,
+      variants: [
+        { title: "Heaven", available: 6, format: "LP, Album, Reissue", label: "Nightfall Records", country: "Worldwide", catNo: "NFR1989-01", year: 2023 },
+        { title: "Heaven", available: 4, format: "Cassette, Album", label: "Nightfall Records", country: "Europe", catNo: "NFR1989-CS", year: 1989 }
+      ]
+    },
+    {
+      id: 4,
+      albumName: "Life Matters",
+      genre: "Rhythm & Blues",
+      coverGradient: "linear-gradient(135deg, #f59e0b, #d97706)",
+      coverLabel: "LM",
+      artist: "Danielle James",
+      year: 2007,
+      status: "On Hold",
+      stock: 4,
+      incoming: 15,
+      price: 28,
+      priceChangePct: 5,
+      sold: 9,
+      estProfit: 25.2,
+      variants: [
+        { title: "Life Matters", available: 2, format: "CD, Album", label: "Soulwave Records", country: "United States", catNo: "SWR2007-CD", year: 2007 },
+        { title: "Life Matters", available: 2, format: "LP, Album", label: "Soulwave Records", country: "Worldwide", catNo: "SWR2007-LP", year: 2007 }
+      ]
+    },
+    {
+      id: 5,
+      albumName: "Lonely Hearts",
+      genre: "Alt-pop",
+      coverGradient: "linear-gradient(135deg, #f472b6, #f43f5e)",
+      coverLabel: "LH",
+      artist: "Emma Stone",
+      year: 2023,
+      status: "Active",
+      stock: 14,
+      incoming: 24,
+      price: 34,
+      priceChangePct: 12,
+      sold: 17,
+      estProfit: 57.8,
+      variants: [
+        { title: "Lonely Hearts", available: 14, format: "LP, Album, Colored Vinyl", label: "Aurora Records", country: "Worldwide", catNo: "AUR2023-01", year: 2023 }
+      ]
+    },
+    {
+      id: 6,
+      albumName: "Imaginary Groove",
+      genre: "Jazz",
+      coverGradient: "linear-gradient(135deg, #34d399, #0ea5e9)",
+      coverLabel: "IG",
+      artist: "Leo Collins",
+      year: 1972,
+      status: "Active",
+      stock: 6,
+      incoming: 10,
+      price: 30,
+      priceChangePct: 8,
+      sold: 8,
+      estProfit: 24,
+      variants: [
+        { title: "Imaginary Groove", available: 3, format: "LP, Album, Reissue", label: "Bluebeat Records", country: "Worldwide", catNo: "BBR1972-01", year: 2021 },
+        { title: "Imaginary Groove", available: 3, format: "CD, Compilation", label: "Bluebeat Records", country: "Europe", catNo: "BBR1972-CD", year: 2015 }
+      ]
+    },
+    {
+      id: 7,
+      albumName: "Neon Wilderness",
+      genre: "Electronic",
+      coverGradient: "linear-gradient(135deg, #22d3ee, #3b82f6)",
+      coverLabel: "NW",
+      artist: "Rico Vane",
+      year: 2019,
+      status: "Active",
+      stock: 22,
+      incoming: 30,
+      price: 27,
+      priceChangePct: 6,
+      sold: 41,
+      estProfit: 110.7,
+      variants: [
+        { title: "Neon Wilderness", available: 12, format: "LP, Album, Splatter Vinyl", label: "Circuit Records", country: "Worldwide", catNo: "CIR2019-01", year: 2019 },
+        { title: "Neon Wilderness", available: 10, format: "Digital, Album", label: "Circuit Records", country: "Worldwide", catNo: "CIR2019-DL", year: 2019 }
+      ]
+    },
+    {
+      id: 8,
+      albumName: "Paper Moons",
+      genre: "Indie Folk",
+      coverGradient: "linear-gradient(135deg, #fbbf24, #f97316)",
+      coverLabel: "PM",
+      artist: "Willow Hart",
+      year: 2015,
+      status: "On Hold",
+      stock: 3,
+      incoming: 0,
+      price: 22,
+      priceChangePct: 2,
+      sold: 6,
+      estProfit: 13.2,
+      variants: [
+        { title: "Paper Moons", available: 3, format: "LP, Album", label: "Hollow Tree Records", country: "United States", catNo: "HTR2015-01", year: 2015 }
+      ]
+    },
+    {
+      id: 9,
+      albumName: "Static Bloom",
+      genre: "Shoegaze",
+      coverGradient: "linear-gradient(135deg, #818cf8, #c084fc)",
+      coverLabel: "SB",
+      artist: "Ferric Skye",
+      year: 2021,
+      status: "Active",
+      stock: 17,
+      incoming: 12,
+      price: 26,
+      priceChangePct: 4,
+      sold: 22,
+      estProfit: 57.2,
+      variants: [
+        { title: "Static Bloom", available: 9, format: "LP, Album", label: "Wavelength Records", country: "Worldwide", catNo: "WLR2021-01", year: 2021 },
+        { title: "Static Bloom", available: 5, format: "CD, Album", label: "Wavelength Records", country: "Europe", catNo: "WLR2021-CD", year: 2021 },
+        { title: "Static Bloom", available: 3, format: "Cassette, Album, Ltd. Edition", label: "Wavelength Records", country: "Worldwide", catNo: "WLR2021-CS", year: 2021 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 11,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 12,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 13,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 14,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 15,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 16,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 17,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 18,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 19,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 20,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 20,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 21,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 22,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
+    },
+    {
+      id: 10,
+      albumName: "Concrete Garden",
+      genre: "Hip-Hop",
+      coverGradient: "linear-gradient(135deg, #4ade80, #16a34a)",
+      coverLabel: "CG",
+      artist: "Nova Reign",
+      year: 2020,
+      status: "Out of Stock",
+      stock: 0,
+      incoming: 8,
+      price: 24,
+      priceChangePct: 15,
+      sold: 33,
+      estProfit: 79.2,
+      variants: [
+        { title: "Concrete Garden", available: 0, format: "LP, Album", label: "Uptown Records", country: "United States", catNo: "UPR2020-01", year: 2020 }
+      ]
     }
-    return records;
-  }
-  var countryFlagCodes = {
-    "United States": "us",
-    "United Kingdom": "gb",
-    "Canada": "ca",
-    "Germany": "de",
-    "France": "fr",
-    "Australia": "au",
-    "India": "in",
-    "United Arab Emirates": "ae",
-    "Pakistan": "pk"
-  };
-  var firstNames = [
-    "John",
-    "Emma",
-    "Liam",
-    "Olivia",
-    "Noah",
-    "Sophia",
-    "James",
-    "Mia",
-    "Lucas",
-    "Charlotte",
-    "Daniel",
-    "Amelia"
   ];
-  var lastNames = [
-    "Smith",
-    "Johnson",
-    "Brown",
-    "Williams",
-    "Jones",
-    "Miller",
-    "Wilson",
-    "Taylor",
-    "Moore",
-    "Thomas"
-  ];
-  var countries = [
-    "United States",
-    "Canada",
-    "Germany",
-    "France",
-    "United Kingdom",
-    "Australia",
-    "Pakistan",
-    "India",
-    "Japan",
-    "Brazil"
-  ];
-  var languages = [
-    "English",
-    "German",
-    "French",
-    "Spanish",
-    "Urdu",
-    "Hindi",
-    "Japanese",
-    "Chinese"
-  ];
-  var games = [
-    "Counter Strike 2",
-    "Valorant",
-    "PUBG",
-    "Fortnite",
-    "Minecraft",
-    "Dota 2",
-    "League of Legends",
-    "Rocket League",
-    "Apex Legends",
-    "Call of Duty"
-  ];
-  function randomItem(arr) {
-    return arr[Math.floor(Math.random() * arr.length)];
-  }
-  function random(min, max) {
-    return Math.floor(Math.random() * (max - min + 1)) + min;
-  }
-  function randomFloat(min, max, digits = 2) {
-    return Number((Math.random() * (max - min) + min).toFixed(digits));
-  }
-  function generatePlayerData(count) {
-    return Array.from({ length: count }, (_, i) => {
-      const bankBalance = random(500, 5e4);
-      const totalWinning = random(0, 2e5);
-      return {
-        id: i + 1,
-        // Participant
-        name: `${randomItem(firstNames)} ${randomItem(lastNames)}`,
-        language: randomItem(languages),
-        country: randomItem(countries),
-        // Game of Choice
-        gameName: randomItem(games),
-        bought: Math.random() > 0.5,
-        // Performance
-        bankBalance,
-        rating: randomFloat(1, 5, 1),
-        totalWinning,
-        // Monthly Breakdown
-        january: random(0, 15e3),
-        february: random(0, 15e3),
-        march: random(0, 15e3),
-        april: random(0, 15e3),
-        may: random(0, 15e3),
-        june: random(0, 15e3),
-        july: random(0, 15e3),
-        august: random(0, 15e3),
-        september: random(0, 15e3),
-        october: random(0, 15e3),
-        november: random(0, 15e3),
-        december: random(0, 15e3)
-      };
-    });
-  }
-  var playerColumns = [
-    // ───────────────────────────────────────────────────────────────
-    // Participant
-    // ───────────────────────────────────────────────────────────────
+  var inventoryColumns = [
     {
-      colId: "grp_participant",
-      header: "Participant",
-      openByDefault: true,
-      field: "",
+      colId: "albumName",
+      field: "albumName",
+      header: "Album Name",
       type: "string",
-      marryChildren: false,
-      children: [
-        {
-          colId: "name",
-          field: "name",
-          header: "Name",
-          type: "string",
-          width: 180,
-          sortable: true,
-          filterable: true,
-          editable: true,
-          resizable: true,
-          rowDrag: true
-        },
-        {
-          colId: "language",
-          field: "language",
-          header: "Language",
-          type: "dropdown",
-          width: 140,
-          sortable: true,
-          filterable: true,
-          editable: true,
-          groupable: true,
-          aggFunc: "count",
-          enumOptions: [
-            "English",
-            "German",
-            "French",
-            "Spanish",
-            "Urdu",
-            "Hindi",
-            "Japanese",
-            "Chinese"
-          ]
-        },
-        {
-          colId: "country",
-          field: "country",
-          header: "Country",
-          type: "dropdown",
-          width: 170,
-          sortable: true,
-          filterable: true,
-          editable: true,
-          groupable: true,
-          dropdownOptions: [
-            { label: "United States", value: "United States" },
-            { label: "United Kingdom", value: "United Kingdom" },
-            { label: "Canada", value: "Canada" },
-            { label: "Germany", value: "Germany" },
-            { label: "France", value: "France" },
-            { label: "Australia", value: "Australia" },
-            { label: "India", value: "India" },
-            { label: "United Arab Emirates", value: "United Arab Emirates" },
-            { label: "Pakistan", value: "Pakistan" }
-          ],
-          cellRendererFn: ({ value }) => {
-            const name = String(value ?? "");
-            const code = countryFlagCodes[name] ?? "un";
-            return `${name ? `<span style="display:flex;align-items:center;gap:7px"><img src="https://flagcdn.com/w20/${code}.png" width="20" height="14" style="border-radius:2px;object-fit:cover;flex-shrink:0" />` : ""}${name}</span>`;
-          }
-        }
-      ]
-    },
-    // ───────────────────────────────────────────────────────────────
-    // Game of Choice
-    // ───────────────────────────────────────────────────────────────
-    {
-      colId: "grp_game",
-      header: "Game of Choice",
-      openByDefault: true,
-      field: "",
-      type: "string",
-      marryChildren: false,
-      children: [
-        {
-          colId: "gameName",
-          field: "gameName",
-          header: "Game Name",
-          type: "string",
-          width: 190,
-          sortable: true,
-          filterable: true,
-          editable: true
-        },
-        {
-          colId: "bought",
-          field: "bought",
-          header: "Bought",
-          type: "boolean",
-          width: 110,
-          sortable: true,
-          filterable: true,
-          editable: true
-        }
-      ]
-    },
-    // ───────────────────────────────────────────────────────────────
-    // Performance
-    // ───────────────────────────────────────────────────────────────
-    {
-      colId: "grp_performance",
-      header: "Performance",
-      openByDefault: true,
-      field: "",
-      type: "string",
-      marryChildren: false,
-      children: [
-        {
-          colId: "bankBalance",
-          field: "bankBalance",
-          header: "Bank Balance",
-          type: "currency",
-          width: 160,
-          sortable: true,
-          filterable: true,
-          editable: true,
-          aggFunc: "sum"
-        }
-      ]
-    },
-    // ───────────────────────────────────────────────────────────────
-    // Flat Columns
-    // ───────────────────────────────────────────────────────────────
-    {
-      colId: "rating",
-      field: "rating",
-      header: "Rating",
-      type: "number",
-      width: 120,
-      cellRendererFn: ({ value }) => {
-        const rating = Math.max(0, Math.min(5, Math.round(Number(value) || 0)));
-        return `
-        <span style="color:#f59e0b;font-size:16px;letter-spacing:1px;">
-          ${"\u2605".repeat(rating)}
-        </span>
-      `;
-      },
+      pinned: null,
+      minWidth: 220,
+      width: 220,
       sortable: true,
       filterable: true,
-      editable: true,
-      aggFunc: "avg"
+      cellRendererFn: ({ row }) => {
+        const r = asRelease(row);
+        const wrap = document.createElement("div");
+        wrap.className = "inv-album-cell";
+        const cover = document.createElement("div");
+        cover.className = "inv-cover";
+        cover.style.background = r.coverGradient;
+        cover.textContent = r.coverLabel;
+        const textCol = document.createElement("div");
+        textCol.className = "inv-album-text";
+        const title = document.createElement("div");
+        title.className = "inv-album-title";
+        title.textContent = r.albumName;
+        const badge = document.createElement("div");
+        badge.className = "inv-genre-badge";
+        badge.textContent = r.genre;
+        textCol.appendChild(title);
+        textCol.appendChild(badge);
+        wrap.appendChild(cover);
+        wrap.appendChild(textCol);
+        return r.genre && r.albumName ? wrap : "";
+      }
+    },
+    { colId: "artist", field: "artist", header: "Artist", type: "string", rowDrag: true, minWidth: 140, sortable: true, filterable: true },
+    { colId: "year", field: "year", header: "Year", type: "number", width: 90, sortable: true },
+    {
+      colId: "status",
+      field: "status",
+      header: "Status",
+      type: "dropdown",
+      width: 140,
+      sortable: true,
+      filterable: true,
+      dropdownOptions: [
+        { value: "Active", label: "Active", color: "#16a34a" },
+        { value: "Out of Stock", label: "Out of Stock", color: "#dc2626" },
+        { value: "On Hold", label: "On Hold", color: "#d97706" }
+      ]
     },
     {
-      colId: "totalWinning",
-      field: "totalWinning",
-      header: "Total Winning",
-      type: "currency",
+      colId: "inventory",
+      field: "stock",
+      header: "Inventory",
+      type: "string",
       width: 170,
-      sortable: true,
-      filterable: true,
-      editable: true,
-      aggFunc: "sum"
+      cellRendererFn: ({ row }) => {
+        const r = asRelease(row);
+        return r.stock != null ? `${r.stock} Stock / ${r.variants.length} Variant${r.variants.length === 1 ? "" : "s"}` : "";
+      }
     },
-    // ───────────────────────────────────────────────────────────────
-    // Monthly Breakdown
-    // ───────────────────────────────────────────────────────────────
+    { colId: "incoming", field: "incoming", header: "Incoming", type: "number", width: 100, sortable: true },
     {
-      colId: "grp_monthly",
-      header: "Monthly Breakdown",
-      openByDefault: true,
-      type: "string",
-      field: "",
-      marryChildren: false,
-      children: [
-        {
-          colId: "january",
-          field: "january",
-          header: "January",
-          type: "currency",
-          width: 130,
-          sortable: true,
-          filterable: true,
-          editable: true,
-          aggFunc: "sum"
-        },
-        {
-          colId: "february",
-          field: "february",
-          header: "February",
-          type: "currency",
-          width: 130,
-          sortable: true,
-          filterable: true,
-          editable: true,
-          aggFunc: "sum"
-        },
-        {
-          colId: "march",
-          field: "march",
-          header: "March",
-          type: "currency",
-          width: 130,
-          sortable: true,
-          filterable: true,
-          editable: true,
-          aggFunc: "sum"
-        },
-        {
-          colId: "april",
-          field: "april",
-          header: "April",
-          type: "currency",
-          width: 130,
-          sortable: true,
-          filterable: true,
-          editable: true,
-          aggFunc: "sum"
-        },
-        {
-          colId: "may",
-          field: "may",
-          header: "May",
-          type: "currency",
-          width: 130,
-          sortable: true,
-          filterable: true,
-          editable: true,
-          aggFunc: "sum"
-        },
-        {
-          colId: "june",
-          field: "june",
-          header: "June",
-          type: "currency",
-          width: 130,
-          sortable: true,
-          filterable: true,
-          editable: true,
-          aggFunc: "sum"
-        },
-        {
-          colId: "july",
-          field: "july",
-          header: "July",
-          type: "currency",
-          width: 130,
-          sortable: true,
-          filterable: true,
-          editable: true,
-          aggFunc: "sum"
-        },
-        {
-          colId: "august",
-          field: "august",
-          header: "August",
-          type: "currency",
-          width: 130,
-          sortable: true,
-          filterable: true,
-          editable: true,
-          aggFunc: "sum"
-        },
-        {
-          colId: "september",
-          field: "september",
-          header: "September",
-          type: "currency",
-          width: 130,
-          sortable: true,
-          filterable: true,
-          editable: true,
-          aggFunc: "sum"
-        },
-        {
-          colId: "october",
-          field: "october",
-          header: "October",
-          type: "currency",
-          width: 130,
-          sortable: true,
-          filterable: true,
-          editable: true,
-          aggFunc: "sum"
-        },
-        {
-          colId: "november",
-          field: "november",
-          header: "November",
-          type: "currency",
-          width: 130,
-          sortable: true,
-          filterable: true,
-          editable: true,
-          aggFunc: "sum"
-        },
-        {
-          colId: "december",
-          field: "december",
-          header: "December",
-          type: "currency",
-          width: 130,
-          sortable: true,
-          filterable: true,
-          editable: true,
-          aggFunc: "sum"
-        }
-      ]
+      colId: "price",
+      field: "price",
+      header: "Price",
+      type: "currency",
+      width: 130,
+      sortable: true,
+      cellRendererFn: ({ row }) => {
+        const r = asRelease(row);
+        const wrap = document.createElement("div");
+        wrap.className = "inv-price-cell";
+        const amount = document.createElement("div");
+        amount.className = "inv-price-amount";
+        amount.textContent = `\xA3${r.price}`;
+        const sub = document.createElement("div");
+        sub.className = "inv-price-sub";
+        sub.textContent = `${r.priceChangePct}% increase`;
+        wrap.appendChild(amount);
+        wrap.appendChild(sub);
+        return r.price ? wrap : "";
+      }
+    },
+    { colId: "sold", field: "sold", header: "Sold", type: "number", width: 90, sortable: true },
+    {
+      colId: "estProfit",
+      field: "estProfit",
+      header: "Est. Profit",
+      type: "currency",
+      width: 120,
+      sortable: true,
+      cellRendererFn: ({ row }) => `\xA3${asRelease(row).estProfit.toFixed(1)}`
+    },
+    {
+      colId: "actions",
+      field: "id",
+      header: "Actions",
+      type: "custom",
+      pinned: null,
+      width: 190,
+      resizable: false,
+      cellRendererFn: ({ row, rowIndex }) => {
+        const r = asRelease(row);
+        const wrap = document.createElement("div");
+        wrap.className = "inv-actions-cell";
+        const holdBtn = document.createElement("button");
+        holdBtn.type = "button";
+        holdBtn.className = "inv-btn inv-btn--hold";
+        holdBtn.textContent = "Hold Selling";
+        holdBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const held = holdBtn.classList.toggle("inv-btn--held");
+          holdBtn.textContent = held ? "Resume Selling" : "Hold Selling";
+        });
+        const delBtn = document.createElement("button");
+        delBtn.type = "button";
+        delBtn.className = "inv-btn inv-btn--icon";
+        delBtn.setAttribute("aria-label", `Remove ${r.albumName}`);
+        delBtn.title = `Remove ${r.albumName}`;
+        delBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" width="14" height="14"><path d="M2 4H14M5 4V2H11V4M6 7V12M10 7V12M3 4L4 14H12L13 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+        delBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          if (!confirm(`Remove "${r.albumName}" from inventory?`)) return;
+          const node = grid.api.getRowByIndex(rowIndex);
+          if (node) grid.api.removeRows([node.nodeId]);
+        });
+        wrap.appendChild(holdBtn);
+        wrap.appendChild(delBtn);
+        return wrap;
+      }
     }
   ];
-  document.addEventListener("DOMContentLoaded", () => {
-    const data = generateEmployees(1e3);
-    const playerData = generatePlayerData(1e3);
-    const options = {
-      columns: playerColumns,
-      data: playerData,
-      theme: "light",
-      showCheckboxes: false,
-      showSerialNumber: false,
-      showVerticalBorders: false,
-      rowShading: false,
-      showSidePanel: true,
-      // showFilterRow: true,
-      footerRowHeight: 48,
-      rowHeight: 42,
-      showFooter: true,
-      rowHeightMode: "fixed",
-      showColumnMenu: true,
-      dateFormat: "dd/MM/yyyy",
-      currencySymbol: "$",
-      locale: "en-US",
-      pagination: {
-        enabled: true,
-        page: 1,
-        pageSize: 1e5,
-        pageSizeOptions: [5, 10, 15, 20, 50],
-        serverSide: false
-      },
-      selection: {
-        mode: "multiple",
-        checkboxSelection: true,
-        headerCheckbox: true
-      },
-      editing: {
-        mode: "row",
-        singleClickEdit: false
-      },
-      enableCellSelection: true,
-      showGroupingBar: true,
-      // ── Master/Detail ─────────────────────────────────────────────────────
-      // Expanding a row mounts a fully independent nested Photon Grid showing
-      // that player's monthly earnings — its own sorting/selection/etc., not
-      // just a static template. `getDetailData` derives the nested dataset
-      // synchronously from the player's january..december fields; the same
-      // hook supports returning a `Promise` for real async loading.
-      masterDetail: {
-        enabled: true,
-        toggleColumnId: "name",
-        detailAutoHeight: true,
-        detailMinHeight: 120,
-        detailMaxHeight: 320,
-        getDetailData: (row) => {
-          const months = [
-            "january",
-            "february",
-            "march",
-            "april",
-            "may",
-            "june",
-            "july",
-            "august",
-            "september",
-            "october",
-            "november",
-            "december"
-          ];
-          return months.map((month) => ({
-            month: month[0].toUpperCase() + month.slice(1),
-            earnings: row[month]
-          }));
-        },
-        detailGrid: {
-          columns: [
-            { colId: "month", field: "month", header: "Month", type: "string", width: 160, sortable: true },
-            { colId: "earnings", field: "earnings", header: "Earnings", type: "currency", width: 160, sortable: true }
-          ],
-          rowHeight: 32,
-          headerRowHeight: 36,
-          showFooter: false,
-          currencySymbol: "$"
+  var variantColumns = [
+    { colId: "title", field: "title", header: "Title", type: "string", minWidth: 120, sortable: true },
+    { colId: "available", field: "available", header: "Available", type: "number", width: 90, sortable: true },
+    { colId: "format", field: "format", header: "Format", type: "string", minWidth: 160, sortable: true },
+    { colId: "label", field: "label", header: "Label", type: "string", minWidth: 120, sortable: true },
+    { colId: "country", field: "country", header: "Country", type: "string", minWidth: 100, sortable: true },
+    { colId: "catNo", field: "catNo", header: "Cat#", type: "string", width: 110, sortable: true },
+    { colId: "year", field: "year", header: "Year", type: "number", width: 100, sortable: true }
+  ];
+  var stockLocationColumns = [
+    { colId: "warehouse", field: "warehouse", header: "Warehouse", type: "string", minWidth: 130, sortable: true },
+    { colId: "city", field: "city", header: "City", type: "string", minWidth: 120, sortable: true },
+    { colId: "qty", field: "qty", header: "Qty", type: "number", width: 80, sortable: true },
+    { colId: "restockDate", field: "restockDate", header: "Restock Date", type: "string", width: 130, sortable: true }
+  ];
+  var options = {
+    columns: inventoryColumns,
+    data: releases,
+    theme: "light",
+    rowHeight: 78,
+    headerRowHeight: 40,
+    showCheckboxes: false,
+    showSerialNumber: false,
+    showVerticalBorders: false,
+    showFooter: false,
+    enableCellSelection: true,
+    masterDetail: {
+      enabled: true,
+      toggleColumnId: "albumName",
+      getDetailData: (row) => asRelease(row).variants,
+      detailGrid: {
+        columns: variantColumns,
+        rowHeight: 34,
+        headerRowHeight: 36,
+        showFooter: false,
+        showVerticalBorders: true,
+        showGroupingBar: false,
+        // Third level: expanding a variant row shows where its stock physically
+        // sits. Configuring further nesting is just adding another
+        // `masterDetail` block to this level's own `detailGrid` — the same
+        // shape as the level above, to any depth.
+        masterDetail: {
+          enabled: true,
+          toggleColumnId: "title",
+          hasDetail: (row) => asVariant(row).available > 0,
+          getDetailData: (row) => buildStockLocations(asVariant(row)),
+          detailGrid: {
+            columns: stockLocationColumns,
+            rowHeight: 30,
+            headerRowHeight: 32,
+            showFooter: false,
+            showVerticalBorders: true,
+            showGroupingBar: false
+          },
+          detailAutoHeight: true,
+          detailMinHeight: 60,
+          detailMaxHeight: 200
         }
-      }
-    };
+      },
+      detailAutoHeight: true,
+      detailMinHeight: 90,
+      detailMaxHeight: 380
+    }
+  };
+  var grid;
+  document.addEventListener("DOMContentLoaded", () => {
     const container = document.getElementById("grid-container");
-    const themeSelect = document.getElementById("theme-select");
-    const allThemes = [
-      "pg-quartz-theme",
-      "pg-alpine-theme",
-      "pg-balham-theme",
-      "pg-material-theme",
-      "pg-dark-theme"
-    ];
-    const applyTheme = (theme) => {
-      allThemes.forEach((t) => container.classList.remove(t));
-      container.classList.add(theme);
-      document.body.classList.toggle("demo-dark", theme === "pg-dark-theme");
-    };
-    applyTheme(themeSelect.value);
-    themeSelect.addEventListener("change", () => applyTheme(themeSelect.value));
-    const grid = new GridCore(container, options);
-    const salaryByNodeId = new Map(
-      grid.api.getAllRows().filter((r) => Array.isArray(r.data.salaryHistory)).map((r) => [r.nodeId, r.data.salary])
-    );
+    grid = new GridCore(container, options);
   });
-  return __toCommonJS(demo_exports);
+  return __toCommonJS(inventory_demo_exports);
 })();
-//# sourceMappingURL=demo.bundle.js.map
+//# sourceMappingURL=inventory-demo.bundle.js.map

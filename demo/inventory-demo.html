@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PhotonGrid — Inventory Master/Detail Demo</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      height: 100%;
+      overflow: hidden;
+      font-family: system-ui, sans-serif;
+      display: flex;
+      flex-direction: column;
+      background: #f1f5f9;
+    }
+    #demo-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 20px;
+      height: 48px;
+      flex-shrink: 0;
+      background: #ffffff;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    #demo-toolbar .toolbar-logo {
+      font-size: 14px;
+      font-weight: 700;
+      color: #0f172a;
+      letter-spacing: -0.01em;
+    }
+    #demo-toolbar .toolbar-logo span { color: #2563eb; }
+    #demo-toolbar .toolbar-subtitle {
+      font-size: 12px;
+      color: #64748b;
+    }
+    #grid-wrapper {
+      flex: 1;
+      min-height: 0;
+      padding: 20px;
+    }
+    #grid-container { width: 100%; height: 100%; }
+
+    /* ── Demo-page-only cell styling (illustrative, not part of the grid engine) ── */
+    .inv-album-cell {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+    }
+    .inv-cover {
+      width: 60px;
+      height: 60px;
+      flex-shrink: 0;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+    .inv-album-text {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+    }
+    .inv-album-title {
+      font-weight: 600;
+      color: #0f172a;
+      font-size: 13px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .inv-genre-badge {
+      align-self: flex-start;
+      font-size: 10px;
+      font-weight: 500;
+      color: #64748b;
+      background: #f1f5f9;
+      border-radius: 4px;
+      padding: 1px 6px;
+    }
+    .inv-price-cell {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      width: 100%;
+      gap: 1px;
+    }
+    .inv-price-amount { font-weight: 600; color: #0f172a; font-size: 13px; }
+    .inv-price-sub { font-size: 11px; color: #94a3b8; }
+    .inv-actions-cell {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .inv-btn {
+      font-family: inherit;
+      font-size: 12px;
+      cursor: pointer;
+      border-radius: 6px;
+      transition: background 120ms, border-color 120ms, color 120ms;
+    }
+    .inv-btn--hold {
+      padding: 6px 12px;
+      border: 1px solid #cbd5e1;
+      background: #fff;
+      color: #0f172a;
+      font-weight: 500;
+      white-space: nowrap;
+    }
+    .inv-btn--hold:hover { border-color: #94a3b8; background: #f8fafc; }
+    .inv-btn--hold.inv-btn--held { border-color: #f59e0b; color: #b45309; background: #fffbeb; }
+    .inv-btn--icon {
+      width: 30px;
+      height: 30px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid #e2e8f0;
+      background: #fff;
+      color: #64748b;
+      flex-shrink: 0;
+    }
+    .inv-btn--icon:hover { border-color: #fca5a5; color: #dc2626; background: #fef2f2; }
+  </style>
+</head>
+<body>
+  <div id="demo-toolbar">
+    <span class="toolbar-logo">Photon<span>Grid</span></span>
+    <span class="toolbar-subtitle">— Inventory Master/Detail demo</span>
+  </div>
+  <div id="grid-wrapper">
+    <div id="grid-container"></div>
+  </div>
+  <script src="./inventory-demo.bundle.js"></script>
+</body>
+</html>

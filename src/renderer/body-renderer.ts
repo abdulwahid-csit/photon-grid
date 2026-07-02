@@ -51,6 +51,15 @@ export interface BodyRendererOptions {
   centerLeftSpacerW?: number;    // px width of off-screen cols to the left
   centerRightSpacerW?: number;   // px width of off-screen cols to the right
   totalCenterCols?: number;      // total number of center cols (for rightOffset calc)
+  /**
+   * When Master/Detail is enabled, drives the expand/collapse toggle icon
+   * rendered on `'data'` rows for the configured toggle column.
+   */
+  masterDetail?: {
+    toggleColumnId: string;
+    isExpandedFn: (nodeId: string) => boolean;
+    hasDetailFn: (rowData: Record<string, unknown>) => boolean;
+  };
 }
 
 interface PanelRowSet {
@@ -70,6 +79,15 @@ export class BodyRenderer {
   // Track last rendered center col range to detect changes
   private lastCenterStart = -1;
   private lastCenterEnd = -1;
+
+  // Sticky-row overlay containers (Master/Detail) — siblings of the
+  // `*Content` panels above, outside the scroll transform. `null` unless
+  // `masterDetail.enabled`.
+  private leftSticky: HTMLElement | null = null;
+  private centerSticky: HTMLElement | null = null;
+  private rightSticky: HTMLElement | null = null;
+  /** `nodeId` of the row currently parked in the sticky containers, if any. */
+  private stuckNodeId: string | null = null;
 
   constructor(
     private store: GridStore,
@@ -108,6 +126,68 @@ export class BodyRenderer {
           p.querySelectorAll<HTMLElement>(`[data-node-id="${nodeId}"]`).forEach((r) => r.classList.remove('pg-row--hover'));
         }
       });
+    }
+  }
+
+  /** Wires the per-panel sticky-row overlay containers. Called once from `GridRenderer` when `masterDetail.enabled`. */
+  setStickyContainers(left: HTMLElement | null, center: HTMLElement | null, right: HTMLElement | null): void {
+    this.leftSticky = left;
+    this.centerSticky = center;
+    this.rightSticky = right;
+  }
+
+  /**
+   * Parks `nodeId`'s row in the sticky overlay (pinned at the panel's own
+   * top, ignoring the scroll transform) — or releases whatever was
+   * previously stuck back into normal scrolled flow when `nodeId` is `null`
+   * or refers to a different row.
+   *
+   * Moves the *actual* cached DOM nodes (not clones) so every existing
+   * listener, selection class, and edit-in-progress state carries over
+   * untouched — this only ever runs on already-rendered rows.
+   */
+  setSticky(nodeId: string | null, offsetPx = 0): void {
+    if (nodeId === this.stuckNodeId) {
+      // Same row still stuck — only the push-off offset changes as the user
+      // keeps scrolling, so just update `top` in place with no re-parenting.
+      // Re-adding the class is still necessary every call: `updatePanelRow`
+      // (called earlier this same render, for every cached 'data' row)
+      // overwrites `className` wholesale and has no notion of stickiness,
+      // so it silently wipes `pg-row--sticky` on every single render pass.
+      if (nodeId) {
+        const current = this.renderedRowMap.get(nodeId);
+        for (const el of [current?.left, current?.center, current?.right]) {
+          if (!el) continue;
+          el.style.top = `${offsetPx}px`;
+          el.classList.add('pg-row--sticky');
+        }
+      }
+      return;
+    }
+
+    if (this.stuckNodeId) {
+      const prev = this.renderedRowMap.get(this.stuckNodeId);
+      if (prev) {
+        if (prev.left) { prev.left.style.top = ''; this.leftContent?.appendChild(prev.left); }
+        if (prev.center) { prev.center.style.top = ''; this.centerContent?.appendChild(prev.center); }
+        if (prev.right) { prev.right.style.top = ''; this.rightContent?.appendChild(prev.right); }
+        for (const el of [prev.left, prev.center, prev.right]) el?.classList.remove('pg-row--sticky');
+      }
+      this.stuckNodeId = null;
+    }
+
+    if (nodeId) {
+      const next = this.renderedRowMap.get(nodeId);
+      if (next) {
+        // Inline `top` beats the RowPositionSheet stylesheet rule for this
+        // same nodeId without fighting CSS specificity — reverted above by
+        // clearing the inline style, which lets the stylesheet rule apply again.
+        if (next.left && this.leftSticky) { next.left.style.top = `${offsetPx}px`; this.leftSticky.appendChild(next.left); }
+        if (next.center && this.centerSticky) { next.center.style.top = `${offsetPx}px`; this.centerSticky.appendChild(next.center); }
+        if (next.right && this.rightSticky) { next.right.style.top = `${offsetPx}px`; this.rightSticky.appendChild(next.right); }
+        for (const el of [next.left, next.center, next.right]) el?.classList.add('pg-row--sticky');
+        this.stuckNodeId = nodeId;
+      }
     }
   }
 
@@ -166,7 +246,14 @@ export class BodyRenderer {
         existing = undefined;
       }
 
-      if (existing && existing.center !== null) {
+      if (existing && row.type === 'detail') {
+        // Detail rows never have panel DOM (see buildPanelRow) — their
+        // `center` is permanently null by design, not because a column-range
+        // change invalidated it. Without this check the branch below would
+        // mistake that for "needs rebuilding" on every single render pass
+        // and spuriously build real cell content for a row type that must
+        // never appear in these panels at all.
+      } else if (existing && existing.center !== null) {
         // Normal update — row and center already in DOM
         this.updatePanelRow(existing, row, i, options);
       } else if (existing) {
@@ -268,6 +355,11 @@ export class BodyRenderer {
     rightOffset: number,
     options: BodyRendererOptions,
   ): PanelRowSet {
+    // Detail rows render exclusively in `DetailRowRenderer`'s full-width overlay
+    // layer — they occupy a slot in `visibleRows` (for height/virtualization
+    // bookkeeping) but must not produce any left/center/right panel DOM.
+    if (row.type === 'detail') return { left: null, center: null, right: null };
+
     const hasLeft = !!(this.leftContent && (options.showCheckboxes || options.showSerialNumber || leftCols.length > 0));
     const hasRight = !!(this.rightContent && rightCols.length > 0);
 
@@ -377,6 +469,7 @@ export class BodyRenderer {
           cellEl.insertBefore(handle, cellEl.firstChild);
         }
       }
+      this.applyMasterDetailToggle(cellEl, row, cols[i], options);
       el.appendChild(cellEl);
     }
 
@@ -604,10 +697,20 @@ export class BodyRenderer {
   ): void {
     const cls = this.getRowClass(row, displayIndex, options);
     const els = [ps.left, ps.center, ps.right].filter((e): e is HTMLElement => e !== null);
+    const rowIndexStr = String(row.rowIndex);
     for (const el of els) {
       el.className = cls;
-      el.setAttribute('data-row-index', String(row.rowIndex));
+      el.setAttribute('data-row-index', rowIndexStr);
       if (row.type === 'group') el.setAttribute('data-level', String(row.level));
+
+      // Re-stamp every cell's own `data-row-index` too. Cells set it at build
+      // time and are reused across renders — but a row's index can shift while
+      // its cached DOM is kept (e.g. a Master/Detail detail row being injected
+      // above it, or a group expanding). Selection/keyboard/clipboard all match
+      // cells by this attribute, so leaving it stale silently breaks cell
+      // selection on any row whose index moved without a full rebuild.
+      const cells = el.querySelectorAll<HTMLElement>('.pg-cell[data-row-index]');
+      for (const cell of cells) cell.setAttribute('data-row-index', rowIndexStr);
     }
 
     // Sync expand/collapse icon — expanded state can change without a full row rebuild.
@@ -622,6 +725,57 @@ export class BodyRenderer {
         toggleBtn.setAttribute('aria-label', row.expanded ? 'Collapse group' : 'Expand group');
       }
     }
+
+    // Sync the Master/Detail toggle icon — expanded state lives in
+    // `store.expandedRowIds`, not on the `RowNode` itself, so it must be
+    // re-read and re-applied on every update rather than baked in at build time.
+    if (row.type === 'data' && options.masterDetail) {
+      const isExpanded = options.masterDetail.isExpandedFn(row.nodeId);
+      for (const el of els) {
+        const toggleBtn = el.querySelector<HTMLElement>('.pg-detail-toggle');
+        if (!toggleBtn) continue;
+        const iconEl = toggleBtn.querySelector<HTMLElement>('.pg-icon');
+        if (iconEl) this.iconRenderer.updateIcon(iconEl, isExpanded ? 'chevronDown' : 'chevronRight');
+        toggleBtn.setAttribute('aria-label', isExpanded ? 'Collapse detail' : 'Expand detail');
+      }
+    }
+  }
+
+  /**
+   * Inserts the Master/Detail expand/collapse toggle as a sibling of
+   * `.pg-cell__inner` (never inside it) — `.pg-cell__inner` is wiped and
+   * rebuilt wholesale by cell-edit start/stop (`GridCore.startCellEdit` /
+   * `renderCellValue`), which would silently destroy a toggle placed inside it
+   * the first time this column is edited.
+   */
+  private applyMasterDetailToggle(
+    cellEl: HTMLElement,
+    row: RowNode,
+    colDef: ColumnDef,
+    options: BodyRendererOptions,
+  ): void {
+    const md = options.masterDetail;
+    if (!md || row.type !== 'data' || colDef.colId !== md.toggleColumnId) return;
+    if (!md.hasDetailFn(row.data)) return;
+
+    const isExpanded = md.isExpandedFn(row.nodeId);
+    const toggleBtn = createDiv('pg-detail-toggle');
+    toggleBtn.setAttribute('role', 'button');
+    toggleBtn.setAttribute('data-detail-toggle', '');
+    toggleBtn.setAttribute('aria-label', isExpanded ? 'Collapse detail' : 'Expand detail');
+    toggleBtn.appendChild(this.iconRenderer.render(isExpanded ? 'chevronDown' : 'chevronRight', { size: 16 }));
+
+    const inner = cellEl.querySelector<HTMLElement>('.pg-cell__inner');
+    if (inner) {
+      cellEl.insertBefore(toggleBtn, inner);
+    } else {
+      cellEl.insertBefore(toggleBtn, cellEl.firstChild);
+    }
+
+    toggleBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.eventBus.emit(GridEventType.ROW_DETAIL_TOGGLE_CLICKED, { row, colDef });
+    });
   }
 
   private attachRowListeners(
@@ -647,6 +801,10 @@ export class BodyRenderer {
 
     el.addEventListener('mousedown', (e) => {
       if (e.button !== 0) return;
+      // The Master/Detail toggle sits inside a cell but must never trigger
+      // cell selection — it emits its own click event (see
+      // applyMasterDetailToggle) and stops there.
+      if ((e.target as HTMLElement).closest('[data-detail-toggle]')) return;
       const cellEl = (e.target as HTMLElement).closest<HTMLElement>('[data-col-index][data-col-id]');
       if (!cellEl) return;
       const globalColIndex = Number(cellEl.getAttribute('data-col-index'));

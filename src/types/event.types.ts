@@ -79,6 +79,11 @@ export const GridEventType = {
   COLUMN_GROUP_HEADER_EXPANDED:  'columnGroup:expanded',
   COLUMN_GROUP_HEADER_CREATED:   'columnGroup:created',
   COLUMN_GROUP_HEADER_REMOVED:   'columnGroup:removed',
+
+  ROW_DETAIL_TOGGLE_CLICKED: 'row:detailToggleClicked',
+  ROW_DETAIL_OPENED: 'row:detailOpened',
+  ROW_DETAIL_CLOSED: 'row:detailClosed',
+  ROW_DETAIL_HEIGHT_CHANGED: 'row:detailHeightChanged',
 } as const;
 
 export type GridEventType = (typeof GridEventType)[keyof typeof GridEventType];
@@ -164,6 +169,22 @@ export interface ExportEvent {
 export interface ColumnsStateChangedEvent {
   states: ColumnState[];
 }
+export interface RowDetailToggleClickedEvent {
+  row: RowNode;
+  colDef: ColumnDef;
+}
+export interface RowDetailOpenedEvent {
+  nodeId: string;
+  row: RowNode;
+}
+export interface RowDetailClosedEvent {
+  nodeId: string;
+  row: RowNode;
+}
+export interface RowDetailHeightChangedEvent {
+  nodeId: string;
+  height: number;
+}
 
 export type GridEventMap = {
   [GridEventType.READY]: ReadyEvent;
@@ -199,4 +220,8 @@ export type GridEventMap = {
   [GridEventType.COLUMN_GROUP_HEADER_EXPANDED]:  ColumnGroupHeaderExpandedEvent;
   [GridEventType.COLUMN_GROUP_HEADER_CREATED]:   ColumnGroupHeaderCreatedEvent;
   [GridEventType.COLUMN_GROUP_HEADER_REMOVED]:   ColumnGroupHeaderRemovedEvent;
+  [GridEventType.ROW_DETAIL_TOGGLE_CLICKED]: RowDetailToggleClickedEvent;
+  [GridEventType.ROW_DETAIL_OPENED]: RowDetailOpenedEvent;
+  [GridEventType.ROW_DETAIL_CLOSED]: RowDetailClosedEvent;
+  [GridEventType.ROW_DETAIL_HEIGHT_CHANGED]: RowDetailHeightChangedEvent;
 };

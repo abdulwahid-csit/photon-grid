@@ -31,6 +31,10 @@ import { RowAnimator } from './row-animator';
 import { FilterPanel } from '../engines/filter/filter-panel';
 import type { FilterSetOption } from '../engines/filter/filter-panel';
 import { createDiv } from './dom-utils';
+import type { MasterDetailEngine } from '../engines/master-detail/master-detail-engine';
+import type { ThemeManager } from '../theme/theme-manager';
+import { DetailRowRenderer, type NestedGridFactory } from './detail-row-renderer';
+import { StickyRowTracker } from './sticky-row-tracker';
 
 const CHECKBOX_COL_WIDTH = 44;
 const SERIAL_COL_WIDTH = 52;
@@ -57,6 +61,17 @@ export class GridRenderer {
   private footerContainerEl: HTMLElement | null = null;
   private bodyWrapEl: HTMLElement | null = null;
 
+  // Sticky-row overlay layers — one per panel, siblings of `*ContentEl` (not
+  // children), so a stuck Master/Detail row ignores the scroll transform.
+  // Only created when `masterDetail.enabled`, per `masterDetailEnabledAtConstruction`.
+  private leftStickyRowEl: HTMLElement | null = null;
+  private centerStickyRowEl: HTMLElement | null = null;
+  private rightStickyRowEl: HTMLElement | null = null;
+  private readonly masterDetailEnabledAtConstruction: boolean;
+  /** `nodeId` of the currently-stuck master row, or `null` when none is sticky. */
+  private stickyNodeId: string | null = null;
+  private readonly stickyRowTracker = new StickyRowTracker();
+
   /** Exposed for {@link DisplayGroupEngine} construction in `GridCore`. */
   readonly colStyles: ColumnStyleManager;
   private rowPositionSheet: RowPositionSheet;
@@ -67,6 +82,8 @@ export class GridRenderer {
   private overlayRenderer: OverlayRenderer;
   private groupDropZone: GroupDropZone | null = null;
   private rowDragRenderer: RowDragRenderer | null = null;
+  private detailRowRenderer: DetailRowRenderer | null = null;
+  private masterDetailEngine: MasterDetailEngine | null = null;
 
   private rafId: number | null = null;
   private autoScroller: AutoScroller | null = null;
@@ -101,6 +118,17 @@ export class GridRenderer {
   private _cachedTotalHeight = 0;
   /** Cached center-panel content width in pixels. */
   private _cachedCenterW = 0;
+  /**
+   * Center-panel `clientWidth` last used to resolve `flex` columns. Flex
+   * widths are normally only re-resolved when the columns array itself
+   * changes (cheap, guards the 60fps scroll path) — but the container can
+   * also resize with the columns reference untouched, e.g. a vertical
+   * scrollbar transiently appearing/disappearing as a Master/Detail row is
+   * inserted. Comparing against this on every render (a single cheap
+   * `clientWidth` read, only paid by grids that actually use `flex` columns)
+   * catches that case so flex columns don't get stuck sized for a stale width.
+   */
+  private _lastFlexResolvedWidth = -1;
 
   constructor(
     private containerEl: HTMLElement,
@@ -118,6 +146,10 @@ export class GridRenderer {
     this.colStyles = new ColumnStyleManager();
     this.rowPositionSheet = new RowPositionSheet();
     this.scrollController = new ScrollController();
+    this.masterDetailEnabledAtConstruction = options.masterDetail?.enabled ?? false;
+    if (this.masterDetailEnabledAtConstruction) {
+      this.scrollController.setReserveVerticalGutter(true);
+    }
 
     this.headerRenderer = new HeaderRenderer(
       store, eventBus, iconRenderer, columnModel, sortEngine, this.colStyles,
@@ -132,6 +164,16 @@ export class GridRenderer {
     );
     this.footerRenderer = new FooterRenderer(eventBus, iconRenderer, paginationEngine);
     this.overlayRenderer = new OverlayRenderer(iconRenderer);
+
+    if (options.masterDetail?.enabled) {
+      this.detailRowRenderer = new DetailRowRenderer();
+      // Nested grids never scroll themselves via mouse wheel — every wheel
+      // gesture over one drives the parent's own scroll instead, so the
+      // parent + detail sections read as one continuous scrollable surface.
+      this.detailRowRenderer.setParentScrollForwarder((delta) => {
+        this.scrollController.scrollToY(this.scrollController.getScrollTop() + delta);
+      });
+    }
   }
 
   mount(): void {
@@ -421,6 +463,44 @@ export class GridRenderer {
     this.groupDropZone?.setSearchCallback(fn);
   }
 
+  /**
+   * Wires the Master/Detail engine and nested-grid factory into the renderer.
+   * A no-op when `masterDetail.enabled` was falsy at construction (the
+   * `DetailRowRenderer` instance was never created). Called once from
+   * `GridCore.buildContext`, before `mount()`.
+   */
+  setMasterDetailConfig(
+    engine: MasterDetailEngine,
+    nestedGridFactory: NestedGridFactory,
+    iconRenderer: IconRenderer,
+    themeManager: ThemeManager,
+  ): void {
+    this.masterDetailEngine = engine;
+    this.detailRowRenderer?.setDependencies(engine, nestedGridFactory, iconRenderer, themeManager);
+  }
+
+  /**
+   * Late-bound once the owning `GridCore`'s `GridApi` exists — passed through
+   * to `masterDetail.detailRendererFn` as `DetailRendererParams.parentApi`.
+   */
+  setParentApiForDetail(api: unknown): void {
+    this.detailRowRenderer?.setParentApi(api);
+  }
+
+  /** The nested grid's `GridApi` for an expanded master row, or `undefined`. Backs `GridApi.getDetailGridApi`. */
+  getDetailGridApi(parentNodeId: string): unknown {
+    return this.detailRowRenderer?.getNestedInstance(parentNodeId)?.api;
+  }
+
+  /**
+   * Starts the shrink/fade-out animation for `parentNodeId`'s detail row.
+   * Must be called synchronously **before** the pipeline re-runs and removes
+   * the row — see `DetailRowRenderer.beginCollapse` for why the timing matters.
+   */
+  beginDetailCollapse(parentNodeId: string): void {
+    this.detailRowRenderer?.beginCollapse(parentNodeId);
+  }
+
   scrollToRow(rowIndex: number): void {
     const rows = this.store.get('visibleRows');
     this.scrollController.scrollToRow(rowIndex, rows);
@@ -428,6 +508,16 @@ export class GridRenderer {
 
   scrollToTop(): void {
     this.scrollController.scrollToTop();
+  }
+
+  /** Whether the body can still scroll further up. Used by a Master/Detail parent to chain wheel scroll into this grid before forwarding it further up itself. */
+  canScrollUp(): boolean {
+    return this.scrollController.canScrollUp();
+  }
+
+  /** Whether the body can still scroll further down. */
+  canScrollDown(): boolean {
+    return this.scrollController.canScrollDown();
   }
 
   /**
@@ -452,14 +542,22 @@ export class GridRenderer {
     const col = colIndex >= 0 ? allCols[colIndex] : null;
 
     // ── Vertical ──────────────────────────────────────────────────────────────
-    const rowH      = row.height ?? (this.options.rowHeight ?? 48);
-    const scrollTop = this.scrollController.getScrollTop();
-    const vpH       = this.scrollController.getViewportHeight();
+    // A Master/Detail sticky row is already fully visible — pinned at the
+    // viewport's top — even though its logical `row.top` sits above the current
+    // scroll position. Auto-scrolling it into view would scroll UP to reveal
+    // its real (non-sticky) position, un-sticking it and jarringly jumping the
+    // grid (and its nested detail) on a mere cell click. Skip vertical scroll
+    // for it; horizontal scroll below still applies normally.
+    if (row.nodeId !== this.stickyNodeId) {
+      const rowH      = row.height ?? (this.options.rowHeight ?? 48);
+      const scrollTop = this.scrollController.getScrollTop();
+      const vpH       = this.scrollController.getViewportHeight();
 
-    if (row.top < scrollTop) {
-      this.scrollController.scrollToY(row.top);
-    } else if (row.top + rowH > scrollTop + vpH) {
-      this.scrollController.scrollToY(row.top + rowH - vpH);
+      if (row.top < scrollTop) {
+        this.scrollController.scrollToY(row.top);
+      } else if (row.top + rowH > scrollTop + vpH) {
+        this.scrollController.scrollToY(row.top + rowH - vpH);
+      }
     }
 
     // ── Horizontal (center columns only) ──────────────────────────────────────
@@ -525,6 +623,7 @@ export class GridRenderer {
     this.bodyRenderer.destroy();
     this.footerRenderer.destroy();
     this.overlayRenderer.destroy();
+    this.detailRowRenderer?.destroy();
     this.scrollController.destroy();
     this.groupDropZone?.destroy();
     this.rowDragRenderer?.destroy();
@@ -543,7 +642,23 @@ export class GridRenderer {
   private buildLayout(): void {
     this.wrapperEl = createDiv('pg-grid');
     this.wrapperEl.setAttribute('role', 'grid');
-    this.wrapperEl.setAttribute('data-photon-grid-id', this.generateId());
+    const gridId = this.generateId();
+    this.wrapperEl.setAttribute('data-photon-grid-id', gridId);
+    // Scopes ColumnStyleManager's generated width rules to this instance —
+    // without it, two GridCore instances on the same page (e.g. a Master/Detail
+    // parent and its nested grid) sharing a user-provided colId like "year"
+    // would resize each other via the same unscoped [data-col-id] selector.
+    this.colStyles.setScopeId(gridId);
+    if (this.masterDetailEnabledAtConstruction) {
+      // Pinned left/right panels are full-height, `pointer-events: auto`
+      // (default) blocks regardless of whether they have a row at a given Y
+      // — including the Y range where a full-width detail/nested grid is
+      // showing underneath. Scoped to master-detail grids only: see the
+      // paired `.pg-grid--has-master-detail` rule in base-styles.ts, which
+      // makes empty panel space pass clicks through while individual rows
+      // (which do have real content) explicitly opt back into receiving them.
+      this.wrapperEl.classList.add('pg-grid--has-master-detail');
+    }
     if (!this.options.showVerticalBorders) {
       this.wrapperEl.classList.add('pg-grid--no-v-borders');
     }
@@ -696,14 +811,42 @@ export class GridRenderer {
     // Mount overlay on body (spans all panels)
     this.overlayRenderer.mount(bodyWrapEl);
 
+    // Mount the Master/Detail full-width layer as a sibling of the
+    // left/center/right panels — see `DetailRowRenderer` for why detail rows
+    // must live outside the pinned-column panel structure entirely.
+    if (this.detailRowRenderer) this.detailRowRenderer.mount(bodyWrapEl);
+
+    // Sticky-row layer: a TOP-LEVEL sibling of the panels and the detail
+    // layer — deliberately NOT nested inside `.pg-panel--left/right`.
+    // Those panels set their own explicit z-index (for pinned-column
+    // elevation), which makes each one its own stacking context; anything
+    // nested inside — including an earlier version of this layer — is
+    // trapped there and can never out-rank `.pg-detail-layer` merely by
+    // having a higher z-index of its own. Living at the same level as both
+    // lets a single z-index correctly out-rank everything at once, in every
+    // pinned/non-pinned column, with no stacking-context surprises.
+    if (this.masterDetailEnabledAtConstruction) {
+      this.buildStickyLayer(bodyWrapEl);
+    }
+
     // Attach cell selection to center content
     this.cellSelectionEngine.attach(centerBodyContentEl);
 
     // Pass panels to body renderer
     this.bodyRenderer.setPanels(leftBodyContentEl, centerBodyContentEl, rightBodyContentEl);
 
-    // Pass body content panels to cell selection engine for CSS class-based highlighting
-    this.cellSelectionEngine.setBodyPanels([leftBodyContentEl, centerBodyContentEl, rightBodyContentEl]);
+    // Pass body content panels to cell selection engine for CSS class-based
+    // highlighting. The Master/Detail sticky-row containers are included too:
+    // a stuck row's cells are physically re-parented out of the normal content
+    // panels into the sticky layer, so without scanning those containers
+    // `applySelectionClasses` could never highlight the active/selected cell
+    // while its row is pinned at the top. A cell only ever lives in one place
+    // at a time, so there is no double-processing.
+    const selectionPanels: HTMLElement[] = [leftBodyContentEl, centerBodyContentEl, rightBodyContentEl];
+    if (this.leftStickyRowEl) selectionPanels.push(this.leftStickyRowEl);
+    if (this.centerStickyRowEl) selectionPanels.push(this.centerStickyRowEl);
+    if (this.rightStickyRowEl) selectionPanels.push(this.rightStickyRowEl);
+    this.cellSelectionEngine.setBodyPanels(selectionPanels);
 
     // Wire auto-scroll: whenever the active cell changes, scroll it into view
     this.cellSelectionEngine.setScrollToCellCallback((r, c) => this.scrollToCell(r, c));
@@ -804,6 +947,33 @@ export class GridRenderer {
     this.unsubscribers.push(() => document.removeEventListener('mouseup', docMouseUp));
   }
 
+  /**
+   * Builds the top-level sticky-row layer and its three left/center/right
+   * regions, mirroring the pinned-column layout via the same
+   * `--pg-left-panel-width` / `--pg-right-panel-width` CSS vars the real
+   * panels use — so a stuck row lines up pixel-for-pixel with the columns
+   * it belongs to. The center region gets its own horizontal-scroll
+   * transform so a stuck row's center cells track the user's horizontal
+   * scroll exactly like the real (non-sticky) center panel does.
+   */
+  private buildStickyLayer(bodyWrapEl: HTMLElement): void {
+    const layer = createDiv('pg-sticky-layer');
+
+    this.leftStickyRowEl = createDiv('pg-sticky-layer__left');
+    layer.appendChild(this.leftStickyRowEl);
+
+    const centerRegion = createDiv('pg-sticky-layer__center');
+    this.centerStickyRowEl = createDiv('pg-sticky-layer__center-inner');
+    centerRegion.appendChild(this.centerStickyRowEl);
+    layer.appendChild(centerRegion);
+
+    this.rightStickyRowEl = createDiv('pg-sticky-layer__right');
+    layer.appendChild(this.rightStickyRowEl);
+
+    bodyWrapEl.appendChild(layer);
+    this.bodyRenderer.setStickyContainers(this.leftStickyRowEl, this.centerStickyRowEl, this.rightStickyRowEl);
+  }
+
   // ─── Render ───────────────────────────────────────────────────────────────
 
   private performRender(): void {
@@ -862,7 +1032,10 @@ export class GridRenderer {
       const centerColIds = centerCols.map((c) => c.colId);
       if (this.colStyles.hasFlex(centerColIds)) {
         const centerPanelW = this.centerBodyEl?.clientWidth ?? 0;
-        if (centerPanelW > 0) this.colStyles.resolveFlex(centerColIds, centerPanelW);
+        if (centerPanelW > 0) {
+          this.colStyles.resolveFlex(centerColIds, centerPanelW);
+          this._lastFlexResolvedWidth = centerPanelW;
+        }
       }
 
       const centerContentWidth = this.colStyles.getTotalWidth(centerColIds)
@@ -884,6 +1057,24 @@ export class GridRenderer {
       }
 
       w.style.setProperty('--pg-center-content-width', `${centerContentWidth}px`);
+    } else if (this.colStyles.hasFlex(centerCols.map((c) => c.colId))) {
+      // Columns didn't change, but the container may have resized with no
+      // columns-array change to signal it — e.g. a vertical scrollbar
+      // transiently appearing/disappearing as a Master/Detail row is
+      // inserted, or a plain window resize. Flex columns must track that,
+      // or they stay sized for a stale width and show a spurious scrollbar
+      // (or an unfilled gap) until something else happens to touch the
+      // columns array (resize/sort/pin) and incidentally re-resolves them.
+      const centerColIds = centerCols.map((c) => c.colId);
+      const centerPanelW = this.centerBodyEl?.clientWidth ?? 0;
+      if (centerPanelW > 0 && Math.abs(centerPanelW - this._lastFlexResolvedWidth) > 1) {
+        this.colStyles.resolveFlex(centerColIds, centerPanelW);
+        this._lastFlexResolvedWidth = centerPanelW;
+        const centerContentWidth = this.colStyles.getTotalWidth(centerColIds)
+          + (hasGroupedColumns ? AUTO_GROUP_COL_WIDTH : 0);
+        this._cachedCenterW = centerContentWidth;
+        w.style.setProperty('--pg-center-content-width', `${centerContentWidth}px`);
+      }
     }
 
     // ── Row-dependent work ────────────────────────────────────────────────────
@@ -902,6 +1093,19 @@ export class GridRenderer {
     } else if (colsChanged || groupingChanged) {
       // Center width changed but row count did not — update the horizontal size only.
       this.scrollController.updateSizes(this._cachedTotalHeight, this._cachedCenterW);
+    } else if (this.headerRenderer.isResizingColumn) {
+      // A live column-width drag never touches the `columns` store reference
+      // (ColumnModel.setColumnWidth only fires on mouseup) — `colsChanged`
+      // stays false for the whole gesture, so the block above never runs.
+      // Recompute the center width straight from already-known column widths
+      // (no DOM measurement needed) so the horizontal scrollbar's spacer —
+      // and thus its visible track/thumb size — tracks the resize in real
+      // time instead of jumping only once the mouse is released.
+      const centerColIds = centerCols.map((c) => c.colId);
+      const liveCenterW = this.colStyles.getTotalWidth(centerColIds) + (hasGroupedColumns ? AUTO_GROUP_COL_WIDTH : 0);
+      this._cachedCenterW = liveCenterW;
+      w.style.setProperty('--pg-center-content-width', `${liveCenterW}px`);
+      this.scrollController.updateSizes(this._cachedTotalHeight, liveCenterW);
     }
 
     if (loading) {
@@ -1006,6 +1210,20 @@ export class GridRenderer {
       end = Math.min(rows.length, Math.ceil((scrollTop + viewportHeight) / rowHeight) + buffer + animExtra);
     }
 
+    // ── Master/Detail sticky row ────────────────────────────────────────────
+    // See `StickyRowTracker` for the full rule. `minStart` widens the render
+    // window when needed so the sticky row's cells stay rendered even though
+    // virtualization would otherwise have scrolled past its natural position.
+    let stickyNodeId: string | null = null;
+    let stickyOffsetPx = 0;
+    if (this.masterDetailEnabledAtConstruction) {
+      const sticky = this.stickyRowTracker.compute(rows, scrollTop, rowHeight, start);
+      stickyNodeId = sticky.nodeId;
+      stickyOffsetPx = sticky.offsetPx;
+      start = sticky.minStart;
+    }
+    this.stickyNodeId = stickyNodeId;
+
     // Update row position stylesheet for visible rows.
     // In auto-height mode always use rowHeight as min-height so that widening a
     // column allows rows to shrink back — the previously measured row.height must
@@ -1029,6 +1247,15 @@ export class GridRenderer {
     // We skip renderRows while resizing and instead only advance the tracked
     // range so the next normal paint (after mouseup) does not see a stale range.
     const renderedRows = rows.slice(start, end);
+
+    const masterDetailOptions = this.masterDetailEngine?.isEnabled()
+      ? {
+          toggleColumnId: this.masterDetailEngine.getConfig()?.toggleColumnId ?? allColumns[0]?.colId ?? '',
+          isExpandedFn: (nodeId: string) => this.masterDetailEngine!.isExpanded(nodeId),
+          hasDetailFn: (rowData: Record<string, unknown>) => this.masterDetailEngine!.hasDetail(rowData),
+        }
+      : undefined;
+
     if (this.headerRenderer.isResizingColumn) {
       this.bodyRenderer.syncCenterRange(colStart, colStart + visibleCenterCols.length);
     } else {
@@ -1050,7 +1277,18 @@ export class GridRenderer {
         centerLeftSpacerW: leftSpacerW,
         centerRightSpacerW: rightSpacerW,
         totalCenterCols: centerCols.length,
+        masterDetail: masterDetailOptions,
       });
+    }
+
+    if (this.detailRowRenderer) {
+      const allDetailNodeIds = new Set(rows.filter((r) => r.type === 'detail').map((r) => r.nodeId));
+      const windowedDetailRows = renderedRows.filter((r) => r.type === 'detail');
+      this.detailRowRenderer.sync(windowedDetailRows, allDetailNodeIds);
+    }
+
+    if (this.masterDetailEnabledAtConstruction) {
+      this.bodyRenderer.setSticky(stickyNodeId, stickyOffsetPx);
     }
 
     // Animate rows after sort (FLIP slide) or filter (FLIP slide + fade-in for new rows)

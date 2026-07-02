@@ -8,6 +8,7 @@ import { isCellInRanges, normalizeRange, type NormalizedRange } from './selectio
 import { ClipboardEngine } from '../engines/clipboard/clipboard-engine';
 import { UndoRedoEngine } from '../engines/undo-redo/undo-redo-engine';
 import type { CellChange } from '../engines/undo-redo/undo-redo-engine';
+import { activeGridRegistry } from './active-grid-registry';
 
 export class CellSelectionEngine {
   private _isSelecting = false;
@@ -196,6 +197,7 @@ export class CellSelectionEngine {
     document.removeEventListener('keydown', this.boundKeydown);
     document.removeEventListener('mousemove', this.boundFillMouseMove);
     document.removeEventListener('mouseup', this.boundFillMouseUp);
+    activeGridRegistry.release(this);
     this.fillHandleParentCell?.classList.remove('pg-cell--has-fill-handle');
     this.fillHandleParentCell = null;
     this.fillHandleEl?.remove();
@@ -210,6 +212,9 @@ export class CellSelectionEngine {
   // ─── Selection API ────────────────────────────────────────────────────────
 
   startSelection(rowIndex: number, colIndex: number, extend = false): void {
+    // Claims this grid as the page's active selection surface, deactivating
+    // (clearing) whichever grid held that role before — see active-grid-registry.ts.
+    activeGridRegistry.setActive(this);
     if (!extend) {
       this.anchorCell = { rowIndex, colIndex };
       this.store.set('cellRanges', [{
@@ -228,6 +233,7 @@ export class CellSelectionEngine {
       this.startSelection(rowIndex, colIndex);
       return;
     }
+    activeGridRegistry.setActive(this);
     this.store.set('cellRanges', [{
       startRowIndex: this.anchorCell.rowIndex,
       endRowIndex: rowIndex,
@@ -265,6 +271,7 @@ export class CellSelectionEngine {
    * @param colIndex - Column index of the clicked cell.
    */
   addRangeCell(rowIndex: number, colIndex: number): void {
+    activeGridRegistry.setActive(this);
     const existing = this.store.get('cellRanges') as CellRange[];
     const dupeIdx = existing.findIndex(
       (r) =>

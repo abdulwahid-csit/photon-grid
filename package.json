@@ -19,7 +19,8 @@
     "build": "tsc --project tsconfig.json",
     "build:watch": "tsc --project tsconfig.json --watch",
     "typecheck": "tsc --noEmit",
-    "demo": "npx esbuild demo/demo.ts --bundle --outfile=demo/demo.bundle.js --format=iife --global-name=PhotonGridDemo --sourcemap --target=es2020 --platform=browser"
+    "demo": "npx esbuild demo/demo.ts --bundle --outfile=demo/demo.bundle.js --format=iife --global-name=PhotonGridDemo --sourcemap --target=es2020 --platform=browser",
+    "demo:inventory": "npx esbuild demo/inventory-demo.ts --bundle --outfile=demo/inventory-demo.bundle.js --format=iife --global-name=PhotonGridInventoryDemo --sourcemap --target=es2020 --platform=browser"
   },
   "keywords": [
     "data-grid",

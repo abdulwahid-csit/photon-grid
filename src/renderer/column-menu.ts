@@ -221,6 +221,13 @@ export class ColumnMenu {
   private openSubmenuTimer: ReturnType<typeof setTimeout> | null = null;
   private closeSubmenuTimer: ReturnType<typeof setTimeout> | null = null;
   private activeSubmenuEl:  HTMLElement | null = null;
+  /**
+   * Maps each submenu to the parent item that opens it. Needed because
+   * submenus are portaled to `document.body` (see {@link openSubmenu}) rather
+   * than left nested inside their parent item, so `.closest()` can no longer
+   * find the owning item once a submenu is detached.
+   */
+  private submenuParents = new Map<HTMLElement, HTMLElement>();
   private groupCallbacks:   GroupCallbacks | null = null;
   private menuCallbacks:    Partial<ColumnMenuCallbacks> = {};
   private menuOptions:      ColumnMenuOptions = {};
@@ -285,7 +292,13 @@ export class ColumnMenu {
 
     requestAnimationFrame(() => {
       this.outsideClickFn = (e: MouseEvent) => {
-        if (!this.el?.contains(e.target as Node)) this.hide();
+        const target = e.target as Node;
+        // A portaled-open submenu (see openSubmenu) lives outside `this.el`
+        // in the DOM, so it must be checked separately or clicks inside it
+        // would be misread as "outside the menu" and close everything.
+        if (this.el?.contains(target)) return;
+        if (this.activeSubmenuEl?.contains(target)) return;
+        this.hide();
       };
       this.escKeyFn = (e: KeyboardEvent) => {
         if (e.key === 'Escape') this.hide();
@@ -306,9 +319,13 @@ export class ColumnMenu {
       this.escKeyFn = null;
     }
     this.clearSubmenuTimers();
-    this.anchorEl?.classList.remove('pg-th__menu-btn--active');
-    this.anchorEl        = null;
+    // The active submenu, if any, is a portaled child of document.body (not
+    // of this.el), so it must be removed explicitly or it would leak.
+    this.activeSubmenuEl?.remove();
     this.activeSubmenuEl = null;
+    this.submenuParents.clear();
+    this.anchorEl?.classList.remove('pg-th__menu-btn--active');
+    this.anchorEl = null;
     this.el?.remove();
     this.el = null;
   }
@@ -395,8 +412,12 @@ export class ColumnMenu {
     chevron.innerHTML = this.iconRenderer.renderToString('chevronRight', 12);
     el.appendChild(chevron);
 
+    // The submenu is intentionally NOT appended to `el` here — it is portaled
+    // to document.body only while open (see openSubmenu), so it can render
+    // outside the scroll-clipped menu body without being cut off on the X
+    // axis. It is still built eagerly so hover has no construction delay.
     const submenu = this.buildSubmenu(item.children, colDef);
-    el.appendChild(submenu);
+    this.submenuParents.set(submenu, el);
 
     this.attachSubmenuListeners(el, submenu);
     return el;
@@ -424,29 +445,17 @@ export class ColumnMenu {
   private attachSubmenuListeners(el: HTMLElement, submenu: HTMLElement): void {
     el.addEventListener('mouseenter', () => {
       this.clearSubmenuTimers();
-      // Close any previously open submenu
       if (this.activeSubmenuEl && this.activeSubmenuEl !== submenu) {
-        this.activeSubmenuEl.classList.remove('pg-col-ctx-menu__submenu--open');
-        this.activeSubmenuEl
-          .closest('.pg-col-ctx-menu__item--has-submenu')
-          ?.setAttribute('aria-expanded', 'false');
+        this.closeSubmenu(this.activeSubmenuEl);
       }
-      this.openSubmenuTimer = setTimeout(() => {
-        this.activeSubmenuEl = submenu;
-        submenu.classList.add('pg-col-ctx-menu__submenu--open');
-        el.setAttribute('aria-expanded', 'true');
-        this.adjustSubmenuPosition(submenu, el);
-      }, 60);
+      this.openSubmenuTimer = setTimeout(() => this.openSubmenu(submenu, el), 60);
     });
 
     el.addEventListener('mouseleave', (e) => {
-      if (submenu.contains(e.relatedTarget as Node | null)) return;
+      if (this.activeSubmenuEl === submenu && submenu.contains(e.relatedTarget as Node | null)) return;
       this.clearSubmenuTimers();
       this.closeSubmenuTimer = setTimeout(() => {
-        if (!submenu.matches(':hover') && !el.matches(':hover')) {
-          submenu.classList.remove('pg-col-ctx-menu__submenu--open');
-          el.setAttribute('aria-expanded', 'false');
-        }
+        if (!submenu.matches(':hover') && !el.matches(':hover')) this.closeSubmenu(submenu);
       }, 150);
     });
 
@@ -458,12 +467,31 @@ export class ColumnMenu {
       if (el.contains(e.relatedTarget as Node | null)) return;
       this.clearSubmenuTimers();
       this.closeSubmenuTimer = setTimeout(() => {
-        if (!submenu.matches(':hover') && !el.matches(':hover')) {
-          submenu.classList.remove('pg-col-ctx-menu__submenu--open');
-          el.setAttribute('aria-expanded', 'false');
-        }
+        if (!submenu.matches(':hover') && !el.matches(':hover')) this.closeSubmenu(submenu);
       }, 150);
     });
+  }
+
+  /**
+   * Portal a submenu into document.body and position it in viewport
+   * coordinates. Portaling (rather than nesting it under its parent item)
+   * keeps it clear of the parent menu's `overflow-y: auto` clipping, so a
+   * fly-out can render correctly even while the menu body is scrolled.
+   */
+  private openSubmenu(submenu: HTMLElement, parentItem: HTMLElement): void {
+    document.body.appendChild(submenu);
+    this.activeSubmenuEl = submenu;
+    submenu.classList.add('pg-col-ctx-menu__submenu--open');
+    parentItem.setAttribute('aria-expanded', 'true');
+    this.adjustSubmenuPosition(submenu, parentItem);
+  }
+
+  /** Close and detach a portaled submenu opened via {@link openSubmenu}. */
+  private closeSubmenu(submenu: HTMLElement): void {
+    submenu.classList.remove('pg-col-ctx-menu__submenu--open');
+    submenu.remove();
+    this.submenuParents.get(submenu)?.setAttribute('aria-expanded', 'false');
+    if (this.activeSubmenuEl === submenu) this.activeSubmenuEl = null;
   }
 
   private clearSubmenuTimers(): void {
@@ -964,7 +992,11 @@ export class ColumnMenu {
     const vw     = window.innerWidth;
     const vh     = window.innerHeight;
     const menuW  = menu.offsetWidth  || 220;
-    const menuH  = menu.scrollHeight || 400;
+    // Clamp against the menu's own max-height (calc(100% - 200px), see
+    // base-styles.ts) rather than its unclamped scrollHeight — content past
+    // that cap scrolls internally instead of needing the menu to flip above
+    // the anchor to "fit".
+    const menuH  = Math.min(menu.scrollHeight || 400, vh - 200);
 
     let left: number;
     let top: number;
@@ -989,9 +1021,14 @@ export class ColumnMenu {
   }
 
   /**
-   * Flip a fly-out submenu to the left when it would overflow the viewport's
-   * right edge, and shift it upward when it would overflow the bottom.
-   * Called once each time the submenu becomes visible.
+   * Position a fly-out submenu in viewport coordinates: opens to the right of
+   * the parent item, flipping to the left when it would overflow the
+   * viewport's right edge, and clamped upward when it would overflow the
+   * bottom. Called once each time the submenu becomes visible.
+   *
+   * The submenu is a `position: fixed` element portaled to document.body
+   * (see {@link openSubmenu}), so coordinates are absolute viewport
+   * positions rather than offsets relative to the parent item.
    */
   private adjustSubmenuPosition(submenu: HTMLElement, parentItem: HTMLElement): void {
     const parentRect  = parentItem.getBoundingClientRect();
@@ -1000,19 +1037,18 @@ export class ColumnMenu {
     const vw          = window.innerWidth;
     const vh          = window.innerHeight;
 
-    // Default: open to the right of the parent item
-    let left = parentRect.width;
-    let top  = -4; // slight upward alignment with the triggering item
+    // Default: open to the right of the parent item, top-aligned with it.
+    let left = parentRect.right;
+    let top  = parentRect.top - 4;
 
-    if (parentRect.right + submenuW > vw) {
-      // Not enough room on the right — open to the left instead
-      left = -submenuW;
+    if (left + submenuW > vw) {
+      // Not enough room on the right — open to the left instead.
+      left = parentRect.left - submenuW;
     }
+    if (left < 4) left = 4;
 
-    const submenuBottom = parentRect.top + top + submenuH;
-    if (submenuBottom > vh) {
-      top += vh - submenuBottom - 4;
-    }
+    if (top + submenuH > vh) top = vh - submenuH - 4;
+    if (top < 4) top = 4;
 
     submenu.style.left = `${left}px`;
     submenu.style.top  = `${top}px`;

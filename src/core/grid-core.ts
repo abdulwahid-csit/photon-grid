@@ -32,6 +32,8 @@ import { GridRenderer } from '../renderer/grid-renderer';
 import { GridApi } from './grid-api';
 import { GridEventType } from '../types/event.types';
 import { UndoRedoEngine } from '../engines/undo-redo/undo-redo-engine';
+import { MasterDetailEngine } from '../engines/master-detail/master-detail-engine';
+import type { RowDetailToggleClickedEvent } from '../types/event.types';
 import { ColumnGroupModel } from '../column-groups/column-group-model';
 import { ColumnGroupHeaderBuilder } from '../column-groups/column-group-header-builder';
 import { DisplayGroupEngine } from '../column-groups/display-group-engine';
@@ -83,6 +85,7 @@ export class GridCore {
     const dragDropEngine = new DragDropEngine(eventBus);
     const undoRedoEngine = new UndoRedoEngine();
     const cellSelectionEngine = new CellSelectionEngine(store, eventBus, clipboardEngine, undoRedoEngine);
+    const masterDetailEngine = new MasterDetailEngine(store, eventBus, rowModel);
     const themeManager = new ThemeManager(eventBus);
     const iconRegistry = new IconRegistry();
     const iconRenderer = new IconRenderer(iconRegistry);
@@ -121,6 +124,28 @@ export class GridCore {
       renderer.setDisplayGroupEngine(engine);
     }
 
+    // ── Master/Detail wiring ────────────────────────────────────────────────
+    // Injects a factory rather than letting the renderer import `GridCore`
+    // directly — `GridRenderer` must not depend on `GridCore` at the module
+    // level, since `GridCore` already imports `GridRenderer`.
+    renderer.setMasterDetailConfig(
+      masterDetailEngine,
+      (el, opts) => new GridCore(el, opts),
+      iconRenderer,
+      themeManager,
+    );
+    // Any refresh the engine itself requests (async `getDetailData` resolving,
+    // or the auto-height measurement correcting a detail row's placeholder
+    // height to its real content height) must ALSO be captured for animation —
+    // otherwise the sibling-row slide from the initial toggle click is
+    // immediately followed by an uncaptured, instantly-snapping correction,
+    // which reads as a jerk right after the smooth expand.
+    masterDetailEngine.setRefreshCallback(() => {
+      const currentRows = store.get('visibleRows') as Array<{ nodeId: string; top: number }>;
+      if (currentRows.length > 0) renderer.captureRowAnimation(currentRows, 'detail');
+      this.api.refresh();
+    });
+
     return {
       options,
       containerEl,
@@ -144,6 +169,7 @@ export class GridCore {
       iconRegistry,
       chartEngine,
       undoRedoEngine,
+      masterDetailEngine,
       renderer,
     };
   }
@@ -209,7 +235,10 @@ export class GridCore {
       }
     }
 
+    ctx.masterDetailEngine.configure(options.masterDetail);
+
     ctx.renderer.mount();
+    ctx.renderer.setParentApiForDetail(this.api);
 
     const gridWrapper = ctx.containerEl.querySelector<HTMLElement>('.pg-grid') ?? ctx.containerEl;
     const chartPanel = new ChartPanel(gridWrapper);
@@ -287,6 +316,26 @@ export class GridCore {
         if (!newIds.includes(id)) ctx.columnModel.setColumnVisible(id, true);
       }
       prevGroupedIds = [...newIds];
+      this.api.refresh();
+    });
+
+    // Master/Detail toggle click → capture positions so sibling rows FLIP-slide
+    // into their new place (same mechanism as ROW_GROUP_OPENED above), flip
+    // expanded state, then re-run the pipeline so `MasterDetailEngine.
+    // injectDetailRows` inserts/removes the detail row on the next render.
+    // The detail row's own grow/shrink + fade is handled separately by
+    // `DetailRowRenderer`, since it has no panel DOM for `RowAnimator` to see.
+    ctx.eventBus.on(GridEventType.ROW_DETAIL_TOGGLE_CLICKED, (payload: unknown) => {
+      const p = payload as RowDetailToggleClickedEvent;
+      const currentRows = ctx.store.get('visibleRows') as Array<{ nodeId: string; top: number }>;
+      if (currentRows.length > 0) ctx.renderer.captureRowAnimation(currentRows, 'detail');
+      // Collapsing: freeze the detail row's current position and start its
+      // shrink/fade before the pipeline drops it — must happen before
+      // `toggle()`, while `top`/`height` are still valid (see beginDetailCollapse).
+      if (ctx.masterDetailEngine.isExpanded(p.row.nodeId)) {
+        ctx.renderer.beginDetailCollapse(p.row.nodeId);
+      }
+      ctx.masterDetailEngine.toggle(p.row);
       this.api.refresh();
     });
   }

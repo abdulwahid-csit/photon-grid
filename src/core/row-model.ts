@@ -1,4 +1,5 @@
 import type { RowNode, RowNodeType } from '../types/row.types';
+import { detailNodeId } from '../types/row.types';
 import type { GridStore } from './grid-store';
 import type { EventBus } from '../event-bus/event-bus';
 import { GridEventType } from '../types/event.types';
@@ -116,9 +117,15 @@ export class RowModel {
     };
   }
 
-  createDetailNode(parentRow: RowNode, detail: Record<string, unknown>): RowNode {
+  /**
+   * Builds a `type: 'detail'` `RowNode` rendered directly beneath `parentRow`.
+   * Used by `MasterDetailEngine.injectDetailRows` — `height` should come from
+   * the engine's per-parent height cache (auto-measured or manually resized)
+   * so repeated pipeline runs don't reset an already-known detail height.
+   */
+  createDetailNode(parentRow: RowNode, detail: Record<string, unknown>, height = 200): RowNode {
     return {
-      nodeId: generateNodeId(),
+      nodeId: detailNodeId(parentRow.nodeId),
       rowIndex: -1,
       data: detail,
       type: 'detail',
@@ -128,9 +135,10 @@ export class RowModel {
       level: parentRow.level + 1,
       parent: parentRow,
       children: [],
-      height: 200,
+      height,
       top: 0,
       detail,
+      parentNodeId: parentRow.nodeId,
     };
   }
 

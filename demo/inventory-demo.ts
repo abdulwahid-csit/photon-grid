@@ -2695,6 +2695,8 @@ const stockLocationColumns: ColumnDef[] = [
   { colId: 'restockDate', field: 'restockDate', header: 'Restock Date', type: 'string', width: 130, sortable: true },
 ];
 
+
+// Look to the GridOptions how it support multiple and nested master/detail grids. The `masterDetail` property is defined in the `GridOptions` interface, and it allows you to specify whether a grid has a master/detail relationship, how to toggle the detail view, and how to retrieve the detail data for each row. 
 const options: GridOptions = {
   columns: inventoryColumns,
   data: releases as unknown as Record<string, unknown>[],

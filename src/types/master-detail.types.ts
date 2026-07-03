@@ -15,7 +15,7 @@ export interface DetailRendererParams {
   containerEl: HTMLElement;
   /**
    * The parent grid's `GridApi`. Typed `unknown` here (mirrors
-   * `CellRendererParams.api`) to avoid a `types -> core` import cycle —
+   * `DisplayRendererParams.api`) to avoid a `types -> core` import cycle —
    * callers cast to `GridApi` themselves.
    */
   parentApi: unknown;

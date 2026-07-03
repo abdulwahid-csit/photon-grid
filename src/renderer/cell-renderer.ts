@@ -1,10 +1,11 @@
 import type { RowNode } from '../types/row.types';
 import type { ColumnDef } from '../types/column.types';
-import type { CellRendererParams } from '../types/column.types';
+import type { DisplayRendererParams } from '../types/renderer.types';
 import type { IconRenderer } from '../icons/icon-renderer';
 import { formatValue } from '../engines/editing/value-parser';
 import { createDiv, toggleClass } from './dom-utils';
 import { SparklineRenderer } from '../chart/sparkline/sparkline-renderer';
+import { resolveColumnRenderer } from './renderer-resolver';
 
 export interface CellRenderContext {
   row: RowNode;
@@ -46,9 +47,10 @@ export class CellRenderer {
 
     const inner = createDiv('pg-cell__inner');
 
-    if (colDef.cellRendererFn) {
-      const params: CellRendererParams = { value: rawValue, rawValue, row: row.data, colDef, rowIndex, colIndex, api };
-      const rendered = colDef.cellRendererFn(params);
+    const displayFn = resolveColumnRenderer(colDef, 'display');
+    if (displayFn) {
+      const params: DisplayRendererParams = { value: rawValue, rawValue, row: row.data, colDef, rowIndex, colIndex, api };
+      const rendered = displayFn(params);
       if (typeof rendered === 'string') {
         inner.innerHTML = rendered;
       } else {

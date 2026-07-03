@@ -8,6 +8,7 @@ import { GridEventType } from '../types/event.types';
 import { CellRenderer } from './cell-renderer';
 import { formatValue } from '../engines/editing/value-parser';
 import { createDiv, toggleClass } from './dom-utils';
+import { resolveColumnRenderer } from './renderer-resolver';
 
 /**
  * Sentinel `ColumnDef` emitted with `CELL_CLICKED` for the auto-group label cell.
@@ -46,6 +47,14 @@ export interface BodyRendererOptions {
    * instead to maintain column alignment.
    */
   leafGroupColDef?: ColumnDef | null;
+  /**
+   * Full, unfiltered column list — includes columns hidden by horizontal
+   * virtualization AND columns hidden because they're the active group-by
+   * field. Used to resolve a group row's `groupField` to its `ColumnDef` so a
+   * custom `renderer.group` can be looked up even though that column itself
+   * renders no cell of its own while grouped.
+   */
+  allLeafColumns?: ColumnDef[];
   // Horizontal virtual scroll: centerCols is already the visible slice
   centerColStart?: number;       // index of first visible center col within all center cols
   centerLeftSpacerW?: number;    // px width of off-screen cols to the left
@@ -567,7 +576,23 @@ export class BodyRenderer {
     toggleBtn.appendChild(toggleIcon);
 
     const label = createDiv('pg-row-group__label');
-    label.textContent = String(row.groupValue + ' (' + row.childCount + ')');
+
+    const groupColDef = options.allLeafColumns?.find((c) => c.field === row.groupField);
+    const groupFn = groupColDef ? resolveColumnRenderer(groupColDef, 'group') : undefined;
+    if (groupColDef && groupFn) {
+      const rendered = groupFn({
+        row,
+        colDef: groupColDef,
+        groupValue: row.groupValue,
+        childCount: row.childCount ?? 0,
+        collapsed: !row.expanded,
+        api: null,
+      });
+      if (typeof rendered === 'string') label.innerHTML = rendered;
+      else label.appendChild(rendered);
+    } else {
+      label.textContent = String(row.groupValue + ' (' + row.childCount + ')');
+    }
 
     // const countBadge = createDiv('pg-row-group__count');
     // countBadge.textContent = String(row.childCount ?? 0);
@@ -647,10 +672,23 @@ export class BodyRenderer {
         if (options.showVerticalBorders) cell.classList.add('pg-cell--v-border');
 
         const inner = createDiv('pg-cell__inner');
-        const span = document.createElement('span');
-        span.className = 'pg-cell__value';
-        span.textContent = this.formatAggValue(aggVal, col, options);
-        inner.appendChild(span);
+        const summaryFn = resolveColumnRenderer(col, 'summary');
+        if (summaryFn) {
+          const rendered = summaryFn({
+            colDef: col,
+            value: aggVal,
+            aggregation: col.aggFunc!,
+            label: col.summaryLabel,
+            api: null,
+          });
+          if (typeof rendered === 'string') inner.innerHTML = rendered;
+          else inner.appendChild(rendered);
+        } else {
+          const span = document.createElement('span');
+          span.className = 'pg-cell__value';
+          span.textContent = this.formatAggValue(aggVal, col, options);
+          inner.appendChild(span);
+        }
         cell.appendChild(inner);
       }
 

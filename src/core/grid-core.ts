@@ -1,10 +1,12 @@
 import type { GridOptions } from '../types/grid.types';
 import type { GridContext } from './grid-context';
 import type { RowNode } from '../types/row.types';
-import type { ColumnDef, CellRendererParams, ColumnDropdownOption } from '../types/column.types';
+import type { ColumnDef, ColumnDropdownOption } from '../types/column.types';
 import type { CellClickedEvent } from '../types/event.types';
+import type { DisplayRendererParams, EditorRendererParams } from '../types/renderer.types';
 import { injectBaseStyles } from '../styles/base-styles';
 import { formatValue } from '../engines/editing/value-parser';
+import { resolveColumnRenderer } from '../renderer/renderer-resolver';
 import { CustomDropdownEditor } from '../engines/editing/custom-dropdown-editor';
 import { EventBus } from '../event-bus/event-bus';
 import { GridStore } from './grid-store';
@@ -38,6 +40,7 @@ import { ColumnGroupModel } from '../column-groups/column-group-model';
 import { ColumnGroupHeaderBuilder } from '../column-groups/column-group-header-builder';
 import { DisplayGroupEngine } from '../column-groups/display-group-engine';
 import type { CellValueChangedEvent } from '../types/event.types';
+import { PhotonAIService } from '../photon-ai/photon-ai-service';
 
 /** Recursively collects leaf `ColumnDef` entries, skipping group wrappers. */
 function collectLeaves(cols: ColumnDef[]): ColumnDef[] {
@@ -60,6 +63,8 @@ export class GridCore {
   private groupHeaderBuilder: ColumnGroupHeaderBuilder | null = null;
   /** New Display Group Engine — replaces `columnGroupModel` for group rendering. */
   private displayGroupEngine: DisplayGroupEngine | null = null;
+  /** Set in `initialize` when `photonAI.enabled` — needs the live `GridApi`, so it cannot be built in `buildContext`. */
+  private photonAIService: PhotonAIService | null = null;
 
   constructor(containerEl: HTMLElement, options: GridOptions) {
     this.ctx = this.buildContext(containerEl, options);
@@ -240,6 +245,15 @@ export class GridCore {
     ctx.renderer.mount();
     ctx.renderer.setParentApiForDetail(this.api);
 
+    // Photon AI needs the live `GridApi` (to resolve columns and execute
+    // commands), which does not exist until after `buildContext` returns —
+    // so, like the Master/Detail parent-api wiring above, it is constructed
+    // here rather than in `buildContext`.
+    if (options.photonAI?.enabled) {
+      this.photonAIService = new PhotonAIService(this.api);
+      ctx.renderer.setPhotonAISubmitHandler((text) => this.photonAIService!.submit(text));
+    }
+
     const gridWrapper = ctx.containerEl.querySelector<HTMLElement>('.pg-grid') ?? ctx.containerEl;
     const chartPanel = new ChartPanel(gridWrapper);
     const chartAnalyzer = new ChartAnalyzer();
@@ -396,12 +410,29 @@ export class GridCore {
 
       const value = row.data[colDef.field];
 
-      // dropdown / object → custom accessible dropdown with virtual scrolling
-      if (colDef.type === 'dropdown' || colDef.type === 'object') {
+      // Column-supplied custom editor takes priority over every built-in editor.
+      const customEditorFn = resolveColumnRenderer(colDef, 'editor');
+      if (customEditorFn) {
+        const params: EditorRendererParams = {
+          value,
+          row: row.data,
+          colDef,
+          rowIndex: row.rowIndex,
+          onValueChange: (v) => ctx.cellEditorEngine.updateValue(v),
+          onEditStop: () => ctx.cellEditorEngine.stopEditing(false),
+        };
+        const editorEl = customEditorFn(params);
+        innerEl.appendChild(editorEl);
+        const session = ctx.cellEditorEngine.getActiveSession();
+        if (session) session.editorEl = editorEl;
+      } else if (colDef.type === 'dropdown' || colDef.type === 'object') {
+        // dropdown / object → custom accessible dropdown with virtual scrolling
         // Prefer explicit dropdownOptions; fall back to enumOptions (string array → ColumnDropdownOption[])
         const resolvedOpts: ColumnDropdownOption[] =
           colDef.dropdownOptions ??
           (colDef.enumOptions?.map((v) => ({ value: v, label: v })) ?? []);
+
+        const renderOption = resolveColumnRenderer(colDef, 'option');
 
         activeDropdown = new CustomDropdownEditor(
           innerEl,
@@ -420,6 +451,12 @@ export class GridCore {
               ctx.cellEditorEngine.stopEditing(!commit);
             },
             onTab: handleTabEdit,
+            ...(renderOption
+              ? {
+                  renderOption: (option, index, selected, highlighted) =>
+                    renderOption({ option, index, selected, highlighted, colDef, api: this.api }),
+                }
+              : {}),
           },
         );
       } else {
@@ -524,18 +561,19 @@ export class GridCore {
    * session ends, using the current value from `row.data`.
    *
    * Rendering priority:
-   * 1. `colDef.cellRendererFn` — custom renderer function (e.g. flag icons)
-   * 2. `colDef.renderHtml`     — raw HTML string
-   * 3. Built-in type rendering — boolean, dropdown, array, formatted text
+   * 1. `colDef.renderer.display` — custom renderer function (e.g. flag icons)
+   * 2. `colDef.renderHtml`       — raw HTML string
+   * 3. Built-in type rendering   — boolean, dropdown, array, formatted text
    */
   private renderCellValue(innerEl: HTMLElement, row: RowNode, colDef: ColumnDef): void {
     innerEl.innerHTML = '';
     const value = row.data[colDef.field];
 
-    if (colDef.cellRendererFn) {
+    const displayFn = resolveColumnRenderer(colDef, 'display');
+    if (displayFn) {
       const cols     = this.ctx.columnModel.getVisibleColumns();
       const colIndex = cols.findIndex((c) => c.colId === colDef.colId);
-      const params: CellRendererParams = {
+      const params: DisplayRendererParams = {
         value,
         rawValue: value,
         row: row.data,
@@ -544,7 +582,7 @@ export class GridCore {
         colIndex,
         api: this.api,
       };
-      const rendered = colDef.cellRendererFn(params);
+      const rendered = displayFn(params);
       if (typeof rendered === 'string') {
         innerEl.innerHTML = rendered;
       } else {

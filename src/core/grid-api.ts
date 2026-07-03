@@ -9,6 +9,7 @@ import type { ChartConfig } from '../chart/chart-engine';
 import type { ColumnGroupModel } from '../column-groups/column-group-model';
 import type { ColumnGroupSerialState, ColumnGroupSystemState, ColumnTreeNode } from '../column-groups/column-group.types';
 import { ColumnGroupStateManager } from '../column-groups/column-group-state-manager';
+import type { PhotonCommandResult } from '../photon-ai/photon-ai.types';
 
 export class GridApi {
   private _columnGroupModel: ColumnGroupModel | null = null;
@@ -132,11 +133,13 @@ export class GridApi {
     const col = this.ctx.columnModel.getColumn(colId);
     if (!col) return;
     this.ctx.sortEngine.sort(colId, col.field, order);
+    this.ctx.columnModel.setColumnSort(colId, order);
     this.refresh();
   }
 
   clearSort(): void {
     this.ctx.sortEngine.clearSort();
+    this.ctx.columnModel.clearAllSort();
     this.refresh();
   }
 
@@ -342,6 +345,18 @@ export class GridApi {
     return this.ctx.renderer.getDetailGridApi(nodeId);
   }
 
+  // ──────────────────── Photon AI ────────────────────
+
+  /**
+   * Programmatic equivalent of typing `text` into the Photon AI panel and
+   * pressing send — runs the same normalize → parse → resolve → build →
+   * execute pipeline. Useful for tests or a custom trigger UI. Returns a
+   * graceful failure result (never throws) when `photonAI.enabled` is falsy.
+   */
+  submitAICommand(text: string): PhotonCommandResult {
+    return this.ctx.renderer.submitAICommand(text);
+  }
+
   // ──────────────────── Column Groups ────────────────────
 
   /**
@@ -453,6 +468,15 @@ export class GridApi {
     const rows = this.getSelectedRows();
     const cols = this.ctx.columnModel.getVisibleColumns();
     return this.ctx.clipboardEngine.copyRowsToClipboard(rows, cols);
+  }
+
+  /** Copies the active cell range(s) — not row selection — to the clipboard as tab-separated text, with a header row. A no-op when no cell range is active. */
+  copySelectedCellsToClipboard(): Promise<void> {
+    const ranges = this.getCellRanges();
+    if (ranges.length === 0) return Promise.resolve();
+    const rows = this.getVisibleRows();
+    const cols = this.ctx.columnModel.getVisibleColumns();
+    return this.ctx.clipboardEngine.copyRangesToClipboard(ranges, rows, cols, true);
   }
 
   // ──────────────────── Scroll ────────────────────

@@ -60,8 +60,36 @@ export { SparklineRenderer } from './chart/sparkline/sparkline-renderer';
 export { formatValue, parseValue, validateValue } from './engines/editing/value-parser';
 export { getComparator, stringComparator, numberComparator, dateComparator } from './engines/sort/sort-comparator';
 
+// ── Photon AI ────────────────────────────────────────────────────────────────
+export {
+  PhotonAIService,
+  PhotonAICommandRegistry,
+  IntentParser,
+  EntityResolver,
+  CommandBuilder,
+  CommandExecutor,
+  registerBuiltinCommands,
+  normalizeInput,
+  tokenize,
+} from './photon-ai';
+export type { PhotonCommand, PhotonCommandResult, ResolvedEntities, IntentDefinition, ParsedIntentMatch } from './photon-ai';
+export type { PhotonAIConfig } from './types/photon-ai.types';
+
 export type { GridOptions, GridState, GridDimensions, SortConfig, PaginationConfig, SelectionConfig, EditingConfig, CellRange, ColumnGroupConfig } from './types/grid.types';
-export type { ColumnDef, ColumnState, ColumnGroup, ColumnDropdownOption, ColumnDataType, ColumnPinPosition, AggFunc, CellRendererParams, CellEditorParams } from './types/column.types';
+export type { ColumnDef, ColumnState, ColumnGroup, ColumnDropdownOption, ColumnDataType, ColumnPinPosition, AggFunc } from './types/column.types';
+export { RendererSlot } from './types/renderer.types';
+export type {
+  RendererOutput,
+  ColumnRendererMap,
+  DisplayRendererParams,
+  EditorRendererParams,
+  OptionRendererParams,
+  FilterRendererParams,
+  TooltipRendererParams,
+  GroupRendererParams,
+  HeaderRendererParams,
+  SummaryRendererParams,
+} from './types/renderer.types';
 export type {
   IColumnGroupNode,
   IColumnLeafNode,
@@ -81,7 +109,7 @@ export type { GroupCellBuildOptions } from './column-groups/column-group-header-
 export type { GroupDropPosition, GroupDropTarget } from './column-groups/column-group-drag-handler';
 export type { ColumnGroupStateDiff } from './column-groups/column-group-state-manager';
 export type { RowNode, RowGroupNode, RowGroupFooterNode, RowDataNode, RowDropPayload, RowClickPayload, RowEditPayload } from './types/row.types';
-export type { FilterModel, ColumnFilter, FilterCondition, FilterOperator, QuickFilterConfig } from './types/filter.types';
+export type { FilterModel, ColumnFilter, FilterCondition, FilterOperator, QuickFilterConfig, FilterSetOption } from './types/filter.types';
 export type { Theme, ThemeTokens, ColorTokens, BuiltInThemeName } from './types/theme.types';
 export type { GridEvent, GridEventMap } from './types/event.types';
 export type { ChartConfig } from './chart/chart-engine';

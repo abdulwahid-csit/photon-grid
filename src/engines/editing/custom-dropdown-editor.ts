@@ -1,4 +1,5 @@
 import type { ColumnDropdownOption } from '../../types/column.types';
+import type { RendererOutput } from '../../types/renderer.types';
 
 export interface CustomDropdownCallbacks {
   /**
@@ -18,6 +19,13 @@ export interface CustomDropdownCallbacks {
    * @param shiftKey `true` → move backwards (Shift+Tab)
    */
   onTab?: (shiftKey: boolean) => void;
+  /**
+   * Optional. When supplied, replaces this option's inner content (icon +
+   * label + check mark) with custom markup. The surrounding option row keeps
+   * its own id/role/data-index/mousedown/mouseenter wiring untouched, so
+   * keyboard navigation and selection keep working regardless of content.
+   */
+  renderOption?: (option: ColumnDropdownOption, index: number, selected: boolean, highlighted: boolean) => RendererOutput;
 }
 
 /**
@@ -219,19 +227,28 @@ export class CustomDropdownEditor {
       if (isSelected)  item.classList.add('pg-dropdown-editor__option--selected');
       if (isHighlight) item.classList.add('pg-dropdown-editor__option--highlighted');
 
-      const icon = this.buildIcon(opt, 'pg-dropdown-editor__opt-icon');
-      if (icon) item.appendChild(icon);
+      if (this.callbacks.renderOption) {
+        const rendered = this.callbacks.renderOption(opt, i, isSelected, isHighlight);
+        if (typeof rendered === 'string') {
+          item.innerHTML = rendered;
+        } else {
+          item.appendChild(rendered);
+        }
+      } else {
+        const icon = this.buildIcon(opt, 'pg-dropdown-editor__opt-icon');
+        if (icon) item.appendChild(icon);
 
-      const label = document.createElement('span');
-      label.className = 'pg-dropdown-editor__opt-label';
-      label.textContent = opt.label;
-      item.appendChild(label);
+        const label = document.createElement('span');
+        label.className = 'pg-dropdown-editor__opt-label';
+        label.textContent = opt.label;
+        item.appendChild(label);
 
-      if (isSelected) {
-        const check = document.createElement('span');
-        check.className = 'pg-dropdown-editor__opt-check';
-        check.setAttribute('aria-hidden', 'true');
-        item.appendChild(check);
+        if (isSelected) {
+          const check = document.createElement('span');
+          check.className = 'pg-dropdown-editor__opt-check';
+          check.setAttribute('aria-hidden', 'true');
+          item.appendChild(check);
+        }
       }
 
       // mousedown: prevent focus loss from scroll container, then select

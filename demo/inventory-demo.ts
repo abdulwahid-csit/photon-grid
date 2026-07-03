@@ -2540,35 +2540,38 @@ export const inventoryColumns: ColumnDef[] = [
     width: 220,
     sortable: true,
     filterable: true,
-    cellRendererFn: ({ row }) => {
-      const r = asRelease(row);
-      const wrap = document.createElement('div');
-      wrap.className = 'inv-album-cell';
+    groupable: true,
+    renderer: {
+      display: ({ row }) => {
+        const r = asRelease(row);
+        const wrap = document.createElement('div');
+        wrap.className = 'inv-album-cell';
 
-      const cover = document.createElement('div');
-      cover.className = 'inv-cover';
-      cover.style.background = r.coverGradient;
-      cover.textContent = r.coverLabel;
+        const cover = document.createElement('div');
+        cover.className = 'inv-cover';
+        cover.style.background = r.coverGradient;
+        cover.textContent = r.coverLabel;
 
-      const textCol = document.createElement('div');
-      textCol.className = 'inv-album-text';
+        const textCol = document.createElement('div');
+        textCol.className = 'inv-album-text';
 
-      const title = document.createElement('div');
-      title.className = 'inv-album-title';
-      title.textContent = r.albumName;
+        const title = document.createElement('div');
+        title.className = 'inv-album-title';
+        title.textContent = r.albumName;
 
-      const badge = document.createElement('div');
-      badge.className = 'inv-genre-badge';
-      badge.textContent = r.genre;
+        const badge = document.createElement('div');
+        badge.className = 'inv-genre-badge';
+        badge.textContent = r.genre;
 
-      textCol.appendChild(title);
-      textCol.appendChild(badge);
-      wrap.appendChild(cover);
-      wrap.appendChild(textCol);
-      return r.genre && r.albumName ? wrap: '';
+        textCol.appendChild(title);
+        textCol.appendChild(badge);
+        wrap.appendChild(cover);
+        wrap.appendChild(textCol);
+        return r.genre && r.albumName ? wrap: '';
+      },
     },
   },
-  { colId: 'artist', field: 'artist', header: 'Artist', type: 'string', rowDrag: true, minWidth: 140, sortable: true, filterable: true },
+  { colId: 'artist', field: 'artist', header: 'Artist', type: 'string', rowDrag: true, minWidth: 140, sortable: true, filterable: true, groupable: true },
   { colId: 'year', field: 'year', header: 'Year', type: 'number', width: 90, sortable: true },
   {
     colId: 'status',
@@ -2578,6 +2581,7 @@ export const inventoryColumns: ColumnDef[] = [
     width: 140,
     sortable: true,
     filterable: true,
+    groupable: true,
     dropdownOptions: [
       { value: 'Active', label: 'Active', color: '#16a34a' },
       { value: 'Out of Stock', label: 'Out of Stock', color: '#dc2626' },
@@ -2590,9 +2594,11 @@ export const inventoryColumns: ColumnDef[] = [
     header: 'Inventory',
     type: 'string',
     width: 170,
-    cellRendererFn: ({ row }) => {
-      const r = asRelease(row);
-      return r.stock != null ?   `${r.stock} Stock / ${r.variants.length} Variant${r.variants.length === 1 ? '' : 's'}`: '';
+    renderer: {
+      display: ({ row }) => {
+        const r = asRelease(row);
+        return r.stock != null ?   `${r.stock} Stock / ${r.variants.length} Variant${r.variants.length === 1 ? '' : 's'}`: '';
+      },
     },
   },
   { colId: 'incoming', field: 'incoming', header: 'Incoming', type: 'number', width: 100, sortable: true },
@@ -2603,19 +2609,21 @@ export const inventoryColumns: ColumnDef[] = [
     type: 'currency',
     width: 130,
     sortable: true,
-    cellRendererFn: ({ row }) => {
-      const r = asRelease(row);
-      const wrap = document.createElement('div');
-      wrap.className = 'inv-price-cell';
-      const amount = document.createElement('div');
-      amount.className = 'inv-price-amount';
-      amount.textContent = `£${r.price}`;
-      const sub = document.createElement('div');
-      sub.className = 'inv-price-sub';
-      sub.textContent = `${r.priceChangePct}% increase`;
-      wrap.appendChild(amount);
-      wrap.appendChild(sub);
-      return r.price ? wrap: '';
+    renderer: {
+      display: ({ row }) => {
+        const r = asRelease(row);
+        const wrap = document.createElement('div');
+        wrap.className = 'inv-price-cell';
+        const amount = document.createElement('div');
+        amount.className = 'inv-price-amount';
+        amount.textContent = `£${r.price}`;
+        const sub = document.createElement('div');
+        sub.className = 'inv-price-sub';
+        sub.textContent = `${r.priceChangePct}% increase`;
+        wrap.appendChild(amount);
+        wrap.appendChild(sub);
+        return r.price ? wrap: '';
+      },
     },
   },
   { colId: 'sold', field: 'sold', header: 'Sold', type: 'number', width: 90, sortable: true },
@@ -2626,7 +2634,9 @@ export const inventoryColumns: ColumnDef[] = [
     type: 'currency',
     width: 120,
     sortable: true,
-    cellRendererFn: ({ row }) => `£${asRelease(row).estProfit.toFixed(1)}`,
+    renderer: {
+      display: ({ row }) => `£${asRelease(row).estProfit.toFixed(1)}`,
+    },
   },
   {
     colId: 'actions',
@@ -2636,37 +2646,39 @@ export const inventoryColumns: ColumnDef[] = [
     pinned: null,
     width: 190,
     resizable: false,
-    cellRendererFn: ({ row, rowIndex }) => {
-      const r = asRelease(row);
-      const wrap = document.createElement('div');
-      wrap.className = 'inv-actions-cell';
+    renderer: {
+      display: ({ row, rowIndex }) => {
+        const r = asRelease(row);
+        const wrap = document.createElement('div');
+        wrap.className = 'inv-actions-cell';
 
-      const holdBtn = document.createElement('button');
-      holdBtn.type = 'button';
-      holdBtn.className = 'inv-btn inv-btn--hold';
-      holdBtn.textContent = 'Hold Selling';
-      holdBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const held = holdBtn.classList.toggle('inv-btn--held');
-        holdBtn.textContent = held ? 'Resume Selling' : 'Hold Selling';
-      });
+        const holdBtn = document.createElement('button');
+        holdBtn.type = 'button';
+        holdBtn.className = 'inv-btn inv-btn--hold';
+        holdBtn.textContent = 'Hold Selling';
+        holdBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const held = holdBtn.classList.toggle('inv-btn--held');
+          holdBtn.textContent = held ? 'Resume Selling' : 'Hold Selling';
+        });
 
-      const delBtn = document.createElement('button');
-      delBtn.type = 'button';
-      delBtn.className = 'inv-btn inv-btn--icon';
-      delBtn.setAttribute('aria-label', `Remove ${r.albumName}`);
-      delBtn.title = `Remove ${r.albumName}`;
-      delBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" width="14" height="14"><path d="M2 4H14M5 4V2H11V4M6 7V12M10 7V12M3 4L4 14H12L13 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-      delBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (!confirm(`Remove "${r.albumName}" from inventory?`)) return;
-        const node = grid.api.getRowByIndex(rowIndex);
-        if (node) grid.api.removeRows([node.nodeId]);
-      });
+        const delBtn = document.createElement('button');
+        delBtn.type = 'button';
+        delBtn.className = 'inv-btn inv-btn--icon';
+        delBtn.setAttribute('aria-label', `Remove ${r.albumName}`);
+        delBtn.title = `Remove ${r.albumName}`;
+        delBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" width="14" height="14"><path d="M2 4H14M5 4V2H11V4M6 7V12M10 7V12M3 4L4 14H12L13 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+        delBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (!confirm(`Remove "${r.albumName}" from inventory?`)) return;
+          const node = grid.api.getRowByIndex(rowIndex);
+          if (node) grid.api.removeRows([node.nodeId]);
+        });
 
-      wrap.appendChild(holdBtn);
-      wrap.appendChild(delBtn);
-      return wrap;
+        wrap.appendChild(holdBtn);
+        wrap.appendChild(delBtn);
+        return wrap;
+      },
     },
   },
 ];
@@ -2746,6 +2758,9 @@ const options: GridOptions = {
     detailAutoHeight: true,
     detailMinHeight: 90,
     detailMaxHeight: 380,
+  },
+  photonAI: {
+    enabled: true,
   },
 };
 

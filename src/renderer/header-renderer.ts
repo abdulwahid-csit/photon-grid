@@ -15,6 +15,7 @@ import { ColumnMenu } from './column-menu';
 import { GroupContextMenu } from './group-context-menu';
 import { ColumnStyleManager } from './column-style-manager';
 import { createDiv, toggleClass } from './dom-utils';
+import { resolveColumnRenderer } from './renderer-resolver';
 
 export interface HeaderRendererOptions {
   showCheckboxes?: boolean;
@@ -686,8 +687,9 @@ export class HeaderRenderer {
     if (align !== 'left') th.classList.add(`pg-th--align-${align}`);
     if (align === 'right') th.classList.add('pg-th--reverse');
 
-    if (col.headerRendererFn) {
-      const rendered = col.headerRendererFn({ colDef: col, sortOrder: col.sortOrder ?? null, filterActive: !!col.filterActive, api: null });
+    const headerFn = resolveColumnRenderer(col, 'header');
+    if (headerFn) {
+      const rendered = headerFn({ colDef: col, sortOrder: col.sortOrder ?? null, filterActive: !!col.filterActive, api: null });
       if (typeof rendered === 'string') th.innerHTML = rendered;
       else th.appendChild(rendered);
     } else {

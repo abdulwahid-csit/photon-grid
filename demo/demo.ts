@@ -280,26 +280,30 @@ const columns: ColumnDef[] = [
         colId: 'employeeName', field: 'employeeName', header: 'Employee Name',
         type: 'string', width: 210, sortable: true, filterable: true, draggable: true,
         editable: true,
-        cellRendererFn: ({ value, rowIndex }) => {
-          const name = String(value ?? '');
-          const img  = `https://i.pravatar.cc/32?img=${(rowIndex % 70) + 1}`;
-          return `<span style="display:flex;align-items:center;gap:8px"><img src="${name ? img : ''}" width="28" height="28" style="border-radius:50%;object-fit:cover;flex-shrink:0" />${name}</span>`;
+        renderer: {
+          display: ({ value, rowIndex }) => {
+            const name = String(value ?? '');
+            const img  = `https://i.pravatar.cc/32?img=${(rowIndex % 70) + 1}`;
+            return `<span style="display:flex;align-items:center;gap:8px"><img src="${name ? img : ''}" width="28" height="28" style="border-radius:50%;object-fit:cover;flex-shrink:0" />${name}</span>`;
+          },
         },
       },
       {
         colId: 'gender', field: 'gender', header: 'Gender',
         type: 'dropdown', width: 145, sortable: true, filterable: true, editable: true,
         enumOptions: ['Male', 'Female', 'Non-binary', 'Prefer not to say'], groupable: true,
-        cellRendererFn: ({ value }) => {
-          const v = String(value ?? '');
-          const icons: Record<string, string> = {
-            'Male':              `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="14" r="5"/><line x1="19" y1="5" x2="14.14" y2="9.86"/><polyline points="15 5 19 5 19 9"/></svg>`,
-            'Female':            `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ec4899" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="9" r="5"/><line x1="12" y1="14" x2="12" y2="22"/><line x1="9" y1="19" x2="15" y2="19"/></svg>`,
-            'Non-binary':        `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="2" x2="12" y2="7"/><line x1="12" y1="17" x2="12" y2="22"/><line x1="7" y1="4.2" x2="9.5" y2="8.5"/><line x1="14.5" y1="15.5" x2="17" y2="19.8"/></svg>`,
-            'Prefer not to say': `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>`,
-          };
-          const icon = icons[v] ?? icons['Prefer not to say'];
-          return `<span style="display:flex;align-items:center;gap:6px">${v ? icon : ''}${v}</span>`;
+        renderer: {
+          display: ({ value }) => {
+            const v = String(value ?? '');
+            const icons: Record<string, string> = {
+              'Male':              `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="14" r="5"/><line x1="19" y1="5" x2="14.14" y2="9.86"/><polyline points="15 5 19 5 19 9"/></svg>`,
+              'Female':            `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ec4899" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="9" r="5"/><line x1="12" y1="14" x2="12" y2="22"/><line x1="9" y1="19" x2="15" y2="19"/></svg>`,
+              'Non-binary':        `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="2" x2="12" y2="7"/><line x1="12" y1="17" x2="12" y2="22"/><line x1="7" y1="4.2" x2="9.5" y2="8.5"/><line x1="14.5" y1="15.5" x2="17" y2="19.8"/></svg>`,
+              'Prefer not to say': `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>`,
+            };
+            const icon = icons[v] ?? icons['Prefer not to say'];
+            return `<span style="display:flex;align-items:center;gap:6px">${v ? icon : ''}${v}</span>`;
+          },
         },
       },
     ],
@@ -341,10 +345,12 @@ const columns: ColumnDef[] = [
           { label: 'United Arab Emirates', value: 'United Arab Emirates' },
           { label: 'Pakistan', value: 'Pakistan' },
         ],
-        cellRendererFn: ({ value }) => {
-          const name = String(value ?? '');
-          const code = countryFlagCodes[name] ?? 'un';
-          return `${name ? `<span style="display:flex;align-items:center;gap:7px"><img src="https://flagcdn.com/w20/${code}.png" width="20" height="14" style="border-radius:2px;object-fit:cover;flex-shrink:0" />` : ''}${name}</span>`;
+        renderer: {
+          display: ({ value }) => {
+            const name = String(value ?? '');
+            const code = countryFlagCodes[name] ?? 'un';
+            return `${name ? `<span style="display:flex;align-items:center;gap:7px"><img src="https://flagcdn.com/w20/${code}.png" width="20" height="14" style="border-radius:2px;object-fit:cover;flex-shrink:0" />` : ''}${name}</span>`;
+          },
         },
       },
       {
@@ -589,6 +595,12 @@ export const playerColumns: ColumnDef[] = [
         editable: true,
         resizable: true,
         rowDrag: true,
+        renderer: {
+          // Custom hover tooltip — columns without `renderer.tooltip` keep
+          // using the free native `title` attribute; this one shows a
+          // themed floating tooltip instead.
+          tooltip: ({ value }) => `<strong>${String(value ?? '')}</strong><br/>Double-click to edit`,
+        },
       },
       {
         colId: 'language',
@@ -611,6 +623,50 @@ export const playerColumns: ColumnDef[] = [
           'Japanese',
           'Chinese',
         ],
+        renderer: {
+          // Custom group-row label — shown when rows are grouped by Language.
+          group: ({ groupValue, childCount }) =>
+            `<span style="display:flex;align-items:center;gap:6px;font-weight:600">Group: ${String(groupValue ?? '—')} <span style="opacity:0.6;font-weight:400">(${childCount})</span></span>`,
+          // Custom filter panel — pill buttons instead of the default checkbox list.
+          filter: ({ colDef, currentFilter, uniqueOptions, onFilterChange }) => {
+            const wrap = document.createElement('div');
+            wrap.style.cssText = 'display:flex;flex-direction:column;gap:6px;padding:10px;min-width:180px;';
+
+            const selected = new Set<string>(
+              (currentFilter?.selectedIds ?? uniqueOptions.map((o) => o.value)).map(String),
+            );
+
+            const emit = () => {
+              if (selected.size >= uniqueOptions.length) { onFilterChange(null); return; }
+              onFilterChange({
+                colId: colDef.colId,
+                field: colDef.field,
+                type: 'dropdown',
+                logic: 'and',
+                conditions: [{ operator: 'in', value: null }],
+                selectedIds: Array.from(selected),
+              });
+            };
+
+            for (const opt of uniqueOptions) {
+              const pill = document.createElement('button');
+              pill.type = 'button';
+              const isOn = selected.has(opt.value);
+              pill.textContent = opt.label;
+              pill.style.cssText = `padding:4px 10px;border-radius:999px;border:1px solid ${isOn ? '#2563eb' : '#cbd5e1'};background:${isOn ? '#2563eb' : 'transparent'};color:${isOn ? '#fff' : '#334155'};cursor:pointer;font-size:12px;`;
+              pill.addEventListener('click', () => {
+                if (selected.has(opt.value)) selected.delete(opt.value);
+                else selected.add(opt.value);
+                pill.style.background = selected.has(opt.value) ? '#2563eb' : 'transparent';
+                pill.style.color = selected.has(opt.value) ? '#fff' : '#334155';
+                pill.style.borderColor = selected.has(opt.value) ? '#2563eb' : '#cbd5e1';
+                emit();
+              });
+              wrap.appendChild(pill);
+            }
+            return wrap;
+          },
+        },
       },
       {
         colId: 'country',
@@ -633,10 +689,19 @@ export const playerColumns: ColumnDef[] = [
           { label: 'United Arab Emirates', value: 'United Arab Emirates' },
           { label: 'Pakistan', value: 'Pakistan' },
         ],
-        cellRendererFn: ({ value }) => {
-          const name = String(value ?? '');
-          const code = countryFlagCodes[name] ?? 'un';
-          return `${name ? `<span style="display:flex;align-items:center;gap:7px"><img src="https://flagcdn.com/w20/${code}.png" width="20" height="14" style="border-radius:2px;object-fit:cover;flex-shrink:0" />` : ''}${name}</span>`;
+        renderer: {
+          display: ({ value }) => {
+            const name = String(value ?? '');
+            const code = countryFlagCodes[name] ?? 'un';
+            return `${name ? `<span style="display:flex;align-items:center;gap:7px"><img src="https://flagcdn.com/w20/${code}.png" width="20" height="14" style="border-radius:2px;object-fit:cover;flex-shrink:0" />` : ''}${name}</span>`;
+          },
+          // Reused by both the cell editor's option list AND the default
+          // filter panel's set-filter checkbox list — one renderer, two surfaces.
+          option: ({ option }) => {
+            const name = String(option.label ?? '');
+            const code = countryFlagCodes[name] ?? 'un';
+            return `${name ? `<span style="display:flex;align-items:center;gap:7px"><img src="https://flagcdn.com/w20/${code}.png" width="20" height="14" style="border-radius:2px;object-fit:cover;flex-shrink:0" />` : ''}${name}</span>`;
+          },
         },
       },
     ],
@@ -711,14 +776,37 @@ export const playerColumns: ColumnDef[] = [
     header: 'Rating',
     type: 'number',
     width: 120,
-     cellRendererFn: ({ value }) => {
-    const rating = Math.max(0, Math.min(5, Math.round(Number(value) || 0)));
+    renderer: {
+      display: ({ value }) => {
+        const rating = Math.max(0, Math.min(5, Math.round(Number(value) || 0)));
 
-      return `
-        <span style="color:#f59e0b;font-size:16px;letter-spacing:1px;">
-          ${'★'.repeat(rating)}
-        </span>
-      `;
+        return `
+          <span style="color:#f59e0b;font-size:16px;letter-spacing:1px;">
+            ${'★'.repeat(rating)}
+          </span>
+        `;
+      },
+      // Click-to-set star picker instead of the default number input.
+      editor: ({ value, onValueChange, onEditStop }) => {
+        const wrap = document.createElement('div');
+        wrap.style.cssText = 'display:flex;gap:2px;cursor:pointer;font-size:18px;color:#f59e0b;';
+        const current = Math.max(0, Math.min(5, Math.round(Number(value) || 0)));
+        for (let i = 1; i <= 5; i++) {
+          const star = document.createElement('span');
+          star.textContent = i <= current ? '★' : '☆';
+          star.addEventListener('click', () => {
+            onValueChange(i);
+            onEditStop();
+          });
+          wrap.appendChild(star);
+        }
+        return wrap;
+      },
+      // Custom aggregate cell — shown in group header/footer rows for this column.
+      summary: ({ value }) => {
+        const avg = Number(value) || 0;
+        return `<span style="color:#f59e0b;font-size:13px;">${avg.toFixed(1)} ★ avg</span>`;
+      },
     },
     sortable: true,
     filterable: true,
@@ -961,6 +1049,13 @@ document.addEventListener('DOMContentLoaded', () => {
         showFooter: false,
         currencySymbol: '$',
       },
+    },
+
+    // ── Photon AI ──────────────────────────────────────────────────────────
+    // Try: "sort salary descending", "pin name left", "hide bonus column",
+    // "show only status active", "group by department", "clear selection".
+    photonAI: {
+      enabled: true,
     },
   };
 

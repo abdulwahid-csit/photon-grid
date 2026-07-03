@@ -1,5 +1,6 @@
 import type { SparklineConfig } from '../chart/sparkline/sparkline.types';
 import type { ColumnGroupResizeStrategy } from '../column-groups/column-group.types';
+import type { ColumnRendererMap, DisplayRendererParams } from './renderer.types';
 
 export type ColumnPinPosition = 'left' | 'right' | null;
 
@@ -21,7 +22,7 @@ export type ColumnPinPosition = 'left' | 'right' | null;
  * | `percentage` | Percentage-formatted number                            |
  * | `email`      | Plain email text                                       |
  * | `sparkline`  | Mini chart — requires `ColumnDef.sparkline` config     |
- * | `custom`     | Delegated to `cellRendererFn`                          |
+ * | `custom`     | Delegated to `renderer.display`                        |
  */
 export type ColumnDataType =
   | 'string'
@@ -99,9 +100,15 @@ export interface ColumnDef {
   visible?: boolean;
 
   renderHtml?: boolean;
-  cellRendererFn?: (params: CellRendererParams) => HTMLElement | string;
-  cellEditorFn?: (params: CellEditorParams) => HTMLElement;
-  headerRendererFn?: (params: HeaderRendererParams) => HTMLElement | string;
+
+  /**
+   * Per-column rendering overrides, grouped by concern (display, editor,
+   * option, filter, tooltip, group, header, summary). Any slot left unset
+   * falls back to Photon Grid's built-in rendering for that concern.
+   *
+   * @see {@link ColumnRendererMap}
+   */
+  renderer?: ColumnRendererMap;
 
   dropdownOptions?: ColumnDropdownOption[];
   enumOptions?: string[];
@@ -137,7 +144,7 @@ export interface ColumnDef {
   textAlign?: 'left' | 'center' | 'right';
 
   headerCssClass?: string;
-  cellCssClass?: string | ((params: CellRendererParams) => string);
+  cellCssClass?: string | ((params: DisplayRendererParams) => string);
 
   /**
    * Child column definitions.  When present, this `ColumnDef` acts as a
@@ -212,32 +219,6 @@ export interface ColumnDef {
 
   sortOrder?: 'asc' | 'desc' | null;
   filterActive?: boolean;
-}
-
-export interface CellRendererParams {
-  value: unknown;
-  rawValue: unknown;
-  row: Record<string, unknown>;
-  colDef: ColumnDef;
-  rowIndex: number;
-  colIndex: number;
-  api: unknown;
-}
-
-export interface CellEditorParams {
-  value: unknown;
-  row: Record<string, unknown>;
-  colDef: ColumnDef;
-  rowIndex: number;
-  onValueChange: (newValue: unknown) => void;
-  onEditStop: () => void;
-}
-
-export interface HeaderRendererParams {
-  colDef: ColumnDef;
-  sortOrder: 'asc' | 'desc' | null;
-  filterActive: boolean;
-  api: unknown;
 }
 
 export interface ColumnState {

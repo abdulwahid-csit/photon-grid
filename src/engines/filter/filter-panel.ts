@@ -1,19 +1,11 @@
 import type { ColumnDef } from '../../types/column.types';
-import type { ColumnFilter, FilterCondition, FilterLogic, FilterOperator } from '../../types/filter.types';
+import type { ColumnFilter, FilterCondition, FilterLogic, FilterOperator, FilterSetOption } from '../../types/filter.types';
+import type { FilterRendererParams } from '../../types/renderer.types';
+import { resolveColumnRenderer } from '../../renderer/renderer-resolver';
+
+export type { FilterSetOption } from '../../types/filter.types';
 
 // ─── Public interfaces ────────────────────────────────────────────────────────
-
-/**
- * A value/label pair used to populate the set-filter checkbox list.
- * For `dropdown` columns the `value` is the raw option value and `label` is the
- * display label.  For all other types `value === label`.
- */
-export interface FilterSetOption {
-  /** Raw cell value used when building the {@link ColumnFilter.selectedIds} array. */
-  value: string;
-  /** Human-readable label rendered in the checkbox list. */
-  label: string;
-}
 
 /**
  * Full configuration object passed to {@link FilterPanel} on construction.
@@ -237,13 +229,32 @@ export class FilterPanel {
     panel.setAttribute('role', 'dialog');
     panel.setAttribute('aria-label', `Filter: ${this.config.colDef.header}`);
 
-    if (isSetType(type)) {
+    const customFilterFn = resolveColumnRenderer(this.config.colDef, 'filter');
+    const isCustom = !!customFilterFn;
+
+    if (customFilterFn) {
+      const params: FilterRendererParams = {
+        colDef: this.config.colDef,
+        anchorEl: this.config.anchorEl,
+        currentFilter: this.config.currentFilter,
+        uniqueOptions: this.config.uniqueOptions,
+        onFilterChange: this.config.onFilterChange,
+        onClose: () => this.destroy(),
+        api: null,
+      };
+      panel.appendChild(customFilterFn(params));
+    } else if (isSetType(type)) {
       panel.appendChild(this.buildSetFilter());
     } else {
       panel.appendChild(this.buildConditionFilter(type));
     }
 
-    panel.appendChild(this.buildFooter());
+    // A custom filter renderer owns its own apply/clear affordances via the
+    // callbacks it already received — the default footer only applies to
+    // Photon Grid's own condition/set filter UI.
+    if (!isCustom) {
+      panel.appendChild(this.buildFooter());
+    }
 
     this.panelEl = panel;
     this.config.containerEl.appendChild(panel);
@@ -251,7 +262,7 @@ export class FilterPanel {
     this.position();
 
     // After insertion, render the virtual list (needs client dimensions)
-    if (isSetType(type) && this.vsContainerEl) {
+    if (!isCustom && isSetType(type) && this.vsContainerEl) {
       this.renderVirtualList();
     }
 
@@ -573,8 +584,23 @@ export class FilterPanel {
 
     const text = document.createElement('span');
     text.className = 'pg-filter-set__item-label';
-    text.textContent = opt.label || '(Blank)';
-    if (!opt.label) text.classList.add('pg-filter-set__item-label--blank');
+
+    const optionFn = resolveColumnRenderer(this.config.colDef, 'option');
+    if (optionFn) {
+      const rendered = optionFn({
+        option: { value: opt.value, label: opt.label },
+        index,
+        selected: cb.checked,
+        highlighted: false,
+        colDef: this.config.colDef,
+        api: null,
+      });
+      if (typeof rendered === 'string') text.innerHTML = rendered;
+      else text.appendChild(rendered);
+    } else {
+      text.textContent = opt.label || '(Blank)';
+      if (!opt.label) text.classList.add('pg-filter-set__item-label--blank');
+    }
 
     label.appendChild(cb);
     label.appendChild(text);

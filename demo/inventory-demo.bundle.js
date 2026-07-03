@@ -1,5 +1,5 @@
 "use strict";
-var PhotonGridDemo = (() => {
+var PhotonGridInventoryDemo = (() => {
   var __defProp = Object.defineProperty;
   var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
   var __getOwnPropNames = Object.getOwnPropertyNames;
@@ -3448,6 +3448,227 @@ var PhotonGridDemo = (() => {
   background: var(--pg-colors-resize-handle-color, #e2e8f0);
 }
 
+/* \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 Photon AI \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+   Floating command bar, anchored to the grid body's bottom-right corner.
+   Mounted as a sibling of the pinned-column panels (see PhotonAIPanel.mount /
+   GridRenderer.buildLayout) so it floats independently of virtualization and
+   scroll; the grid body's own overflow: hidden is what keeps it inside the
+   grid container per spec, without this component needing to enforce that
+   itself. */
+.pg-ai-launcher {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  z-index: 201;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: none;
+  border-radius: var(--pg-borders-radius-pill, 9999px);
+  background: var(--pg-colors-primary, #2563eb);
+  color: var(--pg-colors-primary-text, #ffffff);
+  box-shadow: var(--pg-shadows-lg, 0 8px 24px rgba(15, 23, 42, 0.16));
+  cursor: pointer;
+  transition:
+    transform var(--pg-transitions-duration-base, 150ms) var(--pg-transitions-easing-base, ease),
+    opacity var(--pg-transitions-duration-base, 150ms) var(--pg-transitions-easing-base, ease),
+    background var(--pg-transitions-duration-fast, 100ms);
+}
+.pg-ai-launcher:hover {
+  background: var(--pg-colors-primary-hover, #1d4ed8);
+  transform: scale(1.06);
+}
+.pg-ai-launcher:active {
+  background: var(--pg-colors-primary-active, #1e40af);
+  transform: scale(0.97);
+}
+.pg-ai-launcher--hidden {
+  opacity: 0;
+  transform: scale(0.7);
+  pointer-events: none;
+}
+
+.pg-ai-panel {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  bottom: 12px;
+  z-index: 201;
+  width: min(360px, calc(100% - 24px));
+  display: none;
+  flex-direction: column;
+  background: var(--pg-colors-surface, #ffffff);
+  border: var(--pg-borders-width-thin, 1px) solid var(--pg-colors-border, #e2e8f0);
+  border-radius: var(--pg-borders-radius-lg, 10px);
+  box-shadow: var(--pg-shadows-dropdown, 0 16px 48px rgba(15, 23, 42, 0.24));
+  font-family: var(--pg-typography-font-family, system-ui, sans-serif);
+  color: var(--pg-colors-text-primary, #0f172a);
+}
+.pg-ai-panel--open {
+  display: flex;
+}
+
+.pg-ai-panel__header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: var(--pg-borders-width-thin, 1px) solid var(--pg-colors-border, #e2e8f0);
+}
+.pg-ai-panel__title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--pg-typography-font-size-sm, 13px);
+  font-weight: var(--pg-typography-font-weight-semi-bold, 600);
+  color: var(--pg-colors-primary, #2563eb);
+}
+.pg-ai-panel__close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: var(--pg-borders-radius-sm, 4px);
+  background: transparent;
+  color: var(--pg-colors-text-secondary, #64748b);
+  cursor: pointer;
+  transition: background var(--pg-transitions-duration-fast, 100ms);
+}
+.pg-ai-panel__close:hover {
+  background: var(--pg-colors-background-alt, #f1f5f9);
+}
+
+.pg-ai-panel__log {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+}
+
+.pg-ai-panel__message {
+  max-width: 85%;
+  padding: 8px 12px;
+  border-radius: var(--pg-borders-radius-lg, 10px);
+  font-size: var(--pg-typography-font-size-sm, 13px);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.pg-ai-panel__message--user {
+  align-self: flex-end;
+  background: var(--pg-colors-primary, #2563eb);
+  color: var(--pg-colors-primary-text, #ffffff);
+  border-bottom-right-radius: var(--pg-borders-radius-sm, 4px);
+}
+.pg-ai-panel__message--assistant {
+  align-self: flex-start;
+  background: var(--pg-colors-background-alt, #f1f5f9);
+  color: var(--pg-colors-text-primary, #0f172a);
+  border-bottom-left-radius: var(--pg-borders-radius-sm, 4px);
+}
+.pg-ai-panel__message--assistant.pg-ai-panel__message--error {
+  background: var(--pg-colors-error-subtle, #fef2f2);
+  color: var(--pg-colors-error, #dc2626);
+}
+
+.pg-ai-panel__input-wrap {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  padding: 10px 12px 12px;
+  border-top: var(--pg-borders-width-thin, 1px) solid var(--pg-colors-border, #e2e8f0);
+}
+.pg-ai-panel__input {
+  flex: 1 1 0;
+  width: 100%;
+  min-height: 36px;
+  max-height: 120px;
+  padding: 8px 40px 8px 12px;
+  border: var(--pg-borders-width-thin, 1px) solid var(--pg-colors-border, #e2e8f0);
+  border-radius: var(--pg-borders-radius-md, 6px);
+  background: var(--pg-colors-surface, #ffffff);
+  color: var(--pg-colors-text-primary, #0f172a);
+  font-family: var(--pg-typography-font-family, system-ui, sans-serif);
+  font-size: var(--pg-typography-font-size-sm, 13px);
+  line-height: 1.4;
+  resize: none;
+  outline: none;
+  transition: border-color var(--pg-transitions-duration-fast, 100ms);
+}
+.pg-ai-panel__input::placeholder {
+  color: var(--pg-colors-text-disabled, #94a3b8);
+}
+.pg-ai-panel__input:focus {
+  border-color: var(--pg-colors-border-focus, #2563eb);
+}
+.pg-ai-panel__send {
+  position: absolute;
+  right: 20px;
+  bottom: 17px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: var(--pg-borders-radius-pill, 9999px);
+  background: var(--pg-colors-primary, #2563eb);
+  color: var(--pg-colors-primary-text, #ffffff);
+  cursor: pointer;
+  transition:
+    background var(--pg-transitions-duration-fast, 100ms),
+    transform var(--pg-transitions-duration-fast, 100ms),
+    opacity var(--pg-transitions-duration-fast, 100ms);
+}
+.pg-ai-panel__send:hover:not(:disabled) {
+  background: var(--pg-colors-primary-hover, #1d4ed8);
+  transform: scale(1.08);
+}
+.pg-ai-panel__send:disabled {
+  background: var(--pg-colors-text-disabled, #94a3b8);
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 Custom cell tooltip \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+ * Only mounted/shown for columns with renderer.tooltip \u2014 plain columns keep
+ * using the free native title attribute. Positioned via a transform set
+ * in JS relative to .pg-grid__body so it never affects grid layout. */
+.pg-tooltip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: var(--pg-z-index-tooltip, 150);
+  max-width: 320px;
+  padding: var(--pg-spacing-xs, 6px) var(--pg-spacing-sm, 10px);
+  border-radius: var(--pg-borders-radius-sm, 4px);
+  background: var(--pg-colors-tooltip-bg, #1f2937);
+  color: var(--pg-colors-tooltip-text, #ffffff);
+  font-family: var(--pg-typography-font-family, sans-serif);
+  font-size: var(--pg-typography-font-size-xs, 12px);
+  line-height: 1.4;
+  box-shadow: var(--pg-shadows-dropdown, 0 4px 12px rgba(0, 0, 0, 0.15));
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity var(--pg-transitions-duration-fast, 100ms),
+    visibility var(--pg-transitions-duration-fast, 100ms);
+}
+.pg-tooltip--visible {
+  opacity: 1;
+  visibility: visible;
+}
+
 `;
   var css = [baseCss, themeQuartzCss, themeAlpineCss, themeBalhamCss, themeMaterialCss, themeDarkCss].join("\n");
   function injectBaseStyles() {
@@ -3568,6 +3789,11 @@ var PhotonGridDemo = (() => {
     const pad = (n) => String(n).padStart(2, "0");
     const d = new Date(date.toLocaleString("en-US", opts));
     return format.replace("yyyy", String(d.getFullYear())).replace("MM", pad(d.getMonth() + 1)).replace("dd", pad(d.getDate())).replace("HH", pad(d.getHours())).replace("mm", pad(d.getMinutes())).replace("ss", pad(d.getSeconds()));
+  }
+
+  // src/renderer/renderer-resolver.ts
+  function resolveColumnRenderer(colDef, slot) {
+    return colDef.renderer?.[slot];
   }
 
   // src/engines/editing/custom-dropdown-editor.ts
@@ -3765,17 +3991,26 @@ var PhotonGridDemo = (() => {
         item.setAttribute("data-index", String(i));
         if (isSelected) item.classList.add("pg-dropdown-editor__option--selected");
         if (isHighlight) item.classList.add("pg-dropdown-editor__option--highlighted");
-        const icon = this.buildIcon(opt, "pg-dropdown-editor__opt-icon");
-        if (icon) item.appendChild(icon);
-        const label = document.createElement("span");
-        label.className = "pg-dropdown-editor__opt-label";
-        label.textContent = opt.label;
-        item.appendChild(label);
-        if (isSelected) {
-          const check = document.createElement("span");
-          check.className = "pg-dropdown-editor__opt-check";
-          check.setAttribute("aria-hidden", "true");
-          item.appendChild(check);
+        if (this.callbacks.renderOption) {
+          const rendered = this.callbacks.renderOption(opt, i, isSelected, isHighlight);
+          if (typeof rendered === "string") {
+            item.innerHTML = rendered;
+          } else {
+            item.appendChild(rendered);
+          }
+        } else {
+          const icon = this.buildIcon(opt, "pg-dropdown-editor__opt-icon");
+          if (icon) item.appendChild(icon);
+          const label = document.createElement("span");
+          label.className = "pg-dropdown-editor__opt-label";
+          label.textContent = opt.label;
+          item.appendChild(label);
+          if (isSelected) {
+            const check = document.createElement("span");
+            check.className = "pg-dropdown-editor__opt-check";
+            check.setAttribute("aria-hidden", "true");
+            item.appendChild(check);
+          }
         }
         item.addEventListener("mousedown", (e) => {
           e.preventDefault();
@@ -4241,6 +4476,12 @@ var PhotonGridDemo = (() => {
       if (col) {
         this.eventBus.emit(GridEventType.COLUMN_SORTED, { colId, field: col.field, order });
       }
+    }
+    /** Clears the sort indicator from every column (the header-arrow counterpart to `SortEngine.clearSort`). */
+    clearAllSort() {
+      for (const col of this.columns) col.sortOrder = null;
+      this.store.set("columns", [...this.columns]);
+      this.eventBus.emit(GridEventType.COLUMN_SORTED, { colId: "", field: "", order: null });
     }
     autoSizeColumn(colId, containerEl) {
       const col = this.getColumn(colId);
@@ -7251,15 +7492,15 @@ var PhotonGridDemo = (() => {
       }, 700);
     }
     // ─── Navigation ──────────────────────────────────────────────────────────
-    moveActiveCell(dRow, dCol, rowCount, colCount, extend = false) {
+    moveActiveCell(dRow, dCol, rowCount2, colCount, extend = false) {
       const active = this.store.get("activeCell");
       if (!active) return;
-      const newRow = Math.max(0, Math.min(rowCount - 1, active.rowIndex + dRow));
+      const newRow = Math.max(0, Math.min(rowCount2 - 1, active.rowIndex + dRow));
       const newCol = Math.max(0, Math.min(colCount - 1, active.colIndex + dCol));
       if (extend) this.extendSelection(newRow, newCol);
       else this.startSelection(newRow, newCol);
     }
-    jumpToEdge(direction, rowCount, colCount, extend = false) {
+    jumpToEdge(direction, rowCount2, colCount, extend = false) {
       const active = this.store.get("activeCell");
       if (!active) return;
       let newRow = active.rowIndex;
@@ -7269,7 +7510,7 @@ var PhotonGridDemo = (() => {
           newRow = 0;
           break;
         case "down":
-          newRow = rowCount - 1;
+          newRow = rowCount2 - 1;
           break;
         case "left":
           newCol = 0;
@@ -7732,13 +7973,13 @@ var PhotonGridDemo = (() => {
           break;
       }
     }
-    selectAll(rowCount, colCount) {
+    selectAll(rowCount2, colCount) {
       const groupedIds = this.store.get("groupedColumnIds");
       const startCol = groupedIds.length > 0 ? -1 : 0;
       this.anchorCell = { rowIndex: 0, colIndex: startCol };
       this.store.set("cellRanges", [{
         startRowIndex: 0,
-        endRowIndex: rowCount - 1,
+        endRowIndex: rowCount2 - 1,
         startColIndex: startCol,
         endColIndex: colCount - 1
       }]);
@@ -8379,6 +8620,8 @@ ${body}`;
     collapse: `<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 2V6H2M14 6H10V2M10 14V10H14M2 10H6V14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
     fullscreen: `<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M2 6V2H6M10 2H14V6M14 10V14H10M6 14H2V10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
     close: `<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 4L12 12M12 4L4 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`,
+    arrowUp: `<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M8 13V3M3.5 7.5L8 3L12.5 7.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+    sparkle: `<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M8 1.5L9.3 5.7L13.5 7L9.3 8.3L8 12.5L6.7 8.3L2.5 7L6.7 5.7L8 1.5Z" fill="currentColor"/><path d="M13 10.5L13.5 12L15 12.5L13.5 13L13 14.5L12.5 13L11 12.5L12.5 12L13 10.5Z" fill="currentColor"/></svg>`,
     check: `<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 8L6.5 11.5L13 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
     minus: `<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 8H13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`,
     drag: `<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="5.5" cy="4" r="1.2" fill="currentColor"/><circle cx="10.5" cy="4" r="1.2" fill="currentColor"/><circle cx="5.5" cy="8" r="1.2" fill="currentColor"/><circle cx="10.5" cy="8" r="1.2" fill="currentColor"/><circle cx="5.5" cy="12" r="1.2" fill="currentColor"/><circle cx="10.5" cy="12" r="1.2" fill="currentColor"/></svg>`,
@@ -9870,6 +10113,18 @@ ${body}`;
   };
 
   // src/renderer/dom-utils.ts
+  function createElement(tag, attrs = {}, cssText) {
+    const el = document.createElement(tag);
+    for (const [key, val] of Object.entries(attrs)) {
+      if (typeof val === "boolean") {
+        if (val) el.setAttribute(key, "");
+      } else {
+        el.setAttribute(key, String(val));
+      }
+    }
+    if (cssText) el.style.cssText = cssText;
+    return el;
+  }
   function createDiv(className, cssText) {
     const el = document.createElement("div");
     if (className) el.className = className;
@@ -13266,8 +13521,9 @@ ${body}`;
       const align = col.textAlign ?? (col.type === "number" || col.type === "currency" ? "right" : "left");
       if (align !== "left") th.classList.add(`pg-th--align-${align}`);
       if (align === "right") th.classList.add("pg-th--reverse");
-      if (col.headerRendererFn) {
-        const rendered = col.headerRendererFn({ colDef: col, sortOrder: col.sortOrder ?? null, filterActive: !!col.filterActive, api: null });
+      const headerFn = resolveColumnRenderer(col, "header");
+      if (headerFn) {
+        const rendered = headerFn({ colDef: col, sortOrder: col.sortOrder ?? null, filterActive: !!col.filterActive, api: null });
         if (typeof rendered === "string") th.innerHTML = rendered;
         else th.appendChild(rendered);
       } else {
@@ -14645,9 +14901,10 @@ ${body}`;
         }
       }
       const inner = createDiv("pg-cell__inner");
-      if (colDef.cellRendererFn) {
+      const displayFn = resolveColumnRenderer(colDef, "display");
+      if (displayFn) {
         const params = { value: rawValue, rawValue, row: row.data, colDef, rowIndex, colIndex, api };
-        const rendered = colDef.cellRendererFn(params);
+        const rendered = displayFn(params);
         if (typeof rendered === "string") {
           inner.innerHTML = rendered;
         } else {
@@ -15202,7 +15459,22 @@ ${body}`;
       const toggleIcon = this.iconRenderer.render(row.expanded ? "chevronDown" : "chevronRight", { size: 16 });
       toggleBtn.appendChild(toggleIcon);
       const label = createDiv("pg-row-group__label");
-      label.textContent = String(row.groupValue + " (" + row.childCount + ")");
+      const groupColDef = options2.allLeafColumns?.find((c) => c.field === row.groupField);
+      const groupFn = groupColDef ? resolveColumnRenderer(groupColDef, "group") : void 0;
+      if (groupColDef && groupFn) {
+        const rendered = groupFn({
+          row,
+          colDef: groupColDef,
+          groupValue: row.groupValue,
+          childCount: row.childCount ?? 0,
+          collapsed: !row.expanded,
+          api: null
+        });
+        if (typeof rendered === "string") label.innerHTML = rendered;
+        else label.appendChild(rendered);
+      } else {
+        label.textContent = String(row.groupValue + " (" + row.childCount + ")");
+      }
       cell.appendChild(toggleBtn);
       cell.appendChild(label);
       el.appendChild(cell);
@@ -15262,10 +15534,23 @@ ${body}`;
           if (align !== "left") cell.classList.add(`pg-cell--align-${align}`);
           if (options2.showVerticalBorders) cell.classList.add("pg-cell--v-border");
           const inner = createDiv("pg-cell__inner");
-          const span = document.createElement("span");
-          span.className = "pg-cell__value";
-          span.textContent = this.formatAggValue(aggVal, col, options2);
-          inner.appendChild(span);
+          const summaryFn = resolveColumnRenderer(col, "summary");
+          if (summaryFn) {
+            const rendered = summaryFn({
+              colDef: col,
+              value: aggVal,
+              aggregation: col.aggFunc,
+              label: col.summaryLabel,
+              api: null
+            });
+            if (typeof rendered === "string") inner.innerHTML = rendered;
+            else inner.appendChild(rendered);
+          } else {
+            const span = document.createElement("span");
+            span.className = "pg-cell__value";
+            span.textContent = this.formatAggValue(aggVal, col, options2);
+            inner.appendChild(span);
+          }
           cell.appendChild(inner);
         }
         el.appendChild(cell);
@@ -15758,9 +16043,9 @@ ${body}`;
         this.footerEl.appendChild(this.buildPaginationControls());
       }
       if (options2.showRowCount) {
-        const rowCount = createDiv("pg-footer__row-count");
-        this.pageInfoEl = rowCount;
-        this.footerEl.appendChild(rowCount);
+        const rowCount2 = createDiv("pg-footer__row-count");
+        this.pageInfoEl = rowCount2;
+        this.footerEl.appendChild(rowCount2);
       }
       this.updatePaginationState();
       containerEl.appendChild(this.footerEl);
@@ -16643,16 +16928,31 @@ ${body}`;
       panel.className = "pg-filter-panel";
       panel.setAttribute("role", "dialog");
       panel.setAttribute("aria-label", `Filter: ${this.config.colDef.header}`);
-      if (isSetType(type)) {
+      const customFilterFn = resolveColumnRenderer(this.config.colDef, "filter");
+      const isCustom = !!customFilterFn;
+      if (customFilterFn) {
+        const params = {
+          colDef: this.config.colDef,
+          anchorEl: this.config.anchorEl,
+          currentFilter: this.config.currentFilter,
+          uniqueOptions: this.config.uniqueOptions,
+          onFilterChange: this.config.onFilterChange,
+          onClose: () => this.destroy(),
+          api: null
+        };
+        panel.appendChild(customFilterFn(params));
+      } else if (isSetType(type)) {
         panel.appendChild(this.buildSetFilter());
       } else {
         panel.appendChild(this.buildConditionFilter(type));
       }
-      panel.appendChild(this.buildFooter());
+      if (!isCustom) {
+        panel.appendChild(this.buildFooter());
+      }
       this.panelEl = panel;
       this.config.containerEl.appendChild(panel);
       this.position();
-      if (isSetType(type) && this.vsContainerEl) {
+      if (!isCustom && isSetType(type) && this.vsContainerEl) {
         this.renderVirtualList();
       }
       requestAnimationFrame(() => {
@@ -16904,8 +17204,22 @@ ${body}`;
       });
       const text = document.createElement("span");
       text.className = "pg-filter-set__item-label";
-      text.textContent = opt.label || "(Blank)";
-      if (!opt.label) text.classList.add("pg-filter-set__item-label--blank");
+      const optionFn = resolveColumnRenderer(this.config.colDef, "option");
+      if (optionFn) {
+        const rendered = optionFn({
+          option: { value: opt.value, label: opt.label },
+          index,
+          selected: cb.checked,
+          highlighted: false,
+          colDef: this.config.colDef,
+          api: null
+        });
+        if (typeof rendered === "string") text.innerHTML = rendered;
+        else text.appendChild(rendered);
+      } else {
+        text.textContent = opt.label || "(Blank)";
+        if (!opt.label) text.classList.add("pg-filter-set__item-label--blank");
+      }
       label.appendChild(cb);
       label.appendChild(text);
       return label;
@@ -17442,6 +17756,277 @@ ${body}`;
     }
   };
 
+  // src/photon-ai/photon-ai-panel.ts
+  var INPUT_MAX_HEIGHT_PX = 120;
+  var PhotonAIPanel = class {
+    constructor(iconRenderer) {
+      this.iconRenderer = iconRenderer;
+      this.launcherEl = null;
+      this.panelEl = null;
+      this.logEl = null;
+      this.inputEl = null;
+      this.sendBtnEl = null;
+      this.submitHandler = null;
+      this.isOpen = false;
+      this.messages = [];
+    }
+    /** Mounts the launcher + docked side panel into the grid body. Idempotent-safe: call once per grid instance. */
+    mount(bodyWrapEl, config) {
+      this.launcherEl = this.buildLauncher();
+      this.panelEl = this.buildPanel(config);
+      bodyWrapEl.appendChild(this.launcherEl);
+      bodyWrapEl.appendChild(this.panelEl);
+      if (config.defaultOpen) this.open();
+    }
+    /** Wires the callback that turns typed text into a result — set once `GridApi`/`PhotonAIService` exist (after `GridCore` construction). */
+    setSubmitHandler(fn) {
+      this.submitHandler = fn;
+    }
+    /** Programmatic equivalent of typing `text` and pressing send — also appends to the conversation log, so a scripted call and a manual one look identical. */
+    invoke(text) {
+      this.appendMessage({ role: "user", text });
+      const result = this.submitHandler?.(text) ?? { success: false, message: "Photon AI is not ready yet." };
+      this.appendMessage({ role: "assistant", text: result.message, success: result.success });
+      return result;
+    }
+    open() {
+      if (this.isOpen || !this.panelEl || !this.launcherEl) return;
+      this.isOpen = true;
+      this.launcherEl.classList.add("pg-ai-launcher--hidden");
+      this.panelEl.classList.add("pg-ai-panel--open");
+      if (this.messages.length === 0) this.appendGreeting();
+      requestAnimationFrame(() => this.inputEl?.focus());
+    }
+    close() {
+      if (!this.isOpen || !this.panelEl || !this.launcherEl) return;
+      this.isOpen = false;
+      this.panelEl.classList.remove("pg-ai-panel--open");
+      this.launcherEl.classList.remove("pg-ai-launcher--hidden");
+    }
+    destroy() {
+      this.launcherEl?.remove();
+      this.panelEl?.remove();
+      this.launcherEl = null;
+      this.panelEl = null;
+      this.logEl = null;
+      this.inputEl = null;
+      this.sendBtnEl = null;
+      this.submitHandler = null;
+      this.messages = [];
+    }
+    // ─── Private: construction ─────────────────────────────────────────────
+    buildLauncher() {
+      const btn = createElement("button", { type: "button", "aria-label": "Open Photon AI" });
+      btn.className = "pg-ai-launcher";
+      btn.appendChild(this.iconRenderer.render("sparkle", { size: 20 }));
+      btn.addEventListener("click", () => this.open());
+      return btn;
+    }
+    buildPanel(config) {
+      const panel = createDiv("pg-ai-panel");
+      panel.setAttribute("role", "complementary");
+      panel.setAttribute("aria-label", "Photon AI");
+      panel.appendChild(this.buildHeader());
+      this.logEl = createDiv("pg-ai-panel__log");
+      this.logEl.setAttribute("role", "log");
+      this.logEl.setAttribute("aria-live", "polite");
+      panel.appendChild(this.logEl);
+      panel.appendChild(this.buildInputArea(config));
+      return panel;
+    }
+    buildHeader() {
+      const header = createDiv("pg-ai-panel__header");
+      const title = createDiv("pg-ai-panel__title");
+      title.appendChild(this.iconRenderer.render("sparkle", { size: 16 }));
+      const label = document.createElement("span");
+      label.textContent = "Photon AI";
+      title.appendChild(label);
+      header.appendChild(title);
+      const closeBtn = createElement("button", { type: "button", "aria-label": "Close Photon AI" });
+      closeBtn.className = "pg-ai-panel__close";
+      closeBtn.appendChild(this.iconRenderer.render("close", { size: 14 }));
+      closeBtn.addEventListener("click", () => this.close());
+      header.appendChild(closeBtn);
+      return header;
+    }
+    buildInputArea(config) {
+      const wrap = createDiv("pg-ai-panel__input-wrap");
+      const input = createElement("textarea", {
+        placeholder: config.placeholder ?? "Ask Photon AI to do something, or ask it a question...",
+        rows: 1
+      });
+      input.className = "pg-ai-panel__input";
+      this.inputEl = input;
+      const sendBtn = createElement("button", { type: "button", "aria-label": "Send" });
+      sendBtn.className = "pg-ai-panel__send";
+      sendBtn.disabled = true;
+      sendBtn.appendChild(this.iconRenderer.render("arrowUp", { size: 14 }));
+      this.sendBtnEl = sendBtn;
+      input.addEventListener("input", () => {
+        this.autoGrow(input);
+        sendBtn.disabled = input.value.trim().length === 0;
+      });
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          this.trySubmit();
+        }
+      });
+      sendBtn.addEventListener("click", () => this.trySubmit());
+      wrap.appendChild(input);
+      wrap.appendChild(sendBtn);
+      return wrap;
+    }
+    // ─── Private: behavior ──────────────────────────────────────────────────
+    autoGrow(input) {
+      input.style.height = "auto";
+      input.style.height = `${Math.min(input.scrollHeight, INPUT_MAX_HEIGHT_PX)}px`;
+    }
+    trySubmit() {
+      const input = this.inputEl;
+      const sendBtn = this.sendBtnEl;
+      if (!input || !sendBtn) return;
+      const text = input.value.trim();
+      if (!text || sendBtn.disabled) return;
+      this.invoke(text);
+      input.value = "";
+      sendBtn.disabled = true;
+      this.autoGrow(input);
+    }
+    appendGreeting() {
+      this.appendMessage({
+        role: "assistant",
+        text: `Hi! Tell me what to do \u2014 sort, filter, pin, group, hide/show columns, move columns, selection, and more \u2014 or ask me a question about the grid's current state (try "help" to see everything I understand).`,
+        success: true
+      });
+    }
+    appendMessage(message) {
+      this.messages.push(message);
+      if (!this.logEl) return;
+      const bubble = createDiv(`pg-ai-panel__message pg-ai-panel__message--${message.role}`);
+      if (message.role === "assistant") {
+        bubble.classList.toggle("pg-ai-panel__message--error", message.success === false);
+      }
+      for (const line of message.text.split("\n")) {
+        const lineEl = document.createElement("div");
+        lineEl.textContent = line;
+        bubble.appendChild(lineEl);
+      }
+      this.logEl.appendChild(bubble);
+      this.logEl.scrollTop = this.logEl.scrollHeight;
+    }
+  };
+
+  // src/renderer/tooltip-renderer.ts
+  var SHOW_DELAY_MS = 400;
+  var TooltipController = class {
+    constructor(store, columnModel, api) {
+      this.store = store;
+      this.columnModel = columnModel;
+      this.api = api;
+      this.hostEl = null;
+      this.tooltipEl = null;
+      this.showTimer = null;
+      this.hoveredCellEl = null;
+      this.boundMouseOver = this.handleMouseOver.bind(this);
+      this.boundMouseOut = this.handleMouseOut.bind(this);
+    }
+    /** Attaches the delegated hover listeners to the grid body wrapper. */
+    mount(bodyWrapEl) {
+      this.hostEl = bodyWrapEl;
+      bodyWrapEl.addEventListener("mouseover", this.boundMouseOver);
+      bodyWrapEl.addEventListener("mouseout", this.boundMouseOut);
+    }
+    /** Detaches listeners, clears any pending timer, and removes the tooltip element. */
+    destroy() {
+      this.hostEl?.removeEventListener("mouseover", this.boundMouseOver);
+      this.hostEl?.removeEventListener("mouseout", this.boundMouseOut);
+      this.clearShowTimer();
+      this.tooltipEl?.remove();
+      this.tooltipEl = null;
+      this.hostEl = null;
+      this.hoveredCellEl = null;
+    }
+    handleMouseOver(e) {
+      const cellEl = e.target.closest(".pg-cell[data-col-id]");
+      if (!cellEl || cellEl === this.hoveredCellEl) return;
+      this.hoveredCellEl = cellEl;
+      this.clearShowTimer();
+      this.hide();
+      const colId = cellEl.getAttribute("data-col-id");
+      const nodeId = cellEl.closest("[data-node-id]")?.getAttribute("data-node-id");
+      if (!colId || !nodeId) return;
+      const columns = this.columnModel.getVisibleColumns();
+      const colIndex = columns.findIndex((c) => c.colId === colId);
+      const colDef = columns[colIndex];
+      if (!colDef) return;
+      const tooltipFn = resolveColumnRenderer(colDef, "tooltip");
+      if (!tooltipFn) return;
+      const rows = this.store.get("visibleRows") ?? [];
+      const row = rows.find((r) => r.nodeId === nodeId);
+      if (!row || row.type !== "data") return;
+      this.showTimer = setTimeout(() => {
+        const rawValue = row.data[colDef.field];
+        const params = {
+          value: rawValue,
+          rawValue,
+          row: row.data,
+          colDef,
+          rowIndex: row.rowIndex,
+          colIndex,
+          api: this.api
+        };
+        this.show(cellEl, tooltipFn(params));
+      }, SHOW_DELAY_MS);
+    }
+    handleMouseOut(e) {
+      const related = e.relatedTarget;
+      if (this.hoveredCellEl && related && this.hoveredCellEl.contains(related)) return;
+      this.hoveredCellEl = null;
+      this.clearShowTimer();
+      this.hide();
+    }
+    show(anchorEl, content) {
+      if (!this.hostEl) return;
+      if (!this.tooltipEl) {
+        this.tooltipEl = document.createElement("div");
+        this.tooltipEl.className = "pg-tooltip";
+        this.hostEl.appendChild(this.tooltipEl);
+      }
+      if (typeof content === "string") {
+        this.tooltipEl.innerHTML = content;
+      } else {
+        this.tooltipEl.innerHTML = "";
+        this.tooltipEl.appendChild(content);
+      }
+      this.position(anchorEl);
+      this.tooltipEl.classList.add("pg-tooltip--visible");
+    }
+    hide() {
+      this.tooltipEl?.classList.remove("pg-tooltip--visible");
+    }
+    /** Positions the tooltip above the anchor cell, clamped to stay within the grid body. */
+    position(anchorEl) {
+      if (!this.tooltipEl || !this.hostEl) return;
+      const hostRect = this.hostEl.getBoundingClientRect();
+      const anchorRect = anchorEl.getBoundingClientRect();
+      const tooltipRect = this.tooltipEl.getBoundingClientRect();
+      let top = anchorRect.top - hostRect.top - tooltipRect.height - 8;
+      if (top < 0) top = anchorRect.bottom - hostRect.top + 8;
+      let left = anchorRect.left - hostRect.left;
+      const maxLeft = hostRect.width - tooltipRect.width - 4;
+      if (left > maxLeft) left = Math.max(4, maxLeft);
+      if (left < 4) left = 4;
+      this.tooltipEl.style.transform = `translate(${left}px, ${top}px)`;
+    }
+    clearShowTimer() {
+      if (this.showTimer !== null) {
+        clearTimeout(this.showTimer);
+        this.showTimer = null;
+      }
+    }
+  };
+
   // src/renderer/grid-renderer.ts
   var CHECKBOX_COL_WIDTH = 44;
   var SERIAL_COL_WIDTH = 52;
@@ -17489,6 +18074,8 @@ ${body}`;
       this.rowDragRenderer = null;
       this.detailRowRenderer = null;
       this.masterDetailEngine = null;
+      /** Floating Photon AI command bar — only created when `photonAI.enabled`. */
+      this.photonAIPanel = null;
       this.rafId = null;
       this.autoScroller = null;
       this.unsubscribers = [];
@@ -17563,6 +18150,10 @@ ${body}`;
           this.scrollController.scrollToY(this.scrollController.getScrollTop() + delta);
         });
       }
+      if (options2.photonAI?.enabled) {
+        this.photonAIPanel = new PhotonAIPanel(iconRenderer);
+      }
+      this.tooltipController = new TooltipController(store, columnModel, null);
     }
     mount() {
       this.colStyles.mount();
@@ -17823,6 +18414,19 @@ ${body}`;
       return this.detailRowRenderer?.getNestedInstance(parentNodeId)?.api;
     }
     /**
+     * Wires the callback the Photon AI panel's send button/Enter key invokes —
+     * late-bound once the owning `GridCore`'s `GridApi` (and therefore its
+     * `PhotonAIService`) exists. A no-op when `photonAI.enabled` was falsy at
+     * construction (the panel was never created).
+     */
+    setPhotonAISubmitHandler(fn) {
+      this.photonAIPanel?.setSubmitHandler(fn);
+    }
+    /** Programmatic entry point mirroring the panel's own UI — backs `GridApi.submitAICommand`. */
+    submitAICommand(text) {
+      return this.photonAIPanel?.invoke(text) ?? { success: false, message: "Photon AI is not enabled on this grid." };
+    }
+    /**
      * Starts the shrink/fade-out animation for `parentNodeId`'s detail row.
      * Must be called synchronously **before** the pipeline re-runs and removes
      * the row — see `DetailRowRenderer.beginCollapse` for why the timing matters.
@@ -17924,6 +18528,8 @@ ${body}`;
       this.footerRenderer.destroy();
       this.overlayRenderer.destroy();
       this.detailRowRenderer?.destroy();
+      this.photonAIPanel?.destroy();
+      this.tooltipController.destroy();
       this.scrollController.destroy();
       this.groupDropZone?.destroy();
       this.rowDragRenderer?.destroy();
@@ -18049,6 +18655,10 @@ ${body}`;
       if (this.masterDetailEnabledAtConstruction) {
         this.buildStickyLayer(bodyWrapEl);
       }
+      if (this.photonAIPanel) {
+        this.photonAIPanel.mount(bodyWrapEl, this.options.photonAI);
+      }
+      this.tooltipController.mount(bodyWrapEl);
       this.cellSelectionEngine.attach(centerBodyContentEl);
       this.bodyRenderer.setPanels(leftBodyContentEl, centerBodyContentEl, rightBodyContentEl);
       const selectionPanels = [leftBodyContentEl, centerBodyContentEl, rightBodyContentEl];
@@ -18347,6 +18957,10 @@ ${body}`;
           showGroupsColumn: hasGroupedColumns,
           autoGroupColWidth: AUTO_GROUP_COL_WIDTH,
           leafGroupColDef,
+          // Unfiltered (includes columns hidden because they're currently
+          // grouped by) so a group row's `groupField` always resolves to its
+          // ColumnDef, even though that column itself isn't rendered as a cell.
+          allLeafColumns: rawCols,
           centerColStart: colStart,
           centerLeftSpacerW: leftSpacerW,
           centerRightSpacerW: rightSpacerW,
@@ -18814,10 +19428,12 @@ ${body}`;
       const col = this.ctx.columnModel.getColumn(colId);
       if (!col) return;
       this.ctx.sortEngine.sort(colId, col.field, order);
+      this.ctx.columnModel.setColumnSort(colId, order);
       this.refresh();
     }
     clearSort() {
       this.ctx.sortEngine.clearSort();
+      this.ctx.columnModel.clearAllSort();
       this.refresh();
     }
     getSortConfig() {
@@ -18980,6 +19596,16 @@ ${body}`;
     getDetailGridApi(nodeId) {
       return this.ctx.renderer.getDetailGridApi(nodeId);
     }
+    // ──────────────────── Photon AI ────────────────────
+    /**
+     * Programmatic equivalent of typing `text` into the Photon AI panel and
+     * pressing send — runs the same normalize → parse → resolve → build →
+     * execute pipeline. Useful for tests or a custom trigger UI. Returns a
+     * graceful failure result (never throws) when `photonAI.enabled` is falsy.
+     */
+    submitAICommand(text) {
+      return this.ctx.renderer.submitAICommand(text);
+    }
     // ──────────────────── Column Groups ────────────────────
     /**
      * Collapse a column header group, hiding all its leaf columns.
@@ -19078,6 +19704,14 @@ ${body}`;
       const rows = this.getSelectedRows();
       const cols = this.ctx.columnModel.getVisibleColumns();
       return this.ctx.clipboardEngine.copyRowsToClipboard(rows, cols);
+    }
+    /** Copies the active cell range(s) — not row selection — to the clipboard as tab-separated text, with a header row. A no-op when no cell range is active. */
+    copySelectedCellsToClipboard() {
+      const ranges = this.getCellRanges();
+      if (ranges.length === 0) return Promise.resolve();
+      const rows = this.getVisibleRows();
+      const cols = this.ctx.columnModel.getVisibleColumns();
+      return this.ctx.clipboardEngine.copyRangesToClipboard(ranges, rows, cols, true);
     }
     // ──────────────────── Scroll ────────────────────
     scrollToRow(rowIndex) {
@@ -20894,6 +21528,1658 @@ ${body}`;
     }
   };
 
+  // src/photon-ai/text-normalizer.ts
+  var FILLER_WORDS = /* @__PURE__ */ new Set([
+    "hi",
+    "hello",
+    "hey",
+    "please",
+    "can",
+    "could",
+    "would",
+    "you",
+    "quickly",
+    "thanks",
+    "thank",
+    "photon",
+    "ai",
+    "assistant",
+    // Deliberately NOT "of" — it's stripped everywhere else, but it's also a
+    // real word inside dropdown/enum option labels ("Out of Stock", "Point of
+    // Sale"); stripping it from the user's query but not from the option
+    // label being matched against would make those options unmatchable.
+    "to",
+    "the",
+    "a",
+    "an",
+    "in",
+    "on",
+    "at",
+    "is",
+    "are",
+    "was",
+    "were",
+    "be",
+    "me",
+    "my",
+    "side",
+    "now",
+    "just",
+    "them",
+    "it",
+    "their",
+    "order",
+    "whose",
+    "who",
+    "that",
+    "with",
+    "having",
+    "value",
+    "currently",
+    "kindly",
+    "want",
+    "need",
+    "like",
+    "this",
+    "these"
+  ]);
+  var SYNONYMS = /* @__PURE__ */ new Map([
+    ["reset", "clear"],
+    ["erase", "clear"],
+    ["wipe", "clear"],
+    ["delete", "remove"],
+    ["drop", "remove"],
+    ["freeze", "pin"],
+    ["unfreeze", "unpin"],
+    ["display", "show"],
+    ["reveal", "show"],
+    ["everything", "all"],
+    ["every", "all"],
+    ["entire", "all"],
+    ["ascend", "ascending"],
+    ["descend", "descending"],
+    ["increasing", "ascending"],
+    ["decreasing", "descending"],
+    ["newest", "descending"],
+    ["oldest", "ascending"],
+    ["biggest", "largest"],
+    ["smaller", "smallest"],
+    ["bigger", "largest"],
+    ["grouping", "group"],
+    ["filtering", "filter"],
+    ["sorting", "sort"],
+    ["hiding", "hide"],
+    ["showing", "show"],
+    ["pinning", "pin"],
+    // Past-participle forms used in questions ("what's currently sorted?", "which columns are hidden?").
+    ["pinned", "pin"],
+    ["hidden", "hide"],
+    ["filtered", "filter"],
+    ["sorted", "sort"],
+    ["grouped", "group"],
+    ["selected", "select"]
+  ]);
+  var STEM_EXCEPTIONS = /* @__PURE__ */ new Set([
+    "status",
+    "address",
+    "series",
+    "analysis",
+    "this",
+    "his",
+    "is",
+    "was",
+    "has",
+    "as",
+    "gas"
+  ]);
+  function stemWord(word) {
+    if (word.length <= 3 || /^\d+$/.test(word) || STEM_EXCEPTIONS.has(word)) return word;
+    if (word.endsWith("ies")) return `${word.slice(0, -3)}y`;
+    if (/(?:s|x|z|ch|sh)es$/.test(word)) return word.slice(0, -2);
+    if (word.endsWith("ss")) return word;
+    if (word.endsWith("s")) return word.slice(0, -1);
+    return word;
+  }
+  function tokenize(text) {
+    return text.split(" ").filter((w) => w.length > 0);
+  }
+  function canonicalizeWord(raw) {
+    const stemmed = stemWord(raw.toLowerCase());
+    return SYNONYMS.get(stemmed) ?? stemmed;
+  }
+  function normalizeInput(raw) {
+    const lowered = raw.toLowerCase();
+    const noPunctuation = lowered.replace(/[^\p{L}\p{N}\s.\-:/]/gu, " ");
+    const words = noPunctuation.split(/\s+/).filter((w) => w.length > 0);
+    const kept = [];
+    for (const word of words) {
+      const canonical = canonicalizeWord(word);
+      if (FILLER_WORDS.has(canonical)) continue;
+      kept.push(canonical);
+    }
+    return kept.join(" ");
+  }
+
+  // src/photon-ai/query-splitter.ts
+  var SOFT_CONNECTORS = /* @__PURE__ */ new Set([",", "and", "then", "also", "plus"]);
+  var RANGE_PREFIXES = /* @__PURE__ */ new Set(["between", "from"]);
+  var NEVER_SPLIT_AFTER = /* @__PURE__ */ new Set(["select", "deselect"]);
+  function isUpcomingVerb(words, atIndex, verbs) {
+    return atIndex < words.length && verbs.has(canonicalizeWord(words[atIndex]));
+  }
+  function splitClauses(raw, verbs) {
+    const spaced = raw.replace(/[,;]+/g, " , ");
+    const words = spaced.trim().split(/\s+/).filter((w) => w.length > 0);
+    if (words.length === 0) return [];
+    const clauses = [];
+    let current = [];
+    for (let i = 0; i < words.length; i++) {
+      const word = words[i];
+      const lower = word.toLowerCase();
+      const isComma = lower === ",";
+      if (!isComma && !SOFT_CONNECTORS.has(lower)) {
+        current.push(word);
+        continue;
+      }
+      const inRangeContext = current.some((w) => RANGE_PREFIXES.has(w.toLowerCase()));
+      const currentIsNeverSplit = current.length === 1 && NEVER_SPLIT_AFTER.has(canonicalizeWord(current[0]));
+      const nextIsVerb = isUpcomingVerb(words, i + 1, verbs);
+      if (current.length > 0 && !inRangeContext && !currentIsNeverSplit && nextIsVerb) {
+        clauses.push(current.join(" "));
+        current = [];
+      } else if (!isComma) {
+        current.push(word);
+      }
+    }
+    if (current.length > 0) clauses.push(current.join(" "));
+    return clauses.length > 0 ? clauses : [raw.trim()];
+  }
+
+  // src/photon-ai/intent-parser.ts
+  function matchAlias(alias, tokens) {
+    const tokenSet = new Set(tokens);
+    const covered = alias.every((word) => tokenSet.has(word));
+    return { covered, words: alias };
+  }
+  function bestAliasFor(intent, tokens) {
+    let best = null;
+    for (const alias of intent.aliases) {
+      const match = matchAlias(alias, tokens);
+      if (!match.covered) continue;
+      if (!best || alias.length > best.length) best = alias;
+    }
+    return best;
+  }
+  var IntentParser = class {
+    parse(tokens, registry) {
+      let winner = null;
+      let winningAlias = null;
+      for (const intent of registry.getAll()) {
+        const alias = bestAliasFor(intent, tokens);
+        if (!alias) continue;
+        if (!winningAlias || alias.length > winningAlias.length) {
+          winner = intent;
+          winningAlias = alias;
+        }
+      }
+      if (!winner || !winningAlias) return null;
+      const usedWords = new Set(winningAlias);
+      const remainingTokens = tokens.filter((t) => !usedWords.has(t));
+      return { intent: winner, remainingTokens };
+    }
+  };
+
+  // src/photon-ai/fuzzy-match.ts
+  function levenshteinDistance(a, b) {
+    if (a === b) return 0;
+    if (a.length === 0) return b.length;
+    if (b.length === 0) return a.length;
+    let prevRow = Array.from({ length: b.length + 1 }, (_, i) => i);
+    let currRow = new Array(b.length + 1);
+    for (let i = 1; i <= a.length; i++) {
+      currRow[0] = i;
+      for (let j = 1; j <= b.length; j++) {
+        const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+        currRow[j] = Math.min(
+          prevRow[j] + 1,
+          // deletion
+          currRow[j - 1] + 1,
+          // insertion
+          prevRow[j - 1] + cost
+          // substitution
+        );
+      }
+      [prevRow, currRow] = [currRow, prevRow];
+    }
+    return prevRow[b.length];
+  }
+  function similarity(a, b) {
+    const maxLen = Math.max(a.length, b.length);
+    if (maxLen === 0) return 1;
+    return 1 - levenshteinDistance(a, b) / maxLen;
+  }
+
+  // src/photon-ai/entity-resolver.ts
+  var MIN_COLUMN_SIMILARITY = 0.6;
+  var MIN_VALUE_MATCH_SIMILARITY = 0.75;
+  var MAX_VALUE_SCAN_ROWS = 300;
+  var BOOLEAN_TRUE_WORDS = /* @__PURE__ */ new Set(["true", "yes", "active", "enabled", "on", "open"]);
+  var BOOLEAN_FALSE_WORDS = /* @__PURE__ */ new Set(["false", "no", "inactive", "disabled", "off", "closed"]);
+  var OPTION_LABEL_STOPWORDS = /* @__PURE__ */ new Set(["of", "the", "a", "an", "and", "or"]);
+  var MAX_COLUMN_PHRASE_WORDS = 3;
+  var OPERATOR_PHRASE_TABLE = [
+    { words: ["greater", "than", "or", "equal"], operator: "greaterThanOrEqual" },
+    { words: ["less", "than", "or", "equal"], operator: "lessThanOrEqual" },
+    { words: ["no", "less", "than"], operator: "greaterThanOrEqual" },
+    { words: ["no", "more", "than"], operator: "lessThanOrEqual" },
+    { words: ["not", "equal"], operator: "notEquals" },
+    { words: ["not", "blank"], operator: "notBlank" },
+    { words: ["not", "empty"], operator: "notBlank" },
+    { words: ["at", "least"], operator: "greaterThanOrEqual" },
+    { words: ["at", "most"], operator: "lessThanOrEqual" },
+    { words: ["start", "with"], operator: "startsWith" },
+    { words: ["end", "with"], operator: "endsWith" },
+    { words: ["greater", "than"], operator: "greaterThan" },
+    { words: ["more", "than"], operator: "greaterThan" },
+    { words: ["less", "than"], operator: "lessThan" },
+    { words: ["fewer", "than"], operator: "lessThan" },
+    { words: ["not", "contain"], operator: "notContains" },
+    { words: ["contain"], operator: "contains" },
+    { words: ["over"], operator: "greaterThan" },
+    { words: ["above"], operator: "greaterThan" },
+    { words: ["under"], operator: "lessThan" },
+    { words: ["below"], operator: "lessThan" },
+    { words: ["before"], operator: "before" },
+    { words: ["after"], operator: "after" },
+    { words: ["equal"], operator: "equals" },
+    { words: ["blank"], operator: "blank" },
+    { words: ["empty"], operator: "blank" }
+  ];
+  var OPERATOR_PHRASES = [...OPERATOR_PHRASE_TABLE].sort(
+    (a, b) => b.words.length - a.words.length
+  );
+  function normalizeWord(s) {
+    return s.toLowerCase().trim();
+  }
+  function candidateNamesFor(col) {
+    return [col.colId, col.field, col.header].filter((s) => !!s).map(normalizeWord);
+  }
+  function candidateWordsFor(col) {
+    const words = /* @__PURE__ */ new Set();
+    for (const name of candidateNamesFor(col)) {
+      for (const w of name.split(" ")) words.add(w);
+    }
+    return words;
+  }
+  var EntityResolver = class {
+    constructor(memory) {
+      this.memory = memory;
+    }
+    /**
+     * Finds the single best-matching column for a set of candidate tokens.
+     * Checks learned aliases first, then tries the whole remaining phrase (so
+     * multi-word column names like "employee salary" resolve directly), then
+     * falls back to individual tokens (so a typo'd single word like "salery"
+     * still resolves, and so noise words like operators/values sitting next
+     * to a column name don't prevent a match).
+     */
+    resolveColumn(tokens, columns) {
+      if (tokens.length === 0 || columns.length === 0) return null;
+      const phrase = tokens.map(normalizeWord).join(" ");
+      const learnedColId = this.memory?.getColumnAlias(phrase);
+      if (learnedColId) {
+        const learned = columns.find((c) => c.colId === learnedColId);
+        if (learned) return learned;
+      }
+      const candidates = [phrase, ...tokens.map(normalizeWord)].filter((c) => c.length > 0);
+      let best = null;
+      let bestScore = 0;
+      for (const col of columns) {
+        const names = candidateNamesFor(col);
+        for (const candidate of candidates) {
+          for (const name of names) {
+            const score = this.scoreCandidate(candidate, name);
+            if (score > bestScore) {
+              bestScore = score;
+              best = col;
+            }
+          }
+        }
+      }
+      if (!best || bestScore < MIN_COLUMN_SIMILARITY) return null;
+      if (bestScore < 1) this.memory?.learnColumnAlias(phrase, best.colId);
+      return best;
+    }
+    /**
+     * Resolves every column named in a list — used by intents that can take
+     * more than one column at once (e.g. "pin price and income to the right",
+     * "unpin status, income and year", "group by department and status").
+     * Greedily tries the longest token window first at each position so a
+     * multi-word header like "Album Name" resolves as one column rather than
+     * two, but multi-word windows require an *exact* colId/field/header match
+     * (no fuzzy leniency) — otherwise the substring rule that lets "employee
+     * salary" resolve to "Salary" would just as happily let "price income"
+     * swallow both "Price" and "Income" as one bogus match. A single token
+     * still gets the full fuzzy/typo-tolerant treatment. Tokens that match
+     * nothing (list connectors like "and", stray words) are skipped rather
+     * than aborting the whole list.
+     */
+    resolveColumns(tokens, columns) {
+      const resolved = [];
+      const seen = /* @__PURE__ */ new Set();
+      let i = 0;
+      while (i < tokens.length) {
+        let consumed = 1;
+        let match = null;
+        for (let windowSize = Math.min(MAX_COLUMN_PHRASE_WORDS, tokens.length - i); windowSize >= 2; windowSize--) {
+          const phrase = tokens.slice(i, i + windowSize).map(normalizeWord).join(" ");
+          const exact = columns.find((c) => candidateNamesFor(c).includes(phrase));
+          if (exact) {
+            match = exact;
+            consumed = windowSize;
+            break;
+          }
+        }
+        if (!match) match = this.resolveColumn([tokens[i]], columns);
+        if (match && !seen.has(match.colId)) {
+          seen.add(match.colId);
+          resolved.push(match);
+        }
+        i += consumed;
+      }
+      return resolved;
+    }
+    /** `'asc'` if any ascending-leaning word is present, `'desc'` if any descending-leaning word is present, else `null`. */
+    resolveDirection(tokens) {
+      const words = new Set(tokens.map(normalizeWord));
+      const ascending = ["asc", "ascending", "low", "smallest", "increasing"];
+      const descending = ["desc", "descending", "high", "largest", "decreasing"];
+      if (descending.some((w) => words.has(w))) return "desc";
+      if (ascending.some((w) => words.has(w))) return "asc";
+      return null;
+    }
+    /** `'left'` / `'right'` if present, else `null` (meaning "unpin" for pin-side intents). */
+    resolveSide(tokens) {
+      const words = new Set(tokens.map(normalizeWord));
+      if (words.has("left")) return "left";
+      if (words.has("right")) return "right";
+      return null;
+    }
+    /** The first bare integer found in the tokens (e.g. `"select row 5"` → `5`), or `null`. */
+    resolveIndex(tokens) {
+      for (const token of tokens) {
+        if (/^\d+$/.test(token)) return parseInt(token, 10);
+      }
+      return null;
+    }
+    /** `true` when the tokens refer to "all"/"every" rather than one named thing (e.g. "hide all columns"). */
+    resolveAllRequested(tokens) {
+      return tokens.some((t) => normalizeWord(t) === "all");
+    }
+    /**
+     * Joins whatever tokens remain after a column has already been consumed
+     * from them — the free-text "value" a filter intent applies (e.g. in
+     * `"filter status active"`, once `status` resolves to a column, `"active"`
+     * is the value). Strips every individual word of the column's name
+     * (colId/field/header), not just an exact whole-phrase match, so
+     * multi-word headers like "Album Name" are fully removed.
+     */
+    extractValue(tokens, consumedColumn) {
+      const remaining = this.stripColumnTokens(tokens, consumedColumn);
+      return remaining.length ? remaining.join(" ") : null;
+    }
+    /** Same as {@link extractValue} but returns the leftover tokens as an array (for further operator/value parsing) instead of a joined string. */
+    stripColumnTokens(tokens, consumedColumn) {
+      if (!consumedColumn) return [...tokens];
+      const consumedWords = candidateWordsFor(consumedColumn);
+      return tokens.filter((t) => !consumedWords.has(normalizeWord(t)));
+    }
+    /** Strips a single leading/anywhere "not" token, reporting whether negation was present so callers can flip their chosen operator. */
+    resolveNegation(tokens) {
+      const idx = tokens.map(normalizeWord).indexOf("not");
+      if (idx < 0) return { negated: false, remaining: [...tokens] };
+      return { negated: true, remaining: [...tokens.slice(0, idx), ...tokens.slice(idx + 1)] };
+    }
+    /**
+     * Detects a comparison-operator phrase (e.g. "greater than", "starts
+     * with", "before") anywhere in `tokens` and returns it along with the
+     * tokens that are left after removing that phrase's words. Returns
+     * `operator: null` (and the original tokens, untouched) when no phrase
+     * matches, so callers can fall back to a type-appropriate default.
+     */
+    resolveOperator(tokens) {
+      const words = tokens.map(normalizeWord);
+      for (const { words: phrase, operator } of OPERATOR_PHRASES) {
+        const start = indexOfSubsequence(words, phrase);
+        if (start < 0) continue;
+        const remaining = [...words.slice(0, start), ...words.slice(start + phrase.length)];
+        return { operator, remaining };
+      }
+      return { operator: null, remaining: [...words] };
+    }
+    /** Splits `"between 10 and 50"`-style tokens into their two bounds, or `null` when no `between ... and ...` pattern is present. */
+    resolveRange(tokens) {
+      const words = tokens.map(normalizeWord);
+      const betweenIdx = words.indexOf("between");
+      if (betweenIdx < 0) return null;
+      const andIdx = words.indexOf("and", betweenIdx + 1);
+      if (andIdx < 0) return null;
+      const from = words.slice(betweenIdx + 1, andIdx);
+      const to = words.slice(andIdx + 1);
+      if (from.length === 0 || to.length === 0) return null;
+      return { from, to };
+    }
+    /** Parses a free-text number, tolerant of a leading currency symbol or trailing `%`. */
+    parseNumberToken(raw) {
+      const cleaned = raw.replace(/[^0-9.\-]/g, "");
+      if (!cleaned) return null;
+      const value = Number(cleaned);
+      return Number.isNaN(value) ? null : value;
+    }
+    /** Parses a date token — ISO/slash-formatted dates plus "today"/"yesterday"/"tomorrow". */
+    parseDateToken(raw) {
+      const word = normalizeWord(raw);
+      const now = /* @__PURE__ */ new Date();
+      if (word === "today") return now;
+      if (word === "yesterday") return new Date(now.getTime() - 864e5);
+      if (word === "tomorrow") return new Date(now.getTime() + 864e5);
+      if (!/\d/.test(word)) return null;
+      const parsed = new Date(word);
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    }
+    /** Maps a boolean-leaning word ("active", "yes", "disabled", …) to `true`/`false`, or `null` when it isn't one. */
+    parseBooleanToken(raw) {
+      const word = normalizeWord(raw);
+      if (BOOLEAN_TRUE_WORDS.has(word)) return true;
+      if (BOOLEAN_FALSE_WORDS.has(word)) return false;
+      return null;
+    }
+    /** Finds the best matching dropdown/enum option for a free-text value against one already-known column. */
+    matchOption(rawValue, column) {
+      const candidate = normalizeWord(rawValue);
+      if (!candidate) return null;
+      const options2 = column.dropdownOptions ?? column.enumOptions?.map((v) => ({ value: v, label: v })) ?? [];
+      let best = null;
+      let bestScore = 0;
+      for (const option of options2) {
+        const score = this.optionScore(candidate, String(option.label));
+        if (score > bestScore) {
+          bestScore = score;
+          best = option;
+        }
+      }
+      return bestScore >= MIN_VALUE_MATCH_SIMILARITY ? best : null;
+    }
+    /**
+     * Guesses which column a free-text value belongs to when the user never
+     * named one (e.g. "show active items" — "active" is a `Status` dropdown
+     * option, not a column reference). Tries, in order: dropdown/enum option
+     * labels, boolean-leaning words, then a bounded scan of live row data for
+     * an exact match — each step only runs across columns still marked
+     * `filterable !== false`, and the raw-data scan is capped at
+     * {@link MAX_VALUE_SCAN_ROWS} rows so cost never scales with grid size.
+     */
+    resolveColumnByValue(tokens, columns, api) {
+      if (tokens.length === 0) return null;
+      const phrase = tokens.map(normalizeWord).join(" ");
+      const candidates = [phrase, ...tokens.map(normalizeWord)].filter((c) => c.length > 0);
+      const filterableColumns = columns.filter((c) => c.filterable !== false);
+      let best = null;
+      let bestScore = 0;
+      for (const col of filterableColumns) {
+        const options2 = col.dropdownOptions ?? col.enumOptions?.map((v) => ({ value: v, label: v })) ?? [];
+        for (const candidate of candidates) {
+          for (const option of options2) {
+            const score = this.optionScore(candidate, String(option.label));
+            if (score > bestScore) {
+              bestScore = score;
+              best = { column: col, rawValue: String(option.value) };
+            }
+          }
+          if (col.type === "boolean" && this.parseBooleanToken(candidate) !== null) {
+            if (1 > bestScore) {
+              bestScore = 1;
+              best = { column: col, rawValue: candidate };
+            }
+          }
+        }
+      }
+      if (best && bestScore >= MIN_VALUE_MATCH_SIMILARITY) return best;
+      return this.scanRowDataForValue(phrase, filterableColumns, api);
+    }
+    scanRowDataForValue(phrase, columns, api) {
+      if (phrase.length < 3) return null;
+      const scannable = columns.filter((c) => c.type === "string" || c.type === "dropdown" || c.type === "email");
+      if (scannable.length === 0) return null;
+      const rows = api.getAllRows();
+      const limit = Math.min(rows.length, MAX_VALUE_SCAN_ROWS);
+      for (let i = 0; i < limit; i++) {
+        const data = rows[i].data;
+        for (const col of scannable) {
+          const cell = data[col.field];
+          if (cell != null && normalizeWord(String(cell)) === phrase) {
+            return { column: col, rawValue: String(cell) };
+          }
+        }
+      }
+      return null;
+    }
+    scoreCandidate(candidate, name) {
+      if (candidate === name) return 1;
+      if (candidate.length >= 3 && (name.includes(candidate) || candidate.includes(name))) return 0.9;
+      return similarity(candidate, name);
+    }
+    /**
+     * Scores a free-text value phrase against one dropdown/enum option label.
+     * Combines the direct string score (handles typos, e.g. "innactive") with
+     * a word-coverage score that ignores connector words on both sides (e.g.
+     * "of") — so a candidate like "record out stock" (extra noise word,
+     * missing "of") still confidently matches the label "Out of Stock" as
+     * long as every *meaningful* label word is present somewhere in it.
+     */
+    optionScore(candidate, optionLabel) {
+      const label = normalizeWord(optionLabel);
+      const direct = this.scoreCandidate(candidate, label);
+      const candidateWords = new Set(candidate.split(" ").filter((w) => w.length > 0));
+      const labelWords = label.split(" ").filter((w) => w.length > 0 && !OPTION_LABEL_STOPWORDS.has(w));
+      if (labelWords.length === 0) return direct;
+      const coverage = labelWords.filter((w) => candidateWords.has(w)).length / labelWords.length;
+      const coverageScore = coverage === 1 ? 0.95 : coverage * 0.7;
+      return Math.max(direct, coverageScore);
+    }
+  };
+  function indexOfSubsequence(haystack, needle) {
+    if (needle.length === 0 || needle.length > haystack.length) return -1;
+    outer: for (let i = 0; i <= haystack.length - needle.length; i++) {
+      for (let j = 0; j < needle.length; j++) {
+        if (haystack[i + j] !== needle[j]) continue outer;
+      }
+      return i;
+    }
+    return -1;
+  }
+
+  // src/photon-ai/command-builder.ts
+  var CommandBuilder = class {
+    build(intent, tokens, resolver, columns, api) {
+      const entities = intent.resolveEntities(tokens, resolver, columns, api);
+      const validationError = intent.validate?.(entities);
+      if (validationError) return { command: null, error: validationError };
+      return { command: intent.buildCommand(entities), error: null };
+    }
+  };
+
+  // src/photon-ai/command-executor.ts
+  var CommandExecutor = class {
+    constructor(registry) {
+      this.registry = registry;
+    }
+    execute(command, api) {
+      const intent = this.registry.get(command.type);
+      if (!intent) {
+        return { success: false, message: `No handler registered for "${command.type}".` };
+      }
+      try {
+        const message = intent.execute(command, api);
+        return { success: true, message, command };
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
+        return { success: false, message: `Couldn't run that command: ${detail}`, command };
+      }
+    }
+  };
+
+  // src/photon-ai/photon-ai-registry.ts
+  var PhotonAICommandRegistry = class {
+    constructor() {
+      this.intents = /* @__PURE__ */ new Map();
+    }
+    /** Registers an intent, replacing any existing one with the same `key`. */
+    register(intent) {
+      this.intents.set(intent.key, intent);
+    }
+    /** Registers several intents in one call — a small convenience for a feature's `registerAI()` entry point. */
+    registerAll(intents) {
+      for (const intent of intents) this.register(intent);
+    }
+    unregister(key) {
+      this.intents.delete(key);
+    }
+    get(key) {
+      return this.intents.get(key);
+    }
+    getAll() {
+      return Array.from(this.intents.values());
+    }
+    has(key) {
+      return this.intents.has(key);
+    }
+    clear() {
+      this.intents.clear();
+    }
+  };
+
+  // src/photon-ai/photon-ai-memory.ts
+  function emptySnapshot() {
+    return { columnAliases: {}, phrases: {} };
+  }
+  var PhotonAIMemoryStore = class {
+    constructor(namespace) {
+      this.storageKey = `photon-ai:memory:${namespace}`;
+      this.snapshot = this.load();
+    }
+    /** The colId previously learned for this exact free-text phrase, or `null`. */
+    getColumnAlias(phrase) {
+      return this.snapshot.columnAliases[phrase] ?? null;
+    }
+    /** Remembers that `phrase` refers to `colId`, persisting immediately. */
+    learnColumnAlias(phrase, colId) {
+      if (!phrase || this.snapshot.columnAliases[phrase] === colId) return;
+      this.snapshot.columnAliases[phrase] = colId;
+      this.persist();
+    }
+    /** The commands previously learned for this exact normalized clause, or `null`. */
+    getPhraseCommands(clause) {
+      return this.snapshot.phrases[clause] ?? null;
+    }
+    /** Remembers that submitting `clause` should run `commands`, persisting immediately. */
+    learnPhrase(clause, commands) {
+      if (!clause || commands.length === 0) return;
+      this.snapshot.phrases[clause] = [...commands];
+      this.persist();
+    }
+    /** Clears every learned column alias and phrase for this namespace. */
+    clear() {
+      this.snapshot = emptySnapshot();
+      this.persist();
+    }
+    load() {
+      try {
+        if (typeof localStorage === "undefined") return emptySnapshot();
+        const raw = localStorage.getItem(this.storageKey);
+        if (!raw) return emptySnapshot();
+        const parsed = JSON.parse(raw);
+        return { columnAliases: parsed.columnAliases ?? {}, phrases: parsed.phrases ?? {} };
+      } catch {
+        return emptySnapshot();
+      }
+    }
+    persist() {
+      try {
+        if (typeof localStorage === "undefined") return;
+        localStorage.setItem(this.storageKey, JSON.stringify(this.snapshot));
+      } catch {
+      }
+    }
+  };
+  function columnSignature(colIds) {
+    return [...colIds].sort().join("|");
+  }
+
+  // src/photon-ai/builtins/sort.commands.ts
+  function resolveSortColumn(tokens, resolver, columns) {
+    return { column: resolver.resolveColumn(tokens, columns) ?? void 0 };
+  }
+  function requireColumn(entities) {
+    if (!entities.column) return "I couldn't find a column matching your request.";
+    if (entities.column.sortable === false) return `"${entities.column.header}" isn't sortable.`;
+    return null;
+  }
+  var sortAscending = {
+    key: "sortAscending",
+    aliases: [
+      ["sort", "ascending"],
+      ["sort", "asc"],
+      ["ascending"],
+      ["asc"],
+      ["low", "high"],
+      ["smallest", "largest"],
+      ["sort"]
+      // fallback: plain "sort <column>" defaults to ascending
+    ],
+    description: "Sorts a column in ascending order.",
+    resolveEntities: resolveSortColumn,
+    validate: requireColumn,
+    buildCommand: (entities) => ({
+      type: "sortAscending",
+      params: { colId: entities.column.colId, header: entities.column.header }
+    }),
+    execute: (command, api) => {
+      const colId = command.params.colId;
+      api.sortColumn(colId, "asc");
+      return `Sorted "${command.params.header}" ascending.`;
+    }
+  };
+  var sortDescending = {
+    key: "sortDescending",
+    aliases: [
+      ["sort", "descending"],
+      ["sort", "desc"],
+      ["descending"],
+      ["desc"],
+      ["high", "low"],
+      ["largest", "smallest"]
+    ],
+    description: "Sorts a column in descending order.",
+    resolveEntities: resolveSortColumn,
+    validate: requireColumn,
+    buildCommand: (entities) => ({
+      type: "sortDescending",
+      params: { colId: entities.column.colId, header: entities.column.header }
+    }),
+    execute: (command, api) => {
+      const colId = command.params.colId;
+      api.sortColumn(colId, "desc");
+      return `Sorted "${command.params.header}" descending.`;
+    }
+  };
+  var clearSort = {
+    key: "clearSort",
+    aliases: [["clear", "sort"], ["remove", "sort"], ["unsort"]],
+    description: "Clears all sorting.",
+    resolveEntities: () => ({}),
+    buildCommand: () => ({ type: "clearSort", params: {} }),
+    execute: (_command, api) => {
+      api.clearSort();
+      return "Cleared sorting.";
+    }
+  };
+  function registerSortCommands(registry) {
+    registry.registerAll([sortAscending, sortDescending, clearSort]);
+  }
+
+  // src/photon-ai/builtins/filter.commands.ts
+  function toFilterDataType(type) {
+    if (type === "number" || type === "currency" || type === "percentage") return "number";
+    if (type === "date" || type === "time") return "date";
+    if (type === "boolean") return "boolean";
+    if (type === "dropdown") return "dropdown";
+    return "string";
+  }
+  var NEGATION_FLIP = {
+    equals: "notEquals",
+    notEquals: "equals",
+    contains: "notContains",
+    notContains: "contains",
+    blank: "notBlank",
+    notBlank: "blank"
+  };
+  function defaultOperatorFor(filterType) {
+    return filterType === "string" ? "contains" : "equals";
+  }
+  function buildConditionForColumn(column, tokens, resolver) {
+    const filterType = toFilterDataType(column.type);
+    const range = resolver.resolveRange(tokens);
+    if (range) {
+      if (filterType === "number") {
+        const from = resolver.parseNumberToken(range.from.join(" "));
+        const to = resolver.parseNumberToken(range.to.join(" "));
+        if (from === null || to === null) return null;
+        return { operator: "inRange", value: from, valueTo: to };
+      }
+      if (filterType === "date") {
+        const from = resolver.parseDateToken(range.from.join(" "));
+        const to = resolver.parseDateToken(range.to.join(" "));
+        if (!from || !to) return null;
+        return { operator: "inRange", value: from, valueTo: to };
+      }
+      return null;
+    }
+    const { operator: detectedOperator, remaining: afterOperator } = resolver.resolveOperator(tokens);
+    const { negated, remaining: valueTokens } = resolver.resolveNegation(afterOperator);
+    const rawValue = valueTokens.join(" ").trim();
+    let operator = detectedOperator ?? defaultOperatorFor(filterType);
+    if (negated) operator = NEGATION_FLIP[operator] ?? operator;
+    if (operator === "blank" || operator === "notBlank") return { operator, value: null };
+    if (!rawValue) return null;
+    switch (filterType) {
+      case "number": {
+        const num = resolver.parseNumberToken(rawValue);
+        return num === null ? null : { operator, value: num };
+      }
+      case "date": {
+        const date = resolver.parseDateToken(rawValue);
+        return date ? { operator, value: date } : null;
+      }
+      case "boolean": {
+        const bool = resolver.parseBooleanToken(rawValue);
+        return bool === null ? null : { operator, value: bool };
+      }
+      case "dropdown": {
+        const option = resolver.matchOption(rawValue, column);
+        return option ? { operator, value: option.value } : null;
+      }
+      default:
+        return { operator, value: rawValue };
+    }
+  }
+  function buildConditionForGuessedValue(column, rawValue, negated) {
+    const filterType = toFilterDataType(column.type);
+    const operator = negated ? "notEquals" : "equals";
+    if (filterType === "boolean") {
+      const bool = ["true", "yes", "active", "enabled", "on", "open"].includes(rawValue);
+      return { operator, value: bool };
+    }
+    return { operator, value: rawValue };
+  }
+  function toColumnFilter(column, condition) {
+    const filterType = toFilterDataType(column.type);
+    const primary = { operator: condition.operator, value: condition.value, valueTo: condition.valueTo };
+    const isPositiveDropdownEquals = filterType === "dropdown" && condition.operator === "equals";
+    return {
+      colId: column.colId,
+      field: column.field,
+      type: filterType,
+      logic: "and",
+      conditions: [primary],
+      selectedIds: isPositiveDropdownEquals ? [condition.value] : void 0
+    };
+  }
+  var applyFilter = {
+    key: "applyFilter",
+    aliases: [["show", "only"], ["filter"], ["where"], ["find"], ["show"]],
+    description: 'Filters rows by a column value, with full support for string/number/date/dropdown/boolean operators \u2014 e.g. "filter salary greater than 5000", "show status active", "filter hire date before 2024-01-01", "show price between 10 and 50".',
+    resolveEntities: (tokens, resolver, columns, api) => {
+      const column = resolver.resolveColumn(tokens, columns) ?? void 0;
+      if (column) {
+        const valueTokens = resolver.stripColumnTokens(tokens, column);
+        const built2 = buildConditionForColumn(column, valueTokens, resolver);
+        return built2 ? { column, operator: built2.operator, coercedValue: built2.value, coercedValueTo: built2.valueTo } : { column };
+      }
+      if (tokens.length === 0 || resolver.resolveAllRequested(tokens) && tokens.length <= 2) {
+        return { allColumns: true };
+      }
+      const { negated, remaining } = resolver.resolveNegation(tokens);
+      const guess = resolver.resolveColumnByValue(remaining, columns, api);
+      if (!guess) return {};
+      const built = buildConditionForGuessedValue(guess.column, guess.rawValue, negated);
+      return { column: guess.column, operator: built.operator, coercedValue: built.value, coercedValueTo: built.valueTo };
+    },
+    validate: (entities) => {
+      if (entities.allColumns) return null;
+      if (!entities.column) return "I couldn't find a column or a matching value for that in the grid.";
+      if (entities.column.filterable === false) return `"${entities.column.header}" isn't filterable.`;
+      if (entities.coercedValue === void 0) {
+        return `What value should I filter "${entities.column.header}" by?`;
+      }
+      return null;
+    },
+    buildCommand: (entities) => {
+      if (entities.allColumns || !entities.column) return { type: "clearFilters", params: {} };
+      const column = entities.column;
+      return {
+        type: "applyFilter",
+        params: {
+          colId: column.colId,
+          header: column.header,
+          operator: entities.operator,
+          value: entities.coercedValue,
+          valueTo: entities.coercedValueTo
+        }
+      };
+    },
+    execute: (command, api) => {
+      const colId = command.params.colId;
+      const column = api.getColumn(colId);
+      if (!column) return `"${command.params.header}" is no longer a valid column.`;
+      const condition = {
+        operator: command.params.operator,
+        value: command.params.value,
+        valueTo: command.params.valueTo
+      };
+      api.setColumnFilter(colId, toColumnFilter(column, condition));
+      const valueLabel = condition.operator === "blank" || condition.operator === "notBlank" ? "" : condition.valueTo !== void 0 ? ` between "${describeValue(condition.value)}" and "${describeValue(condition.valueTo)}"` : ` to "${describeValue(condition.value)}"`;
+      return `Filtered "${command.params.header}"${valueLabel}.`;
+    }
+  };
+  function describeValue(value) {
+    if (value instanceof Date) return value.toLocaleDateString();
+    return String(value);
+  }
+  var clearFilters = {
+    key: "clearFilters",
+    aliases: [["clear", "filter"], ["remove", "filter"], ["clear", "all", "filter"]],
+    description: "Clears all active filters.",
+    resolveEntities: () => ({}),
+    buildCommand: () => ({ type: "clearFilters", params: {} }),
+    execute: (_command, api) => {
+      api.clearAllFilters();
+      return "Cleared all filters.";
+    }
+  };
+  function registerFilterCommands(registry) {
+    registry.registerAll([applyFilter, clearFilters]);
+  }
+
+  // src/photon-ai/builtins/pin.commands.ts
+  function resolvePinColumns(tokens, resolver, columns) {
+    return { columns: resolver.resolveColumns(tokens, columns) };
+  }
+  function requireColumns(entities) {
+    return entities.columns?.length ? null : "I couldn't find a column matching your request.";
+  }
+  function pinAll(colIds, header, api, side) {
+    for (const colId of colIds) api.setColumnPin(colId, side);
+    const sideLabel = side ? ` to the ${side}` : "";
+    return `${side ? "Pinned" : "Unpinned"} ${header}${sideLabel}.`;
+  }
+  var pinLeft = {
+    key: "pinLeft",
+    aliases: [["pin", "left"], ["freeze", "left"]],
+    description: 'Pins one or more columns to the left side of the grid \u2014 e.g. "pin price and income to the left".',
+    resolveEntities: resolvePinColumns,
+    validate: requireColumns,
+    buildCommand: (entities) => ({
+      type: "pinLeft",
+      params: { colIds: entities.columns.map((c) => c.colId), header: entities.columns.map((c) => c.header).join('", "') }
+    }),
+    execute: (command, api) => pinAll(command.params.colIds, `"${command.params.header}"`, api, "left")
+  };
+  var pinRight = {
+    key: "pinRight",
+    aliases: [["pin", "right"], ["freeze", "right"]],
+    description: 'Pins one or more columns to the right side of the grid \u2014 e.g. "pin price and income to the right".',
+    resolveEntities: resolvePinColumns,
+    validate: requireColumns,
+    buildCommand: (entities) => ({
+      type: "pinRight",
+      params: { colIds: entities.columns.map((c) => c.colId), header: entities.columns.map((c) => c.header).join('", "') }
+    }),
+    execute: (command, api) => pinAll(command.params.colIds, `"${command.params.header}"`, api, "right")
+  };
+  var unpin = {
+    key: "unpin",
+    aliases: [["unpin"], ["remove", "pin"], ["un", "pin"]],
+    description: 'Unpins one or more columns \u2014 e.g. "unpin status, income and year".',
+    resolveEntities: resolvePinColumns,
+    validate: requireColumns,
+    buildCommand: (entities) => ({
+      type: "unpin",
+      params: { colIds: entities.columns.map((c) => c.colId), header: entities.columns.map((c) => c.header).join('", "') }
+    }),
+    execute: (command, api) => pinAll(command.params.colIds, `"${command.params.header}"`, api, null)
+  };
+  var unpinAll = {
+    key: "unpinAll",
+    aliases: [["unpin", "all", "column"], ["unpin", "every", "column"], ["remove", "all", "pin"], ["clear", "all", "pin"], ["clear", "pin"]],
+    description: "Unpins every column in the grid.",
+    resolveEntities: () => ({}),
+    buildCommand: () => ({ type: "unpinAll", params: {} }),
+    execute: (_command, api) => {
+      const columns = api.getAllColumns();
+      for (const col of columns) api.setColumnPin(col.colId, null);
+      return `Unpinned all ${columns.length} columns.`;
+    }
+  };
+  var pinHalf = {
+    key: "pinHalf",
+    aliases: [["pin", "half"], ["freeze", "half"]],
+    description: `Splits the grid's columns in half and pins them \u2014 "pin half the columns to the left and half to the right" pins the first half left and the second half right.`,
+    resolveEntities: (tokens, resolver) => {
+      const words = new Set(tokens.map((t) => t.toLowerCase()));
+      const sides = [];
+      if (words.has("left")) sides.push("left");
+      if (words.has("right")) sides.push("right");
+      return { sides };
+    },
+    validate: (entities) => entities.sides?.length ? null : "Which side should I pin the columns to \u2014 left, right, or both?",
+    buildCommand: (entities) => ({ type: "pinHalf", params: { sides: entities.sides } }),
+    execute: (command, api) => {
+      const sides = command.params.sides;
+      const columns = api.getAllColumns();
+      const mid = Math.ceil(columns.length / 2);
+      const firstHalf = columns.slice(0, mid);
+      const secondHalf = columns.slice(mid);
+      if (sides.includes("left") && sides.includes("right")) {
+        for (const col of firstHalf) api.setColumnPin(col.colId, "left");
+        for (const col of secondHalf) api.setColumnPin(col.colId, "right");
+        return `Pinned ${firstHalf.length} columns left and ${secondHalf.length} columns right.`;
+      }
+      const side = sides[0];
+      for (const col of firstHalf) api.setColumnPin(col.colId, side);
+      return `Pinned ${firstHalf.length} columns to the ${side}.`;
+    }
+  };
+  function registerPinCommands(registry) {
+    registry.registerAll([unpinAll, pinHalf, pinLeft, pinRight, unpin]);
+  }
+
+  // src/photon-ai/builtins/visibility.commands.ts
+  function resolveVisibilityColumn(tokens, resolver, columns) {
+    return { column: resolver.resolveColumn(tokens, columns) ?? void 0 };
+  }
+  function requireColumn2(entities) {
+    return entities.column ? null : "I couldn't find a column matching your request.";
+  }
+  var hideColumn = {
+    key: "hideColumn",
+    aliases: [["hide", "column"], ["hide"]],
+    description: "Hides a column.",
+    resolveEntities: resolveVisibilityColumn,
+    validate: requireColumn2,
+    buildCommand: (entities) => ({
+      type: "hideColumn",
+      params: { colId: entities.column.colId, header: entities.column.header }
+    }),
+    execute: (command, api) => {
+      api.setColumnVisible(command.params.colId, false);
+      return `Hid "${command.params.header}".`;
+    }
+  };
+  var showColumn = {
+    key: "showColumn",
+    aliases: [["show", "column"], ["unhide", "column"], ["unhide"]],
+    description: "Shows a previously hidden column.",
+    resolveEntities: (tokens, resolver, columns) => {
+      return { column: resolver.resolveColumn(tokens, columns) ?? void 0 };
+    },
+    validate: requireColumn2,
+    buildCommand: (entities) => ({
+      type: "showColumn",
+      params: { colId: entities.column.colId, header: entities.column.header }
+    }),
+    execute: (command, api) => {
+      api.setColumnVisible(command.params.colId, true);
+      return `Showed "${command.params.header}".`;
+    }
+  };
+  var hideAllColumns = {
+    key: "hideAllColumns",
+    aliases: [["hide", "all", "column"], ["hide", "every", "column"]],
+    description: "Hides every column in the grid (columns marked `alwaysVisible` are left alone).",
+    resolveEntities: () => ({}),
+    buildCommand: () => ({ type: "hideAllColumns", params: {} }),
+    execute: (_command, api) => {
+      let count = 0;
+      for (const col of api.getAllColumns()) {
+        if (col.alwaysVisible) continue;
+        api.setColumnVisible(col.colId, false);
+        count++;
+      }
+      return `Hid ${count} column${count === 1 ? "" : "s"}.`;
+    }
+  };
+  var showAllColumns = {
+    key: "showAllColumns",
+    aliases: [["show", "all", "column"], ["show", "every", "column"], ["unhide", "all", "column"], ["unhide", "every", "column"]],
+    description: "Shows every column in the grid.",
+    resolveEntities: () => ({}),
+    buildCommand: () => ({ type: "showAllColumns", params: {} }),
+    execute: (_command, api) => {
+      const columns = api.getAllColumns();
+      for (const col of columns) api.setColumnVisible(col.colId, true);
+      return `Showed all ${columns.length} columns.`;
+    }
+  };
+  function registerVisibilityCommands(registry) {
+    registry.registerAll([hideAllColumns, showAllColumns, hideColumn, showColumn]);
+  }
+
+  // src/photon-ai/builtins/grouping.commands.ts
+  var groupBy = {
+    key: "groupBy",
+    aliases: [["group", "by"], ["group"]],
+    description: 'Groups rows by one or more columns \u2014 e.g. "group by department and status".',
+    resolveEntities: (tokens, resolver, columns) => ({
+      columns: resolver.resolveColumns(tokens, columns)
+    }),
+    validate: (entities) => {
+      if (!entities.columns?.length) return "I couldn't find a column matching your request.";
+      const groupable = entities.columns.filter((c) => c.groupable !== false);
+      if (groupable.length === 0) {
+        return `"${entities.columns.map((c) => c.header).join('", "')}" can't be grouped.`;
+      }
+      return null;
+    },
+    buildCommand: (entities) => {
+      const requested = entities.columns;
+      const groupable = requested.filter((c) => c.groupable !== false);
+      const skipped = requested.filter((c) => c.groupable === false);
+      return {
+        type: "groupBy",
+        params: {
+          colIds: groupable.map((c) => c.colId),
+          header: groupable.map((c) => c.header).join('", "'),
+          skippedHeader: skipped.length ? skipped.map((c) => c.header).join('", "') : void 0
+        }
+      };
+    },
+    execute: (command, api) => {
+      for (const colId of command.params.colIds) api.groupByColumn(colId);
+      const skippedHeader = command.params.skippedHeader;
+      const base = `Grouped by "${command.params.header}".`;
+      return skippedHeader ? `${base} ("${skippedHeader}" isn't groupable, so it was skipped.)` : base;
+    }
+  };
+  var ungroup = {
+    key: "ungroup",
+    aliases: [["ungroup"], ["clear", "group"], ["remove", "group"]],
+    description: "Clears all row grouping.",
+    resolveEntities: () => ({}),
+    buildCommand: () => ({ type: "ungroup", params: {} }),
+    execute: (_command, api) => {
+      api.clearGrouping();
+      return "Cleared grouping.";
+    }
+  };
+  var expandAllGroups = {
+    key: "expandAllGroups",
+    aliases: [["expand", "all", "row"], ["expand", "all", "group"], ["expand", "all"], ["expand", "group"], ["open", "all", "group"]],
+    description: 'Expands every group row (and level qualifiers like "to level one" are treated the same as expanding everything).',
+    resolveEntities: () => ({}),
+    buildCommand: () => ({ type: "expandAllGroups", params: {} }),
+    execute: (_command, api) => {
+      api.expandAllGroups();
+      return "Expanded all groups.";
+    }
+  };
+  var collapseAllGroups = {
+    key: "collapseAllGroups",
+    aliases: [["collapse", "all", "row"], ["collapse", "all", "group"], ["collapse", "all"], ["collapse", "group"], ["close", "all", "group"]],
+    description: "Collapses every group row.",
+    resolveEntities: () => ({}),
+    buildCommand: () => ({ type: "collapseAllGroups", params: {} }),
+    execute: (_command, api) => {
+      api.collapseAllGroups();
+      return "Collapsed all groups.";
+    }
+  };
+  var expandRow = {
+    key: "expandRow",
+    aliases: [["expand", "row"], ["open", "row"]],
+    description: "Expands a specific row by its (1-based) position \u2014 its group children if it's a group row, or its detail row in a master/detail grid.",
+    resolveEntities: (tokens, resolver) => ({ index: resolver.resolveIndex(tokens) ?? void 0 }),
+    validate: (entities) => entities.index != null ? null : 'Tell me which row number to expand, e.g. "expand row 2".',
+    buildCommand: (entities) => ({ type: "expandRow", params: { index: entities.index } }),
+    execute: (command, api) => {
+      const oneBasedIndex = command.params.index;
+      const row = api.getRowByIndex(oneBasedIndex - 1);
+      if (!row) return `There's no row ${oneBasedIndex}.`;
+      if (row.type === "group" && row.groupKey) {
+        api.expandGroup(row.groupKey);
+        return `Expanded row ${oneBasedIndex}.`;
+      }
+      api.expandDetail(row.nodeId);
+      return `Expanded row ${oneBasedIndex}.`;
+    }
+  };
+  var collapseRow = {
+    key: "collapseRow",
+    aliases: [["collapse", "row"], ["close", "row"]],
+    description: "Collapses a specific row by its (1-based) position.",
+    resolveEntities: (tokens, resolver) => ({ index: resolver.resolveIndex(tokens) ?? void 0 }),
+    validate: (entities) => entities.index != null ? null : 'Tell me which row number to collapse, e.g. "collapse row 2".',
+    buildCommand: (entities) => ({ type: "collapseRow", params: { index: entities.index } }),
+    execute: (command, api) => {
+      const oneBasedIndex = command.params.index;
+      const row = api.getRowByIndex(oneBasedIndex - 1);
+      if (!row) return `There's no row ${oneBasedIndex}.`;
+      if (row.type === "group" && row.groupKey) {
+        api.collapseGroup(row.groupKey);
+        return `Collapsed row ${oneBasedIndex}.`;
+      }
+      api.collapseDetail(row.nodeId);
+      return `Collapsed row ${oneBasedIndex}.`;
+    }
+  };
+  function registerGroupingCommands(registry) {
+    registry.registerAll([groupBy, ungroup, expandAllGroups, collapseAllGroups, expandRow, collapseRow]);
+  }
+
+  // src/photon-ai/builtins/selection.commands.ts
+  function selectEveryCell(api) {
+    const cols = api.getVisibleColumns();
+    const rows = api.getVisibleRows();
+    if (cols.length === 0 || rows.length === 0) return false;
+    api.setCellRange({ startRowIndex: 0, endRowIndex: rows.length - 1, startColIndex: 0, endColIndex: cols.length - 1 });
+    return true;
+  }
+  var selectRow = {
+    key: "selectRow",
+    aliases: [["select", "row"]],
+    description: "Selects a row by its (1-based) position.",
+    resolveEntities: (tokens, resolver) => ({ index: resolver.resolveIndex(tokens) ?? void 0 }),
+    validate: (entities) => entities.index != null ? null : 'Tell me which row number to select, e.g. "select row 5".',
+    buildCommand: (entities) => ({ type: "selectRow", params: { index: entities.index } }),
+    execute: (command, api) => {
+      const oneBasedIndex = command.params.index;
+      const row = api.getRowByIndex(oneBasedIndex - 1);
+      if (!row) return `There's no row ${oneBasedIndex}.`;
+      api.selectRow(row.nodeId);
+      return `Selected row ${oneBasedIndex}.`;
+    }
+  };
+  var selectColumn = {
+    key: "selectColumn",
+    aliases: [["select", "column"]],
+    description: "Selects every cell in a column.",
+    resolveEntities: (tokens, resolver, columns) => ({
+      column: resolver.resolveColumn(tokens, columns) ?? void 0
+    }),
+    validate: (entities) => entities.column ? null : "I couldn't find a column matching your request.",
+    buildCommand: (entities) => ({
+      type: "selectColumn",
+      params: { colId: entities.column.colId, header: entities.column.header }
+    }),
+    execute: (command, api) => {
+      const colId = command.params.colId;
+      const visibleCols = api.getVisibleColumns();
+      const colIndex = visibleCols.findIndex((c) => c.colId === colId);
+      const rowCount2 = api.getVisibleRows().length;
+      if (colIndex < 0 || rowCount2 === 0) return `"${command.params.header}" isn't visible right now.`;
+      api.setCellRange({ startRowIndex: 0, endRowIndex: rowCount2 - 1, startColIndex: colIndex, endColIndex: colIndex });
+      return `Selected the "${command.params.header}" column.`;
+    }
+  };
+  var clearSelection = {
+    key: "clearSelection",
+    aliases: [["clear", "selection"], ["clear", "select"], ["deselect"]],
+    description: "Clears row and cell selection.",
+    resolveEntities: () => ({}),
+    buildCommand: () => ({ type: "clearSelection", params: {} }),
+    execute: (_command, api) => {
+      api.deselectAll();
+      api.clearCellSelection();
+      return "Cleared selection.";
+    }
+  };
+  var selectAllCells = {
+    key: "selectAllCells",
+    aliases: [["select", "all", "cell"], ["select", "every", "cell"]],
+    description: "Selects every cell in the grid.",
+    resolveEntities: () => ({}),
+    buildCommand: () => ({ type: "selectAllCells", params: {} }),
+    execute: (_command, api) => selectEveryCell(api) ? "Selected all cells." : "There are no cells to select."
+  };
+  var copyAllCells = {
+    key: "copyAllCells",
+    // The 4-word variant must outrank selectAllCells's ["select","all","cell"] alias when both "select" and "copy" are
+    // present together with "all"/"cell" (e.g. "select and copy all the cells") — otherwise the longer alias would win
+    // and silently drop the copy action, only selecting.
+    aliases: [["copy"], ["select", "copy"], ["select", "copy", "all", "cell"]],
+    description: 'Selects and copies every cell to the clipboard \u2014 e.g. "copy all cells", "select and copy all the cells".',
+    resolveEntities: () => ({}),
+    buildCommand: () => ({ type: "copyAllCells", params: {} }),
+    execute: (_command, api) => {
+      if (!selectEveryCell(api)) return "There are no cells to copy.";
+      void api.copySelectedCellsToClipboard();
+      return "Copied all cells to the clipboard.";
+    }
+  };
+  var cutAllCells = {
+    key: "cutAllCells",
+    aliases: [["cut"], ["select", "cut"], ["select", "cut", "all", "cell"]],
+    description: 'Selects every cell and copies it to the clipboard \u2014 "cut" never deletes grid data via a command, to avoid irreversible data loss from a misheard instruction.',
+    resolveEntities: () => ({}),
+    buildCommand: () => ({ type: "cutAllCells", params: {} }),
+    execute: (_command, api) => {
+      if (!selectEveryCell(api)) return "There are no cells to cut.";
+      void api.copySelectedCellsToClipboard();
+      return "Cutting isn't supported, since it would permanently delete data \u2014 copied all cells instead.";
+    }
+  };
+  function registerSelectionCommands(registry) {
+    registry.registerAll([selectRow, selectColumn, selectAllCells, copyAllCells, cutAllCells, clearSelection]);
+  }
+
+  // src/photon-ai/builtins/move.commands.ts
+  function resolveMoveColumn(tokens, resolver, columns) {
+    return { column: resolver.resolveColumn(tokens, columns) ?? void 0 };
+  }
+  function requireColumn3(entities) {
+    return entities.column ? null : "I couldn't find a column matching your request.";
+  }
+  function currentVisibleIndex(api, colId) {
+    return api.getVisibleColumns().findIndex((c) => c.colId === colId);
+  }
+  var moveColumnToStart = {
+    key: "moveColumnToStart",
+    aliases: [["move", "start"], ["move", "left"], ["move", "beginning"], ["move", "front"], ["move", "first"]],
+    description: 'Moves a column to the leftmost position \u2014 e.g. "move country column to the start".',
+    resolveEntities: resolveMoveColumn,
+    validate: requireColumn3,
+    buildCommand: (entities) => ({
+      type: "moveColumnToStart",
+      params: { colId: entities.column.colId, header: entities.column.header }
+    }),
+    execute: (command, api) => {
+      const colId = command.params.colId;
+      const idx = currentVisibleIndex(api, colId);
+      if (idx <= 0) return `"${command.params.header}" is already at the start.`;
+      api.moveColumn(idx, 0);
+      return `Moved "${command.params.header}" to the start.`;
+    }
+  };
+  var moveColumnToEnd = {
+    key: "moveColumnToEnd",
+    aliases: [["move", "end"], ["move", "right"], ["move", "last"]],
+    description: 'Moves a column to the rightmost position \u2014 e.g. "move country column to the end".',
+    resolveEntities: resolveMoveColumn,
+    validate: requireColumn3,
+    buildCommand: (entities) => ({
+      type: "moveColumnToEnd",
+      params: { colId: entities.column.colId, header: entities.column.header }
+    }),
+    execute: (command, api) => {
+      const colId = command.params.colId;
+      const idx = currentVisibleIndex(api, colId);
+      const lastIndex = api.getVisibleColumns().length - 1;
+      if (idx < 0 || idx === lastIndex) return `"${command.params.header}" is already at the end.`;
+      api.moveColumn(idx, lastIndex);
+      return `Moved "${command.params.header}" to the end.`;
+    }
+  };
+  function registerMoveCommands(registry) {
+    registry.registerAll([moveColumnToStart, moveColumnToEnd]);
+  }
+
+  // src/photon-ai/builtins/info.commands.ts
+  function columnLabel(api, colId) {
+    return api.getColumn(colId)?.header ?? colId;
+  }
+  var rowCount = {
+    key: "rowCount",
+    // Bare ["how", "many"] is the generic fallback for "how many are there?"
+    // with no domain word — safe because it only wins when nothing longer
+    // matches anywhere (every other intent below out-scores it once a real
+    // domain word like "column"/"select" is present).
+    aliases: [["row", "count"], ["count", "row"], ["total", "row"], ["how", "many", "row"], ["how", "many"], ["count"]],
+    description: "Reports how many rows the grid has, and how many are visible after filtering/grouping.",
+    resolveEntities: () => ({}),
+    buildCommand: () => ({ type: "rowCount", params: {} }),
+    execute: (_command, api) => {
+      const total = api.getAllRows().filter((r) => r.type === "data").length;
+      const visible = api.getVisibleRows().filter((r) => r.type === "data").length;
+      return total === visible ? `There are ${total} row${total === 1 ? "" : "s"}.` : `There are ${total} rows total, ${visible} visible after filtering/grouping.`;
+    }
+  };
+  var columnCount = {
+    key: "columnCount",
+    // The 3-word ["how","many","column"] variant is required (not just
+    // ["how","many"]) so it outranks `hideColumn`'s ["hide","column"] alias
+    // when both "column" and "hide" appear together, e.g. "how many columns
+    // are hidden" — the hidden count is already part of this intent's own
+    // summary, so no separate intent is needed for that phrasing.
+    aliases: [["column", "count"], ["count", "column"], ["total", "column"], ["how", "many", "column"]],
+    description: "Reports how many columns the grid has, and how many are visible vs. hidden.",
+    resolveEntities: () => ({}),
+    buildCommand: () => ({ type: "columnCount", params: {} }),
+    execute: (_command, api) => {
+      const all = api.getAllColumns();
+      const hidden = all.filter((c) => c.visible === false).length;
+      return hidden === 0 ? `There are ${all.length} columns, all visible.` : `There are ${all.length} columns total \u2014 ${all.length - hidden} visible, ${hidden} hidden.`;
+    }
+  };
+  var selectionInfo = {
+    key: "selectionInfo",
+    // ["how","many","row","select"] (4 words) is required to outrank
+    // `rowCount`'s ["how","many","row"] (3 words) for "how many rows are
+    // selected" — both "row" and "select" are present, so without this the
+    // shorter/first-registered `rowCount` alias would win the length tie and
+    // report the total row count instead of the selection.
+    aliases: [
+      ["select", "count"],
+      ["which", "row", "select"],
+      ["what", "select"],
+      ["how", "many", "select"],
+      ["how", "many", "row", "select"]
+    ],
+    description: "Reports how many rows/cells are currently selected.",
+    resolveEntities: () => ({}),
+    buildCommand: () => ({ type: "selectionInfo", params: {} }),
+    execute: (_command, api) => {
+      const rowCount2 = api.getSelectedCount();
+      const cellRanges = api.getCellRanges().length;
+      if (rowCount2 === 0 && cellRanges === 0) return "Nothing is selected.";
+      const parts = [];
+      if (rowCount2 > 0) parts.push(`${rowCount2} row${rowCount2 === 1 ? "" : "s"}`);
+      if (cellRanges > 0) parts.push(`${cellRanges} cell range${cellRanges === 1 ? "" : "s"}`);
+      return `Selected: ${parts.join(", ")}.`;
+    }
+  };
+  var filterInfo = {
+    key: "filterInfo",
+    aliases: [["what", "filter"], ["which", "filter"], ["filter", "state"], ["active", "filter"], ["list", "filter"]],
+    description: "Lists every column that currently has an active filter, and what it's filtering for.",
+    resolveEntities: () => ({}),
+    buildCommand: () => ({ type: "filterInfo", params: {} }),
+    execute: (_command, api) => {
+      const model = api.getFilterModel();
+      const entries = Object.values(model);
+      if (entries.length === 0) return "No filters are active.";
+      const summary = entries.map((f) => {
+        const header = columnLabel(api, f.colId);
+        if (f.selectedIds?.length) return `${header} (${f.selectedIds.join(", ")})`;
+        const [condition] = f.conditions;
+        return `${header} ${condition.operator} ${String(condition.value)}`;
+      }).join("; ");
+      return `Active filters: ${summary}.`;
+    }
+  };
+  var sortInfo = {
+    key: "sortInfo",
+    aliases: [["what", "sort"], ["which", "sort"], ["sort", "state"], ["current", "sort"]],
+    description: "Reports which column(s) the grid is currently sorted by.",
+    resolveEntities: () => ({}),
+    buildCommand: () => ({ type: "sortInfo", params: {} }),
+    execute: (_command, api) => {
+      const config = api.getSortConfig();
+      if (config.length === 0) return "No column is sorted.";
+      return `Sorted by: ${config.map((s) => `${columnLabel(api, s.colId)} (${s.order})`).join(", ")}.`;
+    }
+  };
+  var pinInfo = {
+    key: "pinInfo",
+    aliases: [["which", "pin"], ["what", "pin"], ["pin", "state"], ["list", "pin"]],
+    description: "Lists which columns are pinned left/right.",
+    resolveEntities: () => ({}),
+    buildCommand: () => ({ type: "pinInfo", params: {} }),
+    execute: (_command, api) => {
+      const columns = api.getAllColumns();
+      const left = columns.filter((c) => c.pinned === "left").map((c) => c.header);
+      const right = columns.filter((c) => c.pinned === "right").map((c) => c.header);
+      if (left.length === 0 && right.length === 0) return "No columns are pinned.";
+      const parts = [];
+      if (left.length) parts.push(`left: ${left.join(", ")}`);
+      if (right.length) parts.push(`right: ${right.join(", ")}`);
+      return `Pinned \u2014 ${parts.join(" | ")}.`;
+    }
+  };
+  var hiddenColumnsInfo = {
+    key: "hiddenColumnsInfo",
+    // The 3-word variants exist because "which columns are hidden" ties in
+    // alias length with `hideColumn`'s ["hide", "column"] otherwise — without
+    // them, that 2-word alias (registered first) would win the tie and try to
+    // hide a column named "which"/"what" instead of answering the question.
+    aliases: [
+      ["which", "hide"],
+      ["what", "hide"],
+      ["hide", "state"],
+      ["list", "hide"],
+      ["which", "column", "hide"],
+      ["what", "column", "hide"],
+      ["list", "hide", "column"]
+    ],
+    description: "Lists which columns are currently hidden.",
+    resolveEntities: () => ({}),
+    buildCommand: () => ({ type: "hiddenColumnsInfo", params: {} }),
+    execute: (_command, api) => {
+      const hidden = api.getAllColumns().filter((c) => c.visible === false).map((c) => c.header);
+      return hidden.length === 0 ? "No columns are hidden." : `Hidden columns: ${hidden.join(", ")}.`;
+    }
+  };
+  var groupInfo = {
+    key: "groupInfo",
+    // The 3-word variants exist because "what is it grouped by" ties in alias
+    // length with `groupBy`'s ["group", "by"] otherwise — see the comment on
+    // `hiddenColumnsInfo` above for why the tie must resolve to the question.
+    aliases: [
+      ["what", "group"],
+      ["which", "group"],
+      ["group", "state"],
+      ["how", "group"],
+      ["what", "group", "by"],
+      ["which", "group", "by"]
+    ],
+    description: "Reports which column(s) rows are currently grouped by.",
+    resolveEntities: () => ({}),
+    buildCommand: () => ({ type: "groupInfo", params: {} }),
+    execute: (_command, api) => {
+      const groupedColumns = api.getGridState().groupedColumns ?? [];
+      return groupedColumns.length === 0 ? "Rows aren't grouped by anything." : `Grouped by: ${groupedColumns.map((colId) => columnLabel(api, colId)).join(" > ")}.`;
+    }
+  };
+  function registerHelp(registry) {
+    const help = {
+      key: "help",
+      aliases: [["help"], ["what", "do"], ["list", "command"], ["what", "command"]],
+      description: "Lists every command Photon AI understands.",
+      resolveEntities: () => ({}),
+      buildCommand: () => ({ type: "help", params: {} }),
+      execute: () => {
+        const descriptions = registry.getAll().map((intent) => intent.description).filter((d) => !!d);
+        return `Here's what I can do:
+${descriptions.map((d) => `\u2022 ${d}`).join("\n")}`;
+      }
+    };
+    registry.register(help);
+  }
+  function registerInfoCommands(registry) {
+    registry.registerAll([
+      rowCount,
+      columnCount,
+      selectionInfo,
+      filterInfo,
+      sortInfo,
+      pinInfo,
+      hiddenColumnsInfo,
+      groupInfo
+    ]);
+    registerHelp(registry);
+  }
+
+  // src/photon-ai/builtins/index.ts
+  function registerBuiltinCommands(registry) {
+    registerSortCommands(registry);
+    registerFilterCommands(registry);
+    registerPinCommands(registry);
+    registerVisibilityCommands(registry);
+    registerGroupingCommands(registry);
+    registerSelectionCommands(registry);
+    registerMoveCommands(registry);
+    registerInfoCommands(registry);
+  }
+
+  // src/photon-ai/photon-ai-service.ts
+  var GREETING_WORDS = /* @__PURE__ */ new Set(["hi", "hello", "hey", "hiya", "howdy", "yo", "greetings"]);
+  var THANKS_WORDS = /* @__PURE__ */ new Set(["thanks", "thank", "thankyou", "thx", "ty"]);
+  var GREETING_REPLY = `Hi! Tell me what to do \u2014 sort, filter, pin, group, hide/show columns, move columns, selection, and more \u2014 or ask me a question about the grid's current state (try "help" to see everything I understand).`;
+  var THANKS_REPLY = "You're welcome! Let me know if there's anything else you'd like to do with the grid.";
+  var PhotonAIService = class _PhotonAIService {
+    /**
+     * @param api - The grid's own `GridApi` — every command runs through it, never around it.
+     * @param registry - Supply a custom registry to fully replace the built-ins, or omit to get sort/filter/pin/visibility/grouping/selection out of the box.
+     */
+    constructor(api, registry) {
+      this.api = api;
+      this.parser = new IntentParser();
+      this.builder = new CommandBuilder();
+      this.registry = registry ?? _PhotonAIService.createDefaultRegistry();
+      this.executor = new CommandExecutor(this.registry);
+      this.memory = new PhotonAIMemoryStore(columnSignature(api.getAllColumns().map((c) => c.colId)));
+      this.resolver = new EntityResolver(this.memory);
+    }
+    /** A registry pre-populated with every built-in intent — the default `PhotonAIService` uses when none is supplied. */
+    static createDefaultRegistry() {
+      const registry = new PhotonAICommandRegistry();
+      registerBuiltinCommands(registry);
+      return registry;
+    }
+    /** Registers additional custom intents at runtime (e.g. a third-party feature's own `registerAI()`). */
+    getRegistry() {
+      return this.registry;
+    }
+    /** Forgets every column alias and phrase this service has learned for the current grid — useful after a large schema change or for testing. */
+    forgetLearnedMemory() {
+      this.memory.clear();
+    }
+    /**
+     * Runs one prompt through the full pipeline. Always resolves —
+     * parsing/resolution failures come back as `{ success: false }`, never a
+     * thrown error. A compound sentence runs each clause independently and
+     * aggregates their results.
+     */
+    submit(rawInput) {
+      const trimmed = rawInput.trim();
+      if (!trimmed) return { success: false, message: "Type a command first." };
+      const clauses = splitClauses(trimmed, this.clauseVerbs());
+      const results = clauses.map((clause) => this.runClause(clause));
+      if (results.length === 1) return results[0];
+      return {
+        success: results.every((r) => r.success),
+        message: results.map((r, i) => `${i + 1}) ${r.message}`).join(" ")
+      };
+    }
+    runClause(clause) {
+      const normalized = normalizeInput(clause);
+      if (!normalized) return this.replyToSmallTalk(clause);
+      const learned = this.memory.getPhraseCommands(normalized);
+      if (learned && learned.every((cmd) => this.commandStillValid(cmd))) {
+        return this.runCommands(learned);
+      }
+      const tokens = tokenize(normalized);
+      if (tokens.length === 0) return { success: false, message: `I couldn't parse "${clause}" \u2014 try rephrasing.` };
+      const match = this.parser.parse(tokens, this.registry);
+      if (!match) return { success: false, message: `I don't know how to "${clause}" yet.` };
+      const columns = this.api.getAllColumns();
+      const { command, error } = this.builder.build(match.intent, match.remainingTokens, this.resolver, columns, this.api);
+      if (error || !command) return { success: false, message: error ?? "Something went wrong building that command." };
+      const result = this.executor.execute(command, this.api);
+      if (result.success) this.memory.learnPhrase(normalized, [command]);
+      return result;
+    }
+    runCommands(commands) {
+      const messages = [];
+      for (const command of commands) {
+        const result = this.executor.execute(command, this.api);
+        messages.push(result.message);
+        if (!result.success) return { success: false, message: messages.join(" ") };
+      }
+      return { success: true, message: messages.join(" ") };
+    }
+    /**
+     * Handles a clause that normalized away to nothing — every one of its
+     * words was filler. Rather than a blanket parse error, greetings and
+     * thanks get a friendly, on-brand reply; anything else (stray filler with
+     * no real words at all) still reports that it couldn't be parsed.
+     */
+    replyToSmallTalk(clause) {
+      const words = clause.toLowerCase().replace(/[^\p{L}\s]/gu, " ").split(/\s+/).filter((w) => w.length > 0);
+      if (words.length > 0 && words.every((w) => GREETING_WORDS.has(w))) {
+        return { success: true, message: GREETING_REPLY };
+      }
+      if (words.length > 0 && words.every((w) => THANKS_WORDS.has(w))) {
+        return { success: true, message: THANKS_REPLY };
+      }
+      return { success: false, message: `I couldn't parse "${clause}" \u2014 try rephrasing.` };
+    }
+    /** A learned command referencing a column that's since been removed/renamed can't be safely replayed — falls back to re-parsing the clause instead. */
+    commandStillValid(command) {
+      const colId = command.params.colId;
+      return typeof colId !== "string" || !!this.api.getColumn(colId);
+    }
+    /** The set of verbs `splitClauses` treats as "this starts a new command" — every registered intent's leading alias word, recomputed per call so custom intents registered at runtime are picked up immediately. */
+    clauseVerbs() {
+      const verbs = /* @__PURE__ */ new Set();
+      for (const intent of this.registry.getAll()) {
+        for (const alias of intent.aliases) {
+          if (alias[0]) verbs.add(canonicalizeWord(alias[0]));
+        }
+      }
+      return verbs;
+    }
+  };
+
   // src/core/grid-core.ts
   function collectLeaves(cols) {
     const result = [];
@@ -20913,6 +23199,8 @@ ${body}`;
       this.groupHeaderBuilder = null;
       /** New Display Group Engine — replaces `columnGroupModel` for group rendering. */
       this.displayGroupEngine = null;
+      /** Set in `initialize` when `photonAI.enabled` — needs the live `GridApi`, so it cannot be built in `buildContext`. */
+      this.photonAIService = null;
       this.ctx = this.buildContext(containerEl, options2);
       this.api = new GridApi(this.ctx);
       this.initialize();
@@ -21056,6 +23344,10 @@ ${body}`;
       ctx.masterDetailEngine.configure(options2.masterDetail);
       ctx.renderer.mount();
       ctx.renderer.setParentApiForDetail(this.api);
+      if (options2.photonAI?.enabled) {
+        this.photonAIService = new PhotonAIService(this.api);
+        ctx.renderer.setPhotonAISubmitHandler((text) => this.photonAIService.submit(text));
+      }
       const gridWrapper = ctx.containerEl.querySelector(".pg-grid") ?? ctx.containerEl;
       const chartPanel = new ChartPanel(gridWrapper);
       const chartAnalyzer = new ChartAnalyzer();
@@ -21167,8 +23459,23 @@ ${body}`;
           return;
         }
         const value = row.data[colDef.field];
-        if (colDef.type === "dropdown" || colDef.type === "object") {
+        const customEditorFn = resolveColumnRenderer(colDef, "editor");
+        if (customEditorFn) {
+          const params = {
+            value,
+            row: row.data,
+            colDef,
+            rowIndex: row.rowIndex,
+            onValueChange: (v) => ctx.cellEditorEngine.updateValue(v),
+            onEditStop: () => ctx.cellEditorEngine.stopEditing(false)
+          };
+          const editorEl = customEditorFn(params);
+          innerEl.appendChild(editorEl);
+          const session = ctx.cellEditorEngine.getActiveSession();
+          if (session) session.editorEl = editorEl;
+        } else if (colDef.type === "dropdown" || colDef.type === "object") {
           const resolvedOpts = colDef.dropdownOptions ?? (colDef.enumOptions?.map((v) => ({ value: v, label: v })) ?? []);
+          const renderOption = resolveColumnRenderer(colDef, "option");
           activeDropdown = new CustomDropdownEditor(
             innerEl,
             cellEl,
@@ -21183,7 +23490,10 @@ ${body}`;
               onStop: (commit) => {
                 ctx.cellEditorEngine.stopEditing(!commit);
               },
-              onTab: handleTabEdit
+              onTab: handleTabEdit,
+              ...renderOption ? {
+                renderOption: (option, index, selected, highlighted) => renderOption({ option, index, selected, highlighted, colDef, api: this.api })
+              } : {}
             }
           );
         } else {
@@ -21256,14 +23566,15 @@ ${body}`;
      * session ends, using the current value from `row.data`.
      *
      * Rendering priority:
-     * 1. `colDef.cellRendererFn` — custom renderer function (e.g. flag icons)
-     * 2. `colDef.renderHtml`     — raw HTML string
-     * 3. Built-in type rendering — boolean, dropdown, array, formatted text
+     * 1. `colDef.renderer.display` — custom renderer function (e.g. flag icons)
+     * 2. `colDef.renderHtml`       — raw HTML string
+     * 3. Built-in type rendering   — boolean, dropdown, array, formatted text
      */
     renderCellValue(innerEl, row, colDef) {
       innerEl.innerHTML = "";
       const value = row.data[colDef.field];
-      if (colDef.cellRendererFn) {
+      const displayFn = resolveColumnRenderer(colDef, "display");
+      if (displayFn) {
         const cols = this.ctx.columnModel.getVisibleColumns();
         const colIndex = cols.findIndex((c) => c.colId === colDef.colId);
         const params = {
@@ -21275,7 +23586,7 @@ ${body}`;
           colIndex,
           api: this.api
         };
-        const rendered = colDef.cellRendererFn(params);
+        const rendered = displayFn(params);
         if (typeof rendered === "string") {
           innerEl.innerHTML = rendered;
         } else {
@@ -23849,30 +26160,33 @@ ${body}`;
       width: 220,
       sortable: true,
       filterable: true,
-      cellRendererFn: ({ row }) => {
-        const r = asRelease(row);
-        const wrap = document.createElement("div");
-        wrap.className = "inv-album-cell";
-        const cover = document.createElement("div");
-        cover.className = "inv-cover";
-        cover.style.background = r.coverGradient;
-        cover.textContent = r.coverLabel;
-        const textCol = document.createElement("div");
-        textCol.className = "inv-album-text";
-        const title = document.createElement("div");
-        title.className = "inv-album-title";
-        title.textContent = r.albumName;
-        const badge = document.createElement("div");
-        badge.className = "inv-genre-badge";
-        badge.textContent = r.genre;
-        textCol.appendChild(title);
-        textCol.appendChild(badge);
-        wrap.appendChild(cover);
-        wrap.appendChild(textCol);
-        return r.genre && r.albumName ? wrap : "";
+      groupable: true,
+      renderer: {
+        display: ({ row }) => {
+          const r = asRelease(row);
+          const wrap = document.createElement("div");
+          wrap.className = "inv-album-cell";
+          const cover = document.createElement("div");
+          cover.className = "inv-cover";
+          cover.style.background = r.coverGradient;
+          cover.textContent = r.coverLabel;
+          const textCol = document.createElement("div");
+          textCol.className = "inv-album-text";
+          const title = document.createElement("div");
+          title.className = "inv-album-title";
+          title.textContent = r.albumName;
+          const badge = document.createElement("div");
+          badge.className = "inv-genre-badge";
+          badge.textContent = r.genre;
+          textCol.appendChild(title);
+          textCol.appendChild(badge);
+          wrap.appendChild(cover);
+          wrap.appendChild(textCol);
+          return r.genre && r.albumName ? wrap : "";
+        }
       }
     },
-    { colId: "artist", field: "artist", header: "Artist", type: "string", rowDrag: true, minWidth: 140, sortable: true, filterable: true },
+    { colId: "artist", field: "artist", header: "Artist", type: "string", rowDrag: true, minWidth: 140, sortable: true, filterable: true, groupable: true },
     { colId: "year", field: "year", header: "Year", type: "number", width: 90, sortable: true },
     {
       colId: "status",
@@ -23882,6 +26196,7 @@ ${body}`;
       width: 140,
       sortable: true,
       filterable: true,
+      groupable: true,
       dropdownOptions: [
         { value: "Active", label: "Active", color: "#16a34a" },
         { value: "Out of Stock", label: "Out of Stock", color: "#dc2626" },
@@ -23894,9 +26209,11 @@ ${body}`;
       header: "Inventory",
       type: "string",
       width: 170,
-      cellRendererFn: ({ row }) => {
-        const r = asRelease(row);
-        return r.stock != null ? `${r.stock} Stock / ${r.variants.length} Variant${r.variants.length === 1 ? "" : "s"}` : "";
+      renderer: {
+        display: ({ row }) => {
+          const r = asRelease(row);
+          return r.stock != null ? `${r.stock} Stock / ${r.variants.length} Variant${r.variants.length === 1 ? "" : "s"}` : "";
+        }
       }
     },
     { colId: "incoming", field: "incoming", header: "Incoming", type: "number", width: 100, sortable: true },
@@ -23907,19 +26224,21 @@ ${body}`;
       type: "currency",
       width: 130,
       sortable: true,
-      cellRendererFn: ({ row }) => {
-        const r = asRelease(row);
-        const wrap = document.createElement("div");
-        wrap.className = "inv-price-cell";
-        const amount = document.createElement("div");
-        amount.className = "inv-price-amount";
-        amount.textContent = `\xA3${r.price}`;
-        const sub = document.createElement("div");
-        sub.className = "inv-price-sub";
-        sub.textContent = `${r.priceChangePct}% increase`;
-        wrap.appendChild(amount);
-        wrap.appendChild(sub);
-        return r.price ? wrap : "";
+      renderer: {
+        display: ({ row }) => {
+          const r = asRelease(row);
+          const wrap = document.createElement("div");
+          wrap.className = "inv-price-cell";
+          const amount = document.createElement("div");
+          amount.className = "inv-price-amount";
+          amount.textContent = `\xA3${r.price}`;
+          const sub = document.createElement("div");
+          sub.className = "inv-price-sub";
+          sub.textContent = `${r.priceChangePct}% increase`;
+          wrap.appendChild(amount);
+          wrap.appendChild(sub);
+          return r.price ? wrap : "";
+        }
       }
     },
     { colId: "sold", field: "sold", header: "Sold", type: "number", width: 90, sortable: true },
@@ -23930,7 +26249,9 @@ ${body}`;
       type: "currency",
       width: 120,
       sortable: true,
-      cellRendererFn: ({ row }) => `\xA3${asRelease(row).estProfit.toFixed(1)}`
+      renderer: {
+        display: ({ row }) => `\xA3${asRelease(row).estProfit.toFixed(1)}`
+      }
     },
     {
       colId: "actions",
@@ -23940,34 +26261,36 @@ ${body}`;
       pinned: null,
       width: 190,
       resizable: false,
-      cellRendererFn: ({ row, rowIndex }) => {
-        const r = asRelease(row);
-        const wrap = document.createElement("div");
-        wrap.className = "inv-actions-cell";
-        const holdBtn = document.createElement("button");
-        holdBtn.type = "button";
-        holdBtn.className = "inv-btn inv-btn--hold";
-        holdBtn.textContent = "Hold Selling";
-        holdBtn.addEventListener("click", (e) => {
-          e.stopPropagation();
-          const held = holdBtn.classList.toggle("inv-btn--held");
-          holdBtn.textContent = held ? "Resume Selling" : "Hold Selling";
-        });
-        const delBtn = document.createElement("button");
-        delBtn.type = "button";
-        delBtn.className = "inv-btn inv-btn--icon";
-        delBtn.setAttribute("aria-label", `Remove ${r.albumName}`);
-        delBtn.title = `Remove ${r.albumName}`;
-        delBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" width="14" height="14"><path d="M2 4H14M5 4V2H11V4M6 7V12M10 7V12M3 4L4 14H12L13 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-        delBtn.addEventListener("click", (e) => {
-          e.stopPropagation();
-          if (!confirm(`Remove "${r.albumName}" from inventory?`)) return;
-          const node = grid.api.getRowByIndex(rowIndex);
-          if (node) grid.api.removeRows([node.nodeId]);
-        });
-        wrap.appendChild(holdBtn);
-        wrap.appendChild(delBtn);
-        return wrap;
+      renderer: {
+        display: ({ row, rowIndex }) => {
+          const r = asRelease(row);
+          const wrap = document.createElement("div");
+          wrap.className = "inv-actions-cell";
+          const holdBtn = document.createElement("button");
+          holdBtn.type = "button";
+          holdBtn.className = "inv-btn inv-btn--hold";
+          holdBtn.textContent = "Hold Selling";
+          holdBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const held = holdBtn.classList.toggle("inv-btn--held");
+            holdBtn.textContent = held ? "Resume Selling" : "Hold Selling";
+          });
+          const delBtn = document.createElement("button");
+          delBtn.type = "button";
+          delBtn.className = "inv-btn inv-btn--icon";
+          delBtn.setAttribute("aria-label", `Remove ${r.albumName}`);
+          delBtn.title = `Remove ${r.albumName}`;
+          delBtn.innerHTML = '<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" width="14" height="14"><path d="M2 4H14M5 4V2H11V4M6 7V12M10 7V12M3 4L4 14H12L13 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+          delBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            if (!confirm(`Remove "${r.albumName}" from inventory?`)) return;
+            const node = grid.api.getRowByIndex(rowIndex);
+            if (node) grid.api.removeRows([node.nodeId]);
+          });
+          wrap.appendChild(holdBtn);
+          wrap.appendChild(delBtn);
+          return wrap;
+        }
       }
     }
   ];
@@ -24033,6 +26356,9 @@ ${body}`;
       detailAutoHeight: true,
       detailMinHeight: 90,
       detailMaxHeight: 380
+    },
+    photonAI: {
+      enabled: true
     }
   };
   var grid;

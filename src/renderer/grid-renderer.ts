@@ -35,6 +35,9 @@ import type { MasterDetailEngine } from '../engines/master-detail/master-detail-
 import type { ThemeManager } from '../theme/theme-manager';
 import { DetailRowRenderer, type NestedGridFactory } from './detail-row-renderer';
 import { StickyRowTracker } from './sticky-row-tracker';
+import { PhotonAIPanel } from '../photon-ai/photon-ai-panel';
+import { TooltipController } from './tooltip-renderer';
+import type { PhotonCommandResult } from '../photon-ai/photon-ai.types';
 
 const CHECKBOX_COL_WIDTH = 44;
 const SERIAL_COL_WIDTH = 52;
@@ -84,6 +87,10 @@ export class GridRenderer {
   private rowDragRenderer: RowDragRenderer | null = null;
   private detailRowRenderer: DetailRowRenderer | null = null;
   private masterDetailEngine: MasterDetailEngine | null = null;
+  /** Floating Photon AI command bar — only created when `photonAI.enabled`. */
+  private photonAIPanel: PhotonAIPanel | null = null;
+  /** Shows a custom floating tooltip for columns with `renderer.tooltip`; a no-op for every other column. */
+  private tooltipController: TooltipController;
 
   private rafId: number | null = null;
   private autoScroller: AutoScroller | null = null;
@@ -174,6 +181,12 @@ export class GridRenderer {
         this.scrollController.scrollToY(this.scrollController.getScrollTop() + delta);
       });
     }
+
+    if (options.photonAI?.enabled) {
+      this.photonAIPanel = new PhotonAIPanel(iconRenderer);
+    }
+
+    this.tooltipController = new TooltipController(store, columnModel, null);
   }
 
   mount(): void {
@@ -493,6 +506,22 @@ export class GridRenderer {
   }
 
   /**
+   * Wires the callback the Photon AI panel's send button/Enter key invokes —
+   * late-bound once the owning `GridCore`'s `GridApi` (and therefore its
+   * `PhotonAIService`) exists. A no-op when `photonAI.enabled` was falsy at
+   * construction (the panel was never created).
+   */
+  setPhotonAISubmitHandler(fn: (text: string) => PhotonCommandResult): void {
+    this.photonAIPanel?.setSubmitHandler(fn);
+  }
+
+  /** Programmatic entry point mirroring the panel's own UI — backs `GridApi.submitAICommand`. */
+  submitAICommand(text: string): PhotonCommandResult {
+    return this.photonAIPanel?.invoke(text)
+      ?? { success: false, message: 'Photon AI is not enabled on this grid.' };
+  }
+
+  /**
    * Starts the shrink/fade-out animation for `parentNodeId`'s detail row.
    * Must be called synchronously **before** the pipeline re-runs and removes
    * the row — see `DetailRowRenderer.beginCollapse` for why the timing matters.
@@ -624,6 +653,8 @@ export class GridRenderer {
     this.footerRenderer.destroy();
     this.overlayRenderer.destroy();
     this.detailRowRenderer?.destroy();
+    this.photonAIPanel?.destroy();
+    this.tooltipController.destroy();
     this.scrollController.destroy();
     this.groupDropZone?.destroy();
     this.rowDragRenderer?.destroy();
@@ -828,6 +859,16 @@ export class GridRenderer {
     if (this.masterDetailEnabledAtConstruction) {
       this.buildStickyLayer(bodyWrapEl);
     }
+
+    // Mount the Photon AI command bar — a floating overlay anchored to the
+    // body's bottom-right corner. `bodyWrapEl`'s own `overflow: hidden` keeps
+    // it inside the grid container; position: absolute keeps it out of the
+    // flex layout entirely, so it never affects row/column virtualization.
+    if (this.photonAIPanel) {
+      this.photonAIPanel.mount(bodyWrapEl, this.options.photonAI!);
+    }
+
+    this.tooltipController.mount(bodyWrapEl);
 
     // Attach cell selection to center content
     this.cellSelectionEngine.attach(centerBodyContentEl);
@@ -1273,6 +1314,10 @@ export class GridRenderer {
         showGroupsColumn: hasGroupedColumns,
         autoGroupColWidth: AUTO_GROUP_COL_WIDTH,
         leafGroupColDef,
+        // Unfiltered (includes columns hidden because they're currently
+        // grouped by) so a group row's `groupField` always resolves to its
+        // ColumnDef, even though that column itself isn't rendered as a cell.
+        allLeafColumns: rawCols,
         centerColStart: colStart,
         centerLeftSpacerW: leftSpacerW,
         centerRightSpacerW: rightSpacerW,

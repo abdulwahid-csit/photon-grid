@@ -51,3 +51,15 @@ export interface FilterResult<T = Record<string, unknown>> {
   filteredCount: number;
   totalCount: number;
 }
+
+/**
+ * A value/label pair used to populate a set-filter checkbox list.
+ * For `dropdown` columns the `value` is the raw option value and `label` is the
+ * display label. For all other set-type columns `value === label`.
+ */
+export interface FilterSetOption {
+  /** Raw cell value used when building the {@link ColumnFilter.selectedIds} array. */
+  value: string;
+  /** Human-readable label rendered in the checkbox list. */
+  label: string;
+}

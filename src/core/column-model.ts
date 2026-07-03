@@ -130,6 +130,13 @@ export class ColumnModel {
     }
   }
 
+  /** Clears the sort indicator from every column (the header-arrow counterpart to `SortEngine.clearSort`). */
+  clearAllSort(): void {
+    for (const col of this.columns) col.sortOrder = null;
+    this.store.set('columns', [...this.columns]);
+    this.eventBus.emit(GridEventType.COLUMN_SORTED, { colId: '', field: '', order: null });
+  }
+
   autoSizeColumn(colId: string, containerEl: HTMLElement): void {
     const col = this.getColumn(colId);
     if (!col) return;

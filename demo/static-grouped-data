@@ -280,27 +280,13 @@ const columns: ColumnDef[] = [
         colId: 'employeeName', field: 'employeeName', header: 'Employee Name',
         type: 'string', width: 210, sortable: true, filterable: true, draggable: true,
         editable: true,
-        cellRendererFn: ({ value, rowIndex }) => {
-          const name = String(value ?? '');
-          const img  = `https://i.pravatar.cc/32?img=${(rowIndex % 70) + 1}`;
-          return `<span style="display:flex;align-items:center;gap:8px"><img src="${name ? img : ''}" width="28" height="28" style="border-radius:50%;object-fit:cover;flex-shrink:0" />${name}</span>`;
-        },
+   
       },
       {
         colId: 'gender', field: 'gender', header: 'Gender',
         type: 'dropdown', width: 145, sortable: true, filterable: true, editable: true,
         enumOptions: ['Male', 'Female', 'Non-binary', 'Prefer not to say'], groupable: true,
-        cellRendererFn: ({ value }) => {
-          const v = String(value ?? '');
-          const icons: Record<string, string> = {
-            'Male':              `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="14" r="5"/><line x1="19" y1="5" x2="14.14" y2="9.86"/><polyline points="15 5 19 5 19 9"/></svg>`,
-            'Female':            `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ec4899" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="9" r="5"/><line x1="12" y1="14" x2="12" y2="22"/><line x1="9" y1="19" x2="15" y2="19"/></svg>`,
-            'Non-binary':        `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="2" x2="12" y2="7"/><line x1="12" y1="17" x2="12" y2="22"/><line x1="7" y1="4.2" x2="9.5" y2="8.5"/><line x1="14.5" y1="15.5" x2="17" y2="19.8"/></svg>`,
-            'Prefer not to say': `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>`,
-          };
-          const icon = icons[v] ?? icons['Prefer not to say'];
-          return `<span style="display:flex;align-items:center;gap:6px">${v ? icon : ''}${v}</span>`;
-        },
+ 
       },
     ],
   },
@@ -341,11 +327,7 @@ const columns: ColumnDef[] = [
           { label: 'United Arab Emirates', value: 'United Arab Emirates' },
           { label: 'Pakistan', value: 'Pakistan' },
         ],
-        cellRendererFn: ({ value }) => {
-          const name = String(value ?? '');
-          const code = countryFlagCodes[name] ?? 'un';
-          return `${name ? `<span style="display:flex;align-items:center;gap:7px"><img src="https://flagcdn.com/w20/${code}.png" width="20" height="14" style="border-radius:2px;object-fit:cover;flex-shrink:0" />` : ''}${name}</span>`;
-        },
+    
       },
       {
         colId: 'state', field: 'state', header: 'State',

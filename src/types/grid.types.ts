@@ -2,6 +2,7 @@ import type { ColumnDef, ColumnState } from './column.types';
 import type { FilterModel, QuickFilterConfig } from './filter.types';
 import type { BuiltInThemeName } from './theme.types';
 import type { MasterDetailConfig } from './master-detail.types';
+import type { PhotonAIConfig } from './photon-ai.types';
 
 export interface SortConfig {
   colId: string;
@@ -181,6 +182,13 @@ export interface GridOptions {
    * @see {@link MasterDetailConfig}
    */
   masterDetail?: MasterDetailConfig;
+
+  /**
+   * Photon AI — a floating, deterministic natural-language command bar for
+   * the grid (sort/filter/pin/hide/group/select), with zero external AI
+   * services. @see {@link PhotonAIConfig}
+   */
+  photonAI?: PhotonAIConfig;
 
   enableStateManagement?: boolean;
   stateKey?: string;

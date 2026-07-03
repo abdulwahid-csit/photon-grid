@@ -21,6 +21,9 @@ import type { AggregationEngine } from '../engines/aggregation/aggregation-engin
 import type { GridRenderer } from '../renderer/grid-renderer';
 import type { UndoRedoEngine } from '../engines/undo-redo/undo-redo-engine';
 import type { MasterDetailEngine } from '../engines/master-detail/master-detail-engine';
+import type { TreeDataService } from '../engines/tree/tree-data-service';
+import type { TreeExpansionService } from '../engines/tree/tree-expansion-service';
+import type { TreeSelectionService } from '../engines/tree/tree-selection-service';
 
 export interface GridContext {
   options: GridOptions;
@@ -48,5 +51,11 @@ export interface GridContext {
   undoRedoEngine: UndoRedoEngine;
   /** Drives Master/Detail row expansion state, detail-data caching, and height tracking. */
   masterDetailEngine: MasterDetailEngine;
+  /** Builds/filters/sorts/flattens self-referential row hierarchies (Tree Data). */
+  treeDataService: TreeDataService;
+  /** Owns Tree Data's expand/collapse state, separate from `treeDataService` per its own single responsibility. */
+  treeExpansionService: TreeExpansionService;
+  /** Cascade select/deselect over `RowSelectionEngine` for Tree Data's parent/descendant selection semantics. */
+  treeSelectionService: TreeSelectionService;
   renderer: GridRenderer;
 }

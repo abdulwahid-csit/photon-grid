@@ -35,7 +35,11 @@ import { GridApi } from './grid-api';
 import { GridEventType } from '../types/event.types';
 import { UndoRedoEngine } from '../engines/undo-redo/undo-redo-engine';
 import { MasterDetailEngine } from '../engines/master-detail/master-detail-engine';
+import { TreeDataService } from '../engines/tree/tree-data-service';
+import { TreeExpansionService } from '../engines/tree/tree-expansion-service';
+import { TreeSelectionService } from '../engines/tree/tree-selection-service';
 import type { RowDetailToggleClickedEvent } from '../types/event.types';
+import type { TreeNodeToggleClickedPayload } from '../types/tree-data.types';
 import { ColumnGroupModel } from '../column-groups/column-group-model';
 import { ColumnGroupHeaderBuilder } from '../column-groups/column-group-header-builder';
 import { DisplayGroupEngine } from '../column-groups/display-group-engine';
@@ -91,6 +95,9 @@ export class GridCore {
     const undoRedoEngine = new UndoRedoEngine();
     const cellSelectionEngine = new CellSelectionEngine(store, eventBus, clipboardEngine, undoRedoEngine);
     const masterDetailEngine = new MasterDetailEngine(store, eventBus, rowModel);
+    const treeExpansionService = new TreeExpansionService(store, eventBus);
+    const treeDataService = new TreeDataService(store, eventBus, filterEngine, sortEngine, treeExpansionService);
+    const treeSelectionService = new TreeSelectionService(rowSelectionEngine, treeDataService);
     const themeManager = new ThemeManager(eventBus);
     const iconRegistry = new IconRegistry();
     const iconRenderer = new IconRenderer(iconRegistry);
@@ -151,6 +158,23 @@ export class GridCore {
       this.api.refresh();
     });
 
+    // ── Tree Data wiring ────────────────────────────────────────────────────
+    // Async lazy-load resolving, or a drag-to-reparent commit, both need a
+    // pipeline refresh — same DI pattern as `masterDetailEngine` above.
+    treeDataService.setRefreshCallback(() => this.api.refresh());
+    // Drag-to-reparent is only meaningful for mutable hierarchy sources
+    // (`parentId`/`childrenField`) — `getDataPath`/`custom` are derived and
+    // read-only, so `TreeDataService.moveNode` itself refuses those modes;
+    // gating drag detection here too avoids even showing 3-way drop zones
+    // for a drag that can never commit.
+    renderer.setTreeDragConfig(
+      !!options.treeData?.enabled && (options.treeData.mode === 'parentId' || options.treeData.mode === 'childrenField'),
+      (draggedId, targetId, position) => treeDataService.moveNode(draggedId, targetId, position),
+    );
+    if (options.treeData?.enabled) {
+      renderer.setTreeRenderConfig(options.treeData.toggleColumnId, treeExpansionService);
+    }
+
     return {
       options,
       containerEl,
@@ -175,6 +199,9 @@ export class GridCore {
       chartEngine,
       undoRedoEngine,
       masterDetailEngine,
+      treeDataService,
+      treeExpansionService,
+      treeSelectionService,
       renderer,
     };
   }
@@ -241,6 +268,8 @@ export class GridCore {
     }
 
     ctx.masterDetailEngine.configure(options.masterDetail);
+    ctx.treeDataService.configure(options.treeData);
+    ctx.cellSelectionEngine.setTreeToggleHandler((row, direction) => this.handleTreeToggleKey(ctx, row, direction));
 
     ctx.renderer.mount();
     ctx.renderer.setParentApiForDetail(this.api);
@@ -352,6 +381,66 @@ export class GridCore {
       ctx.masterDetailEngine.toggle(p.row);
       this.api.refresh();
     });
+
+    // Tree Data toggle click (from `applyTreeToggle`'s chevron button) →
+    // same capture-then-toggle-then-refresh shape as the group/detail
+    // handlers above, so expand/collapse gets the same FLIP row animation.
+    ctx.eventBus.on(GridEventType.TREE_NODE_TOGGLE_CLICKED, (payload: unknown) => {
+      const p = payload as TreeNodeToggleClickedPayload;
+      const currentRows = ctx.store.get('visibleRows') as Array<{ nodeId: string; top: number }>;
+      if (currentRows.length > 0) ctx.renderer.captureRowAnimation(currentRows, 'filter');
+      ctx.treeExpansionService.toggle(p.row);
+      this.api.refresh();
+    });
+  }
+
+  /**
+   * Backs `CellSelectionEngine.setTreeToggleHandler` — ArrowLeft collapses a
+   * node (or jumps focus to its parent if already collapsed/leaf), ArrowRight
+   * expands a node (or jumps focus to its first child if already expanded).
+   * Returns `false` when Tree Data isn't enabled or the row has no children,
+   * letting normal column navigation take over.
+   */
+  private handleTreeToggleKey(ctx: GridContext, row: RowNode, direction: 'left' | 'right'): boolean {
+    if (!ctx.treeDataService.isEnabled()) return false;
+    const hasChildren = row.hasChildren || row.children.length > 0;
+    const rows = ctx.store.get('visibleRows') as RowNode[];
+    const activeCell = ctx.store.get('activeCell');
+    if (!activeCell) return false;
+
+    if (direction === 'left') {
+      if (hasChildren && ctx.treeExpansionService.isExpanded(row.nodeId)) {
+        ctx.treeExpansionService.collapse(row);
+        this.api.refresh();
+        return true;
+      }
+      if (row.parent) {
+        const parentIndex = rows.findIndex((r) => r.nodeId === row.parent!.nodeId);
+        if (parentIndex !== -1) {
+          ctx.cellSelectionEngine.startSelection(parentIndex, activeCell.colIndex);
+          return true;
+        }
+      }
+      return false;
+    }
+
+    // direction === 'right'
+    if (!hasChildren) return false;
+    if (!ctx.treeExpansionService.isExpanded(row.nodeId)) {
+      if (!row.childrenLoaded && ctx.treeDataService.getConfig()?.lazyLoadChildren) {
+        ctx.treeDataService.loadChildren(row.nodeId);
+      }
+      ctx.treeExpansionService.expand(row);
+      this.api.refresh();
+      return true;
+    }
+    const rowIndex = rows.findIndex((r) => r.nodeId === row.nodeId);
+    const next = rowIndex !== -1 ? rows[rowIndex + 1] : undefined;
+    if (next && next.level > row.level) {
+      ctx.cellSelectionEngine.startSelection(rowIndex + 1, activeCell.colIndex);
+      return true;
+    }
+    return false;
   }
 
   /**

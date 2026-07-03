@@ -22,6 +22,8 @@ export class CellSelectionEngine {
    * the default down-navigation behavior.
    */
   private enterEditHandler: ((rowIndex: number, colIndex: number) => boolean) | null = null;
+  /** Optional callback invoked on ArrowLeft/ArrowRight for Tree Data collapse/expand — see `setTreeToggleHandler`. */
+  private treeToggleHandler: ((row: RowNode, direction: 'left' | 'right') => boolean) | null = null;
   /**
    * Optional callback invoked after every active-cell change so the grid body
    * can scroll the newly active cell into view (AG Grid-style auto-scroll).
@@ -109,6 +111,19 @@ export class CellSelectionEngine {
    */
   setEnterEditHandler(fn: (rowIndex: number, colIndex: number) => boolean): void {
     this.enterEditHandler = fn;
+  }
+
+  /**
+   * Register a callback invoked when Left/Right is pressed (without Ctrl/Cmd
+   * or Shift) on a row with children — Tree Data's collapse/expand-via-
+   * keyboard convention. Return `true` to absorb the key press (the tree
+   * toggled, or focus jumped to a parent/first child); return `false` to
+   * fall through to normal column navigation. `CellSelectionEngine` never
+   * imports tree types itself — this indirection is how it stays unaware of
+   * Tree Data entirely, same as `setEnterEditHandler` above for editing.
+   */
+  setTreeToggleHandler(fn: (row: RowNode, direction: 'left' | 'right') => boolean): void {
+    this.treeToggleHandler = fn;
   }
 
   /**
@@ -1233,6 +1248,11 @@ export class CellSelectionEngine {
         break;
       case 'ArrowLeft':
         e.preventDefault();
+        if (!jump && !extend && this.treeToggleHandler) {
+          const ac = active as { rowIndex: number; colIndex: number };
+          const row = rows[ac.rowIndex];
+          if (row && this.treeToggleHandler(row, 'left')) break;
+        }
         if (jump) {
           this.jumpToEdge('left', rows.length, columns.length, extend);
         } else if (!extend) {
@@ -1249,6 +1269,11 @@ export class CellSelectionEngine {
         break;
       case 'ArrowRight':
         e.preventDefault();
+        if (!jump && !extend && this.treeToggleHandler) {
+          const ac = active as { rowIndex: number; colIndex: number };
+          const row = rows[ac.rowIndex];
+          if (row && this.treeToggleHandler(row, 'right')) break;
+        }
         if (jump) {
           this.jumpToEdge('right', rows.length, columns.length, extend);
         } else if (!extend) {

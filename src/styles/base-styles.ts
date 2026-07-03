@@ -1635,6 +1635,75 @@ const baseCss = `
   letter-spacing: 0.02em;
 }
 
+/* ──────────────────── Tree Data ────────────────────
+   The toggle column's cell gets a marker class ('.pg-cell--tree-toggle-col',
+   applied by applyTreeToggle regardless of whether the row has children —
+   leaves still need to sit indented under their parent), then indentation is
+   purely data-level-driven CSS, the same mechanism '.pg-row--group' already
+   uses (see above) — no inline styles, no per-instance stylesheet. */
+.pg-cell--tree-toggle-col {
+  display: flex;
+  align-items: center;
+  gap: var(--pg-group-row-gap, 6px);
+  min-width: 0;
+}
+
+.pg-row--tree[data-level="0"] .pg-cell--tree-toggle-col { padding-left: var(--pg-tree-indent-0, 8px); }
+.pg-row--tree[data-level="1"] .pg-cell--tree-toggle-col { padding-left: var(--pg-tree-indent-1, 28px); }
+.pg-row--tree[data-level="2"] .pg-cell--tree-toggle-col { padding-left: var(--pg-tree-indent-2, 48px); }
+.pg-row--tree[data-level="3"] .pg-cell--tree-toggle-col { padding-left: var(--pg-tree-indent-3, 68px); }
+.pg-row--tree[data-level="4"] .pg-cell--tree-toggle-col { padding-left: var(--pg-tree-indent-4, 88px); }
+.pg-row--tree[data-level="5"] .pg-cell--tree-toggle-col { padding-left: var(--pg-tree-indent-5, 108px); }
+.pg-row--tree[data-level="6"] .pg-cell--tree-toggle-col { padding-left: var(--pg-tree-indent-6, 128px); }
+.pg-row--tree[data-level="7"] .pg-cell--tree-toggle-col { padding-left: var(--pg-tree-indent-7, 148px); }
+
+.pg-tree-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: var(--pg-group-toggle-size, 24px);
+  height: var(--pg-group-toggle-size, 24px);
+  border-radius: var(--pg-borders-radius-sm, 4px);
+  color: var(--pg-colors-text-secondary, #64748b);
+  cursor: pointer;
+  transition:
+    background var(--pg-transitions-duration-fast, 100ms),
+    color var(--pg-transitions-duration-fast, 100ms);
+}
+.pg-tree-toggle:hover {
+  background: var(--pg-colors-row-hover, #f0f7ff);
+  color: var(--pg-colors-text-primary, #1e293b);
+}
+
+/* Reserves the toggle's own footprint on leaf rows (no chevron) so a leaf's
+   content lines up under its parent's content, not under the parent's toggle. */
+.pg-tree-toggle-spacer {
+  display: inline-block;
+  flex-shrink: 0;
+  width: var(--pg-group-toggle-size, 24px);
+  height: var(--pg-group-toggle-size, 24px);
+}
+
+/* A getDataPath filler node — a synthetic path-prefix row with no real backing record. */
+.pg-row--tree-filler .pg-cell__value {
+  font-style: italic;
+  color: var(--pg-colors-text-secondary, #64748b);
+}
+
+/* Drag-to-reparent drop feedback (3-way before/inside/after — see RowDragRenderer.setTreeMode) */
+.pg-row--drop-target.pg-row--drop-inside {
+  background: var(--pg-colors-selection-background, rgba(37, 99, 235, 0.1));
+  outline: 2px dashed var(--pg-colors-primary, #2563eb);
+  outline-offset: -2px;
+}
+.pg-row--drop-target.pg-row--drop-before {
+  box-shadow: inset 0 2px 0 0 var(--pg-colors-primary, #2563eb);
+}
+.pg-row--drop-target.pg-row--drop-after {
+  box-shadow: inset 0 -2px 0 0 var(--pg-colors-primary, #2563eb);
+}
+
 /* ──────────────────── Scrollbars ──────────────────── */
 
 /* Native vertical scrollbar — flex item that lives beside the center panel.
@@ -2605,6 +2674,20 @@ const baseCss = `
   pointer-events: none;
   z-index: 3;
 }
+/* Mirrors .pg-panel--left's own pinned-edge shadow. That shadow lives on the
+   panel container itself, which a stuck row's own background paints over
+   for its own height once moved into this overlay — without repeating it
+   here, the pinned-edge shadow has a visible gap wherever a sticky row
+   currently sits.
+   z-index: 2 (matching .pg-panel--left/--right's own z-index, base-styles.ts
+   ~line 334) is required, not optional — this shadow bleeds *rightward*,
+   into the center region's own horizontal space, and .pg-sticky-layer__center
+   is appended after it in the DOM (see GridRenderer.buildStickyLayer); on
+   equal stacking contexts a later sibling paints over an earlier one, so
+   without an explicit z-index center's own background silently covers the
+   bled-through part of this shadow, while the right shadow (appended last)
+   was never affected — z-index makes both sides correct regardless of
+   append order instead of depending on it. */
 .pg-sticky-layer__left {
   position: absolute;
   top: 0;
@@ -2612,6 +2695,8 @@ const baseCss = `
   height: 100%;
   width: var(--pg-left-panel-width, 0px);
   overflow: hidden;
+  box-shadow: 2px 0 4px rgba(0,0,0,0.06);
+  z-index: 2;
 }
 .pg-sticky-layer__center {
   position: absolute;
@@ -2620,6 +2705,7 @@ const baseCss = `
   right: var(--pg-right-panel-width, 0px);
   height: 100%;
   overflow: hidden;
+  z-index: 1;
 }
 /* Mirrors .pg-panel--center .pg-panel__content's horizontal-scroll transform
    so a stuck row's center cells track the user's horizontal scroll exactly
@@ -2630,6 +2716,7 @@ const baseCss = `
   width: var(--pg-center-content-width, 100%);
   transform: translateX(var(--pg-scroll-x, 0px));
 }
+/* Mirrors .pg-panel--right's own pinned-edge shadow — see .pg-sticky-layer__left above. */
 .pg-sticky-layer__right {
   position: absolute;
   top: 0;
@@ -2637,9 +2724,15 @@ const baseCss = `
   height: 100%;
   width: var(--pg-right-panel-width, 0px);
   overflow: hidden;
+  box-shadow: -2px 0 4px rgba(0,0,0,0.06);
 }
 .pg-row--sticky {
-  // box-shadow: var(--pg-shadows-sm, 0 2px 4px rgba(15, 23, 42, 0.08));
+  /* The sticky layer container above is pointer-events:none (so empty space
+     with no sticky row never blocks clicks through to whatever's underneath)
+     — pointer-events inherits, so without this the row itself, and every
+     interactive thing inside it (cells, the tree/group toggle, checkboxes),
+     would silently inherit "none" and stop responding to clicks entirely. */
+  pointer-events: auto;
 }
 .pg-row--detail-container {
   position: absolute;

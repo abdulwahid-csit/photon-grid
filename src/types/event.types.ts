@@ -8,6 +8,7 @@ import type {
 import type { RowNode, RowDropPayload, RowClickPayload, RowEditPayload } from './row.types';
 import type { FilterModel, QuickFilterConfig } from './filter.types';
 import type { CellRange } from './grid.types';
+import type { TreeNodeToggleClickedPayload, TreeNodeTogglePayload, TreeChildrenLoadedPayload } from './tree-data.types';
 
 export const GridEventType = {
   READY: 'grid:ready',
@@ -84,6 +85,11 @@ export const GridEventType = {
   ROW_DETAIL_OPENED: 'row:detailOpened',
   ROW_DETAIL_CLOSED: 'row:detailClosed',
   ROW_DETAIL_HEIGHT_CHANGED: 'row:detailHeightChanged',
+
+  TREE_NODE_TOGGLE_CLICKED: 'tree:nodeToggleClicked',
+  TREE_NODE_EXPANDED: 'tree:nodeExpanded',
+  TREE_NODE_COLLAPSED: 'tree:nodeCollapsed',
+  TREE_CHILDREN_LOADED: 'tree:childrenLoaded',
 } as const;
 
 export type GridEventType = (typeof GridEventType)[keyof typeof GridEventType];
@@ -222,6 +228,10 @@ export type GridEventMap = {
   [GridEventType.COLUMN_GROUP_HEADER_REMOVED]:   ColumnGroupHeaderRemovedEvent;
   [GridEventType.ROW_DETAIL_TOGGLE_CLICKED]: RowDetailToggleClickedEvent;
   [GridEventType.ROW_DETAIL_OPENED]: RowDetailOpenedEvent;
+  [GridEventType.TREE_NODE_TOGGLE_CLICKED]: TreeNodeToggleClickedPayload;
+  [GridEventType.TREE_NODE_EXPANDED]: TreeNodeTogglePayload;
+  [GridEventType.TREE_NODE_COLLAPSED]: TreeNodeTogglePayload;
+  [GridEventType.TREE_CHILDREN_LOADED]: TreeChildrenLoadedPayload;
   [GridEventType.ROW_DETAIL_CLOSED]: RowDetailClosedEvent;
   [GridEventType.ROW_DETAIL_HEIGHT_CHANGED]: RowDetailHeightChangedEvent;
 };

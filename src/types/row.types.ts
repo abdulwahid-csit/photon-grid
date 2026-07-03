@@ -47,6 +47,44 @@ export interface RowNode {
    * detail section belongs to. Enables O(1) lookup without walking `parent`.
    */
   parentNodeId?: string;
+
+  /**
+   * Tree Data only (see `TreeDataService`). `true` when the underlying
+   * hierarchy has 1+ children for this node — distinguishes a genuine leaf
+   * from a node whose children just haven't been lazy-loaded yet, so the
+   * renderer knows to draw a toggle even before `children` is populated.
+   */
+  hasChildren?: boolean;
+
+  /**
+   * Tree Data only, for `lazyLoadChildren`. `undefined`/`false` means this
+   * node's children haven't been fetched yet — expanding it should trigger
+   * `TreeDataService.loadChildren` instead of reading `children` directly.
+   */
+  childrenLoaded?: boolean;
+
+  /**
+   * Tree Data only, for `getDataPath` mode. `true` for a synthetic
+   * intermediate node representing a path prefix with no real backing
+   * record (e.g. `"Electronics"` in `["Electronics", "Phones", "iPhone"]`)
+   * — mirrors how `GroupingEngine` synthesizes group-header rows, so the
+   * renderer/selection/drag layers can treat it as non-editable and (for
+   * drag-to-reparent) as read-only.
+   */
+  isTreeFiller?: boolean;
+
+  /**
+   * Tree Data only. The `top` pixel position where this node's own subtree
+   * ends in the current flattened, laid-out `visibleRows` — i.e. the `top`
+   * of whatever row (sibling, or an ancestor's next sibling) immediately
+   * follows its last visible descendant. Annotated by
+   * `TreeDataService.annotateSubtreeExtents` right after layout, and used by
+   * `TreeStickyRowTracker` to decide when a stuck ancestor row should be
+   * pushed off by the next block — the same "block end" concept
+   * `StickyRowTracker` gets for free from a Master/Detail row's single
+   * fixed-position detail row.
+   */
+  subtreeEndTop?: number;
 }
 
 export interface RowGroupNode extends RowNode {

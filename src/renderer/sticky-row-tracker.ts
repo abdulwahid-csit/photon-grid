@@ -1,4 +1,5 @@
 import type { RowNode } from '../types/row.types';
+import { findRowAtOffset } from './row-offset-search';
 
 /** Result of a single `StickyRowTracker.compute` call. */
 export interface StickyRowResult {
@@ -34,7 +35,7 @@ export class StickyRowTracker {
     const none: StickyRowResult = { nodeId: null, offsetPx: 0, minStart: windowStart };
     if (rows.length === 0) return none;
 
-    const idx = this.findRowAtOffset(rows, scrollTop, rowHeight);
+    const idx = findRowAtOffset(rows, scrollTop, rowHeight);
     if (idx < 0) return none;
 
     const masterIdx = this.resolveMasterIndex(rows, idx);
@@ -69,26 +70,6 @@ export class StickyRowTracker {
     }
     if (row.type === 'data' && rows[idx + 1]?.type === 'detail' && rows[idx + 1].parentNodeId === row.nodeId) {
       return idx;
-    }
-    return -1;
-  }
-
-  /**
-   * Binary search (rows are laid out sequentially by `top`) for the row
-   * whose `[top, top + height)` span contains `offset`.
-   *
-   * @returns the row's index, or -1 if `offset` is before the first / after the last row.
-   */
-  private findRowAtOffset(rows: RowNode[], offset: number, fallbackHeight: number): number {
-    let lo = 0;
-    let hi = rows.length - 1;
-    while (lo <= hi) {
-      const mid = (lo + hi) >> 1;
-      const top = rows[mid].top;
-      const bottom = top + (rows[mid].height ?? fallbackHeight);
-      if (offset < top) hi = mid - 1;
-      else if (offset >= bottom) lo = mid + 1;
-      else return mid;
     }
     return -1;
   }

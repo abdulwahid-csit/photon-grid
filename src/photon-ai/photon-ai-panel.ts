@@ -148,7 +148,7 @@ export class PhotonAIPanel {
     const wrap = createDiv('pg-ai-panel__input-wrap');
 
     const input = createElement('textarea', {
-      placeholder: config.placeholder ?? 'Ask Photon AI to do something, or ask it a question...',
+      placeholder: config.placeholder ?? 'Ask Photon AI to do something...',
       rows: 1,
     }) as HTMLTextAreaElement;
     input.className = 'pg-ai-panel__input';

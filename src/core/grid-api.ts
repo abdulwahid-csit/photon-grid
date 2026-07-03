@@ -299,6 +299,57 @@ export class GridApi {
     this.refresh();
   }
 
+  // ──────────────────── Tree Data ────────────────────
+
+  expandTreeNode(nodeId: string): void {
+    const node = this.ctx.treeDataService.getNode(nodeId);
+    if (!node) return;
+    this.ctx.treeExpansionService.expand(node);
+    this.refresh();
+  }
+
+  collapseTreeNode(nodeId: string): void {
+    const node = this.ctx.treeDataService.getNode(nodeId);
+    if (!node) return;
+    this.ctx.treeExpansionService.collapse(node);
+    this.refresh();
+  }
+
+  toggleTreeNode(nodeId: string): void {
+    const node = this.ctx.treeDataService.getNode(nodeId);
+    if (!node) return;
+    this.ctx.treeExpansionService.toggle(node);
+    this.refresh();
+  }
+
+  expandAllTreeNodes(): void {
+    this.ctx.treeExpansionService.expandAll(this.ctx.treeDataService.getRoots());
+    this.refresh();
+  }
+
+  collapseAllTreeNodes(): void {
+    this.ctx.treeExpansionService.collapseAll();
+    this.refresh();
+  }
+
+  isTreeNodeExpanded(nodeId: string): boolean {
+    return this.ctx.treeExpansionService.isExpanded(nodeId);
+  }
+
+  /** The full set of children for `nodeId` (not just currently expanded/visible ones), or `[]` if the node doesn't exist, has none, or Tree Data isn't enabled. */
+  getTreeNodeChildren(nodeId: string): RowNode[] {
+    return this.ctx.treeDataService.getNode(nodeId)?.children ?? [];
+  }
+
+  /**
+   * Triggers `TreeDataConfig.lazyLoadChildren` for `nodeId` if configured and
+   * not already loaded/in-flight. Refreshes automatically once the fetch
+   * resolves — no need to call `refresh()` yourself afterward.
+   */
+  loadTreeNodeChildren(nodeId: string): void {
+    this.ctx.treeDataService.loadChildren(nodeId);
+  }
+
   // ──────────────────── Master/Detail ────────────────────
 
   /** Expands `nodeId`'s detail row (a no-op if the row has no detail or is already expanded). */
@@ -546,6 +597,7 @@ export class GridApi {
       paginationPageSize: this.ctx.paginationEngine.getPageSize(),
       groupedColumns: this.ctx.store.get('groupedColumnIds'),
       expandedGroups: Array.from(this.ctx.store.get('expandedGroupKeys')),
+      expandedTreeNodeIds: Array.from(this.ctx.store.get('expandedTreeNodeIds')),
       selectedRowIds: Array.from(this.ctx.store.get('selectedRowIds')),
     };
   }
@@ -556,6 +608,9 @@ export class GridApi {
     if (state.filterModel) this.ctx.filterEngine.setFilterModel(state.filterModel);
     if (state.paginationPage) this.ctx.paginationEngine.goToPage(state.paginationPage);
     if (state.paginationPageSize) this.ctx.paginationEngine.setPageSize(state.paginationPageSize);
+    if (state.expandedTreeNodeIds?.length) {
+      this.ctx.store.set('expandedTreeNodeIds', new Set(state.expandedTreeNodeIds));
+    }
     this.refresh();
   }
 
@@ -603,17 +658,31 @@ export class GridApi {
     let rows = this.ctx.store.get('allRows');
     const columns = this.ctx.columnModel.getAllColumns();
 
-    rows = this.ctx.filterEngine.applyFilters(rows, columns);
-    rows = this.ctx.sortEngine.applySorting(rows, columns);
+    if (this.ctx.treeDataService.isEnabled()) {
+      // Tree Data and column-value grouping are mutually exclusive — a grid
+      // is either hierarchical or grouped by value, never both — so this
+      // branch fully replaces the filter/sort/group steps below with their
+      // tree-aware equivalents (which internally still call FilterEngine's
+      // and SortEngine's own logic; see TreeDataService).
+      rows = this.ctx.treeDataService.getFlatVisibleRows(rows, columns);
+    } else {
+      rows = this.ctx.filterEngine.applyFilters(rows, columns);
+      rows = this.ctx.sortEngine.applySorting(rows, columns);
 
-    const groupColIds = this.ctx.store.get('groupedColumnIds');
-    if (groupColIds.length > 0) {
-      rows = this.ctx.groupingEngine.groupByColumns(groupColIds, columns, rows);
+      const groupColIds = this.ctx.store.get('groupedColumnIds');
+      if (groupColIds.length > 0) {
+        rows = this.ctx.groupingEngine.groupByColumns(groupColIds, columns, rows);
+      }
     }
 
     rows = this.ctx.paginationEngine.applyPagination(rows);
     rows = this.ctx.masterDetailEngine.injectDetailRows(rows);
     this.ctx.rowModel.setVisibleRows(rows);
+    // Subtree extents depend on `top`/`height`, which `setVisibleRows` just
+    // assigned — must run after layout, not from inside `getFlatVisibleRows`.
+    if (this.ctx.treeDataService.isEnabled()) {
+      this.ctx.treeDataService.annotateSubtreeExtents(rows);
+    }
     this.ctx.store.set('visibleRows', rows);
   }
 }

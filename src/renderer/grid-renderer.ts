@@ -32,9 +32,11 @@ import { FilterPanel } from '../engines/filter/filter-panel';
 import type { FilterSetOption } from '../engines/filter/filter-panel';
 import { createDiv } from './dom-utils';
 import type { MasterDetailEngine } from '../engines/master-detail/master-detail-engine';
+import type { TreeExpansionService } from '../engines/tree/tree-expansion-service';
 import type { ThemeManager } from '../theme/theme-manager';
 import { DetailRowRenderer, type NestedGridFactory } from './detail-row-renderer';
 import { StickyRowTracker } from './sticky-row-tracker';
+import { TreeStickyRowTracker, type TreeStickyEntry } from './tree-sticky-row-tracker';
 import { PhotonAIPanel } from '../photon-ai/photon-ai-panel';
 import { TooltipController } from './tooltip-renderer';
 import type { PhotonCommandResult } from '../photon-ai/photon-ai.types';
@@ -71,9 +73,12 @@ export class GridRenderer {
   private centerStickyRowEl: HTMLElement | null = null;
   private rightStickyRowEl: HTMLElement | null = null;
   private readonly masterDetailEnabledAtConstruction: boolean;
+  // Only relevant for building the shared sticky-row layer, per `treeDataEnabledAtConstruction`.
+  private readonly treeDataEnabledAtConstruction: boolean;
   /** `nodeId` of the currently-stuck master row, or `null` when none is sticky. */
   private stickyNodeId: string | null = null;
   private readonly stickyRowTracker = new StickyRowTracker();
+  private readonly treeStickyRowTracker = new TreeStickyRowTracker();
 
   /** Exposed for {@link DisplayGroupEngine} construction in `GridCore`. */
   readonly colStyles: ColumnStyleManager;
@@ -85,8 +90,11 @@ export class GridRenderer {
   private overlayRenderer: OverlayRenderer;
   private groupDropZone: GroupDropZone | null = null;
   private rowDragRenderer: RowDragRenderer | null = null;
+  private treeDragConfig: { active: boolean; reparentHandler: (draggedId: string, targetId: string, position: 'before' | 'after' | 'inside') => boolean } | null = null;
   private detailRowRenderer: DetailRowRenderer | null = null;
   private masterDetailEngine: MasterDetailEngine | null = null;
+  private treeExpansionService: TreeExpansionService | null = null;
+  private treeToggleColumnId: string | null = null;
   /** Floating Photon AI command bar — only created when `photonAI.enabled`. */
   private photonAIPanel: PhotonAIPanel | null = null;
   /** Shows a custom floating tooltip for columns with `renderer.tooltip`; a no-op for every other column. */
@@ -154,6 +162,7 @@ export class GridRenderer {
     this.rowPositionSheet = new RowPositionSheet();
     this.scrollController = new ScrollController();
     this.masterDetailEnabledAtConstruction = options.masterDetail?.enabled ?? false;
+    this.treeDataEnabledAtConstruction = options.treeData?.enabled ?? false;
     if (this.masterDetailEnabledAtConstruction) {
       this.scrollController.setReserveVerticalGutter(true);
     }
@@ -189,6 +198,21 @@ export class GridRenderer {
     this.tooltipController = new TooltipController(store, columnModel, null);
   }
 
+  /**
+   * Enables Tree Data drag-to-reparent on the row-drag system. Must be
+   * called before `mount()` (mirrors `setMasterDetailConfig`) — `mount()`
+   * is when `RowDragRenderer` is actually constructed.
+   */
+  setTreeDragConfig(active: boolean, reparentHandler: (draggedId: string, targetId: string, position: 'before' | 'after' | 'inside') => boolean): void {
+    this.treeDragConfig = { active, reparentHandler };
+  }
+
+  /** Wires Tree Data's expansion state + toggle column into the body renderer, so `data-level` indentation and the expand/collapse toggle render on the configured column. A no-op (undefined `treeData` on every `renderRows` call) until this is called. */
+  setTreeRenderConfig(toggleColumnId: string | undefined, expansionService: TreeExpansionService): void {
+    this.treeToggleColumnId = toggleColumnId ?? null;
+    this.treeExpansionService = expansionService;
+  }
+
   mount(): void {
     this.colStyles.mount();
     this.rowPositionSheet.mount();
@@ -200,6 +224,9 @@ export class GridRenderer {
         this.bodyWrapEl,
         (dy) => this.scrollController.scrollToY(this.scrollController.getScrollTop() + dy),
       );
+      if (this.treeDragConfig) {
+        this.rowDragRenderer.setTreeMode(this.treeDragConfig.active, this.treeDragConfig.reparentHandler);
+      }
     }
     this.subscribeToStore();
     this.scheduleRender();
@@ -856,7 +883,7 @@ export class GridRenderer {
     // having a higher z-index of its own. Living at the same level as both
     // lets a single z-index correctly out-rank everything at once, in every
     // pinned/non-pinned column, with no stacking-context surprises.
-    if (this.masterDetailEnabledAtConstruction) {
+    if (this.masterDetailEnabledAtConstruction || this.treeDataEnabledAtConstruction) {
       this.buildStickyLayer(bodyWrapEl);
     }
 
@@ -1257,10 +1284,18 @@ export class GridRenderer {
     // virtualization would otherwise have scrolled past its natural position.
     let stickyNodeId: string | null = null;
     let stickyOffsetPx = 0;
+    let treeStickyEntries: TreeStickyEntry[] = [];
     if (this.masterDetailEnabledAtConstruction) {
       const sticky = this.stickyRowTracker.compute(rows, scrollTop, rowHeight, start);
       stickyNodeId = sticky.nodeId;
       stickyOffsetPx = sticky.offsetPx;
+      start = sticky.minStart;
+    } else if (this.treeExpansionService) {
+      // Tree Data's generalization of the same rule — see `TreeStickyRowTracker`:
+      // every ancestor of the row currently at the viewport's top stacks as
+      // its own sticky row, instead of there only ever being one.
+      const sticky = this.treeStickyRowTracker.compute(rows, scrollTop, rowHeight, start);
+      treeStickyEntries = sticky.entries;
       start = sticky.minStart;
     }
     this.stickyNodeId = stickyNodeId;
@@ -1297,6 +1332,13 @@ export class GridRenderer {
         }
       : undefined;
 
+    const treeDataOptions = this.treeExpansionService
+      ? {
+          toggleColumnId: this.treeToggleColumnId ?? allColumns[0]?.colId ?? '',
+          isExpandedFn: (nodeId: string) => this.treeExpansionService!.isExpanded(nodeId),
+        }
+      : undefined;
+
     if (this.headerRenderer.isResizingColumn) {
       this.bodyRenderer.syncCenterRange(colStart, colStart + visibleCenterCols.length);
     } else {
@@ -1323,6 +1365,7 @@ export class GridRenderer {
         centerRightSpacerW: rightSpacerW,
         totalCenterCols: centerCols.length,
         masterDetail: masterDetailOptions,
+        treeData: treeDataOptions,
       });
     }
 
@@ -1333,7 +1376,9 @@ export class GridRenderer {
     }
 
     if (this.masterDetailEnabledAtConstruction) {
-      this.bodyRenderer.setSticky(stickyNodeId, stickyOffsetPx);
+      this.bodyRenderer.setStickyRows(stickyNodeId ? [{ nodeId: stickyNodeId, top: stickyOffsetPx }] : []);
+    } else if (this.treeExpansionService) {
+      this.bodyRenderer.setStickyRows(treeStickyEntries);
     }
 
     // Animate rows after sort (FLIP slide) or filter (FLIP slide + fade-in for new rows)

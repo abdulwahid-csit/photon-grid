@@ -16,7 +16,11 @@ export class RowDragRenderer {
   private gridEl: HTMLElement | null = null;
   private bodyWrapEl: HTMLElement | null = null;
   private targetNodeId: string | null = null;
-  private targetPosition: 'before' | 'after' = 'before';
+  private targetPosition: 'before' | 'after' | 'inside' = 'before';
+
+  /** `true` when Tree Data is active — switches drop-zone classification from a 2-way (before/after) to a 3-way (before/inside/after) split, and routes the commit through `treeReparentHandler` instead of the flat splice. Set via `setTreeMode`, called from `GridCore` only when a mutable hierarchy source (`parentId`/`childrenField`) is configured. */
+  private treeModeActive = false;
+  private treeReparentHandler: ((draggedId: string, targetId: string, position: 'before' | 'after' | 'inside') => boolean) | null = null;
   private scrollFn: ((dy: number) => void) | null = null;
   private autoScrollRAF: number | null = null;
   private cursorX = 0;
@@ -41,6 +45,18 @@ export class RowDragRenderer {
     this.bodyWrapEl = bodyWrapEl;
     this.scrollFn = scrollFn;
     bodyWrapEl.addEventListener('mousedown', this.boundMouseDown, true);
+  }
+
+  /**
+   * Enables Tree Data drag-to-reparent. `reparentHandler` is called on drop
+   * with the resolved `'before'|'after'|'inside'` position and should mutate
+   * the raw hierarchy + trigger a pipeline refresh (see
+   * `TreeDataService.moveNode`) — this renderer never touches tree structure
+   * itself, only mouse tracking and drop-zone classification.
+   */
+  setTreeMode(active: boolean, reparentHandler: (draggedId: string, targetId: string, position: 'before' | 'after' | 'inside') => boolean): void {
+    this.treeModeActive = active;
+    this.treeReparentHandler = reparentHandler;
   }
 
   destroy(): void {
@@ -156,12 +172,12 @@ export class RowDragRenderer {
     );
 
     let target: RowNode | null = null;
-    let position: 'before' | 'after' = 'before';
+    let position: 'before' | 'after' | 'inside' = 'before';
 
     for (const row of rows) {
       if (cursorContentY >= row.top && cursorContentY < row.top + row.height) {
         target = row;
-        position = cursorContentY < row.top + row.height / 2 ? 'before' : 'after';
+        position = this.classifyDropPosition(cursorContentY - row.top, row.height);
         break;
       }
     }
@@ -185,11 +201,36 @@ export class RowDragRenderer {
       this.targetNodeId = newTarget;
       this.targetPosition = newPos;
       if (this.targetNodeId) {
-        this.updateRowTops();
+        // Tree reparenting doesn't have a stable "flat virtual order" to
+        // preview (the real position is decided by the hierarchy rebuild
+        // after drop) — show a drop highlight on the target row instead of
+        // the flat mode's row-shifting preview.
+        if (this.treeModeActive) this.updateTreeDropHighlight();
+        else this.updateRowTops();
       } else {
         this.clearDragTops();
       }
     }
+  }
+
+  /** Tree mode's drop feedback: highlights the target row and flags whether the drop would nest the dragged row inside it. */
+  private updateTreeDropHighlight(): void {
+    this.bodyWrapEl?.querySelectorAll<HTMLElement>('.pg-row--drop-target')
+      .forEach((el) => el.classList.remove('pg-row--drop-target', 'pg-row--drop-inside', 'pg-row--drop-before', 'pg-row--drop-after'));
+    if (!this.targetNodeId) return;
+    const targetEls = this.bodyWrapEl?.querySelectorAll<HTMLElement>(`[data-node-id="${this.targetNodeId}"]`);
+    targetEls?.forEach((el) => {
+      el.classList.add('pg-row--drop-target', `pg-row--drop-${this.targetPosition}`);
+    });
+  }
+
+  /** 2-way (before/after) split normally; 3-way (before/inside/after, thirds) when Tree Data drag-to-reparent is active. */
+  private classifyDropPosition(relativeY: number, rowHeight: number): 'before' | 'after' | 'inside' {
+    if (!this.treeModeActive) return relativeY < rowHeight / 2 ? 'before' : 'after';
+    const third = rowHeight / 3;
+    if (relativeY < third) return 'before';
+    if (relativeY > rowHeight - third) return 'after';
+    return 'inside';
   }
 
   // ─── Mouse up ─────────────────────────────────────────────────────────────
@@ -206,8 +247,14 @@ export class RowDragRenderer {
     // the store re-render and RowPositionSheet settle to the new positions.
     this.cleanupInteraction();
 
-    if (draggedId && targetId && draggedId !== targetId) {
-      this.reorderRows(draggedId, targetId, position);
+    if (draggedId && targetId && draggedId !== targetId && this.treeModeActive && this.treeReparentHandler) {
+      // Tree reparenting rebuilds the whole hierarchy via a pipeline refresh
+      // rather than a flat splice — no drag-tops preview to reconcile, so
+      // visuals can be cleared immediately.
+      this.treeReparentHandler(draggedId, targetId, position);
+      this.cleanupVisuals();
+    } else if (draggedId && targetId && draggedId !== targetId) {
+      this.reorderRows(draggedId, targetId, position === 'inside' ? 'after' : position);
       // Phase 2: after two RAFs, RowPositionSheet has the same top values as our drag tops
       // → removing the overrides causes zero visual change.
       requestAnimationFrame(() => requestAnimationFrame(() => this.cleanupVisuals()));
@@ -293,6 +340,8 @@ export class RowDragRenderer {
   private clearDragTops(): void {
     const s = document.querySelector<HTMLStyleElement>('style[data-pg-row-drag-tops]');
     if (s) s.textContent = '';
+    this.bodyWrapEl?.querySelectorAll<HTMLElement>('.pg-row--drop-target')
+      .forEach((el) => el.classList.remove('pg-row--drop-target', 'pg-row--drop-inside', 'pg-row--drop-before', 'pg-row--drop-after'));
   }
 
   private getOrCreateTopStyle(): HTMLStyleElement {

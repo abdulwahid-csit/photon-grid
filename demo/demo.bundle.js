@@ -2366,6 +2366,75 @@ var PhotonGridDemo = (() => {
   letter-spacing: 0.02em;
 }
 
+/* \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 Tree Data \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+   The toggle column's cell gets a marker class ('.pg-cell--tree-toggle-col',
+   applied by applyTreeToggle regardless of whether the row has children \u2014
+   leaves still need to sit indented under their parent), then indentation is
+   purely data-level-driven CSS, the same mechanism '.pg-row--group' already
+   uses (see above) \u2014 no inline styles, no per-instance stylesheet. */
+.pg-cell--tree-toggle-col {
+  display: flex;
+  align-items: center;
+  gap: var(--pg-group-row-gap, 6px);
+  min-width: 0;
+}
+
+.pg-row--tree[data-level="0"] .pg-cell--tree-toggle-col { padding-left: var(--pg-tree-indent-0, 8px); }
+.pg-row--tree[data-level="1"] .pg-cell--tree-toggle-col { padding-left: var(--pg-tree-indent-1, 28px); }
+.pg-row--tree[data-level="2"] .pg-cell--tree-toggle-col { padding-left: var(--pg-tree-indent-2, 48px); }
+.pg-row--tree[data-level="3"] .pg-cell--tree-toggle-col { padding-left: var(--pg-tree-indent-3, 68px); }
+.pg-row--tree[data-level="4"] .pg-cell--tree-toggle-col { padding-left: var(--pg-tree-indent-4, 88px); }
+.pg-row--tree[data-level="5"] .pg-cell--tree-toggle-col { padding-left: var(--pg-tree-indent-5, 108px); }
+.pg-row--tree[data-level="6"] .pg-cell--tree-toggle-col { padding-left: var(--pg-tree-indent-6, 128px); }
+.pg-row--tree[data-level="7"] .pg-cell--tree-toggle-col { padding-left: var(--pg-tree-indent-7, 148px); }
+
+.pg-tree-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: var(--pg-group-toggle-size, 24px);
+  height: var(--pg-group-toggle-size, 24px);
+  border-radius: var(--pg-borders-radius-sm, 4px);
+  color: var(--pg-colors-text-secondary, #64748b);
+  cursor: pointer;
+  transition:
+    background var(--pg-transitions-duration-fast, 100ms),
+    color var(--pg-transitions-duration-fast, 100ms);
+}
+.pg-tree-toggle:hover {
+  background: var(--pg-colors-row-hover, #f0f7ff);
+  color: var(--pg-colors-text-primary, #1e293b);
+}
+
+/* Reserves the toggle's own footprint on leaf rows (no chevron) so a leaf's
+   content lines up under its parent's content, not under the parent's toggle. */
+.pg-tree-toggle-spacer {
+  display: inline-block;
+  flex-shrink: 0;
+  width: var(--pg-group-toggle-size, 24px);
+  height: var(--pg-group-toggle-size, 24px);
+}
+
+/* A getDataPath filler node \u2014 a synthetic path-prefix row with no real backing record. */
+.pg-row--tree-filler .pg-cell__value {
+  font-style: italic;
+  color: var(--pg-colors-text-secondary, #64748b);
+}
+
+/* Drag-to-reparent drop feedback (3-way before/inside/after \u2014 see RowDragRenderer.setTreeMode) */
+.pg-row--drop-target.pg-row--drop-inside {
+  background: var(--pg-colors-selection-background, rgba(37, 99, 235, 0.1));
+  outline: 2px dashed var(--pg-colors-primary, #2563eb);
+  outline-offset: -2px;
+}
+.pg-row--drop-target.pg-row--drop-before {
+  box-shadow: inset 0 2px 0 0 var(--pg-colors-primary, #2563eb);
+}
+.pg-row--drop-target.pg-row--drop-after {
+  box-shadow: inset 0 -2px 0 0 var(--pg-colors-primary, #2563eb);
+}
+
 /* \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 Scrollbars \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
 
 /* Native vertical scrollbar \u2014 flex item that lives beside the center panel.
@@ -3336,6 +3405,11 @@ var PhotonGridDemo = (() => {
   pointer-events: none;
   z-index: 3;
 }
+/* Mirrors .pg-panel--left's own pinned-edge shadow. That shadow lives on the
+   panel container itself, which a stuck row's own background paints over
+   for its own height once moved into this overlay \u2014 without repeating it
+   here, the pinned-edge shadow has a visible gap wherever a sticky row
+   currently sits. */
 .pg-sticky-layer__left {
   position: absolute;
   top: 0;
@@ -3343,6 +3417,7 @@ var PhotonGridDemo = (() => {
   height: 100%;
   width: var(--pg-left-panel-width, 0px);
   overflow: hidden;
+  box-shadow: 2px 0 4px rgba(0,0,0,0.06);
 }
 .pg-sticky-layer__center {
   position: absolute;
@@ -3361,6 +3436,7 @@ var PhotonGridDemo = (() => {
   width: var(--pg-center-content-width, 100%);
   transform: translateX(var(--pg-scroll-x, 0px));
 }
+/* Mirrors .pg-panel--right's own pinned-edge shadow \u2014 see .pg-sticky-layer__left above. */
 .pg-sticky-layer__right {
   position: absolute;
   top: 0;
@@ -3368,9 +3444,15 @@ var PhotonGridDemo = (() => {
   height: 100%;
   width: var(--pg-right-panel-width, 0px);
   overflow: hidden;
+  box-shadow: -2px 0 4px rgba(0,0,0,0.06);
 }
 .pg-row--sticky {
-  // box-shadow: var(--pg-shadows-sm, 0 2px 4px rgba(15, 23, 42, 0.08));
+  /* The sticky layer container above is pointer-events:none (so empty space
+     with no sticky row never blocks clicks through to whatever's underneath)
+     \u2014 pointer-events inherits, so without this the row itself, and every
+     interactive thing inside it (cells, the tree/group toggle, checkboxes),
+     would silently inherit "none" and stop responding to clicks entirely. */
+  pointer-events: auto;
 }
 .pg-row--detail-container {
   position: absolute;
@@ -4285,6 +4367,7 @@ var PhotonGridDemo = (() => {
         groupedColumnIds: [],
         expandedGroupKeys: /* @__PURE__ */ new Set(),
         expandedRowIds: /* @__PURE__ */ new Set(),
+        expandedTreeNodeIds: /* @__PURE__ */ new Set(),
         selectedRowIds: /* @__PURE__ */ new Set(),
         activeRowId: null,
         isAllSelected: false,
@@ -4369,7 +4452,11 @@ var PhotonGridDemo = (() => {
     ROW_DETAIL_TOGGLE_CLICKED: "row:detailToggleClicked",
     ROW_DETAIL_OPENED: "row:detailOpened",
     ROW_DETAIL_CLOSED: "row:detailClosed",
-    ROW_DETAIL_HEIGHT_CHANGED: "row:detailHeightChanged"
+    ROW_DETAIL_HEIGHT_CHANGED: "row:detailHeightChanged",
+    TREE_NODE_TOGGLE_CLICKED: "tree:nodeToggleClicked",
+    TREE_NODE_EXPANDED: "tree:nodeExpanded",
+    TREE_NODE_COLLAPSED: "tree:nodeCollapsed",
+    TREE_CHILDREN_LOADED: "tree:childrenLoaded"
   };
 
   // src/core/column-model.ts
@@ -5103,17 +5190,28 @@ var PhotonGridDemo = (() => {
       this.eventBus.emit(GridEventType.QUICK_FILTER_CHANGED, { config });
     }
     applyFilters(rows, columns) {
+      if (!this.hasActiveFilters()) return rows;
+      return rows.filter((row) => this.matchesRow(row, columns));
+    }
+    /** `true` when at least one column filter or a quick filter is currently active — lets callers (e.g. `TreeDataService`) skip filtering work entirely when there's nothing to filter by. */
+    hasActiveFilters() {
+      return Object.keys(this.filterModel).length > 0 || !!this.quickFilter?.term;
+    }
+    /**
+     * The single row-level predicate `applyFilters` runs for every row —
+     * extracted as a public method so tree-aware filtering (`TreeDataService`)
+     * can reuse the exact same column-filter/quick-filter logic per node
+     * instead of re-implementing condition matching against a hierarchy.
+     * Non-`'data'` rows (group headers, footers, etc.) always pass, matching
+     * `applyFilters`'s prior inline behavior.
+     */
+    matchesRow(row, columns) {
+      if (row.type !== "data") return true;
       const colMap = new Map(columns.map((c) => [c.colId, c]));
       const filterEntries = Object.entries(this.filterModel);
-      const hasFilters = filterEntries.length > 0;
-      const hasQuick = !!this.quickFilter?.term;
-      if (!hasFilters && !hasQuick) return rows;
-      return rows.filter((row) => {
-        if (row.type !== "data") return true;
-        if (hasFilters && !this.passesColumnFilters(row, filterEntries, colMap)) return false;
-        if (hasQuick && !this.passesQuickFilter(row, columns)) return false;
-        return true;
-      });
+      if (filterEntries.length > 0 && !this.passesColumnFilters(row, filterEntries, colMap)) return false;
+      if (this.quickFilter?.term && !this.passesQuickFilter(row, columns)) return false;
+      return true;
     }
     getFilterModel() {
       return { ...this.filterModel };
@@ -6841,6 +6939,8 @@ var PhotonGridDemo = (() => {
        * the default down-navigation behavior.
        */
       this.enterEditHandler = null;
+      /** Optional callback invoked on ArrowLeft/ArrowRight for Tree Data collapse/expand — see `setTreeToggleHandler`. */
+      this.treeToggleHandler = null;
       /**
        * Optional callback invoked after every active-cell change so the grid body
        * can scroll the newly active cell into view (AG Grid-style auto-scroll).
@@ -6908,6 +7008,18 @@ var PhotonGridDemo = (() => {
      */
     setEnterEditHandler(fn) {
       this.enterEditHandler = fn;
+    }
+    /**
+     * Register a callback invoked when Left/Right is pressed (without Ctrl/Cmd
+     * or Shift) on a row with children — Tree Data's collapse/expand-via-
+     * keyboard convention. Return `true` to absorb the key press (the tree
+     * toggled, or focus jumped to a parent/first child); return `false` to
+     * fall through to normal column navigation. `CellSelectionEngine` never
+     * imports tree types itself — this indirection is how it stays unaware of
+     * Tree Data entirely, same as `setEnterEditHandler` above for editing.
+     */
+    setTreeToggleHandler(fn) {
+      this.treeToggleHandler = fn;
     }
     /**
      * Register a callback invoked after every active-cell change so the grid body
@@ -7855,6 +7967,11 @@ var PhotonGridDemo = (() => {
           break;
         case "ArrowLeft":
           e.preventDefault();
+          if (!jump && !extend && this.treeToggleHandler) {
+            const ac = active;
+            const row = rows[ac.rowIndex];
+            if (row && this.treeToggleHandler(row, "left")) break;
+          }
           if (jump) {
             this.jumpToEdge("left", rows.length, columns.length, extend);
           } else if (!extend) {
@@ -7870,6 +7987,11 @@ var PhotonGridDemo = (() => {
           break;
         case "ArrowRight":
           e.preventDefault();
+          if (!jump && !extend && this.treeToggleHandler) {
+            const ac = active;
+            const row = rows[ac.rowIndex];
+            if (row && this.treeToggleHandler(row, "right")) break;
+          }
           if (jump) {
             this.jumpToEdge("right", rows.length, columns.length, extend);
           } else if (!extend) {
@@ -15057,6 +15179,43 @@ ${body}`;
     }
   };
 
+  // src/renderer/tree-cell-renderer.ts
+  function applyTreeToggle(cellEl, row, colDef, treeData, iconRenderer, eventBus) {
+    if (!treeData || row.type !== "data" || colDef.colId !== treeData.toggleColumnId) return;
+    cellEl.classList.add("pg-cell--tree-toggle-col");
+    const inner = cellEl.querySelector(".pg-cell__inner");
+    if (!row.hasChildren) {
+      const spacer = createDiv("pg-tree-toggle-spacer");
+      if (inner) cellEl.insertBefore(spacer, inner);
+      else cellEl.insertBefore(spacer, cellEl.firstChild);
+      return;
+    }
+    const isExpanded = treeData.isExpandedFn(row.nodeId);
+    const toggleBtn = createDiv("pg-tree-toggle");
+    toggleBtn.setAttribute("role", "button");
+    toggleBtn.setAttribute("data-tree-toggle", "");
+    toggleBtn.setAttribute("aria-label", isExpanded ? "Collapse" : "Expand");
+    toggleBtn.appendChild(iconRenderer.render(isExpanded ? "chevronDown" : "chevronRight", { size: 16 }));
+    if (inner) {
+      cellEl.insertBefore(toggleBtn, inner);
+    } else {
+      cellEl.insertBefore(toggleBtn, cellEl.firstChild);
+    }
+    toggleBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      eventBus.emit(GridEventType.TREE_NODE_TOGGLE_CLICKED, { row, colDef });
+    });
+  }
+  function syncTreeToggle(rowEl, row, treeData, iconRenderer) {
+    if (!treeData || row.type !== "data") return;
+    const toggleBtn = rowEl.querySelector(".pg-tree-toggle");
+    if (!toggleBtn) return;
+    const isExpanded = treeData.isExpandedFn(row.nodeId);
+    const iconEl = toggleBtn.querySelector(".pg-icon");
+    if (iconEl) iconRenderer.updateIcon(iconEl, isExpanded ? "chevronDown" : "chevronRight");
+    toggleBtn.setAttribute("aria-label", isExpanded ? "Collapse" : "Expand");
+  }
+
   // src/renderer/body-renderer.ts
   var GROUP_LABEL_COL_DEF = {
     colId: "__group__",
@@ -15085,8 +15244,8 @@ ${body}`;
       this.leftSticky = null;
       this.centerSticky = null;
       this.rightSticky = null;
-      /** `nodeId` of the row currently parked in the sticky containers, if any. */
-      this.stuckNodeId = null;
+      /** `nodeId`s of the rows currently parked in the sticky containers — a single Master/Detail master row, or a stack of Tree Data ancestor rows. */
+      this.stuckNodeIds = /* @__PURE__ */ new Set();
     }
     setPanels(leftContent, centerContent, rightContent) {
       this.leftContent = leftContent;
@@ -15118,65 +15277,64 @@ ${body}`;
       this.rightSticky = right;
     }
     /**
-     * Parks `nodeId`'s row in the sticky overlay (pinned at the panel's own
-     * top, ignoring the scroll transform) — or releases whatever was
-     * previously stuck back into normal scrolled flow when `nodeId` is `null`
-     * or refers to a different row.
+     * Parks each entry's row in the sticky overlay (pinned at the panel's own
+     * top, ignoring the scroll transform, stacked in array order) — releasing
+     * whatever was previously stuck but isn't in `entries` back into normal
+     * scrolled flow. A single entry reproduces the old Master/Detail behavior;
+     * multiple entries stack Tree Data's ancestor-row chain, each at its own
+     * `top` (see `TreeStickyRowTracker`).
      *
      * Moves the *actual* cached DOM nodes (not clones) so every existing
      * listener, selection class, and edit-in-progress state carries over
      * untouched — this only ever runs on already-rendered rows.
      */
-    setSticky(nodeId, offsetPx = 0) {
-      if (nodeId === this.stuckNodeId) {
-        if (nodeId) {
-          const current = this.renderedRowMap.get(nodeId);
-          for (const el of [current?.left, current?.center, current?.right]) {
-            if (!el) continue;
-            el.style.top = `${offsetPx}px`;
-            el.classList.add("pg-row--sticky");
-          }
-        }
-        return;
-      }
-      if (this.stuckNodeId) {
-        const prev = this.renderedRowMap.get(this.stuckNodeId);
+    setStickyRows(entries) {
+      const newIds = new Set(entries.map((e) => e.nodeId));
+      for (const nodeId of this.stuckNodeIds) {
+        if (newIds.has(nodeId)) continue;
+        const prev = this.renderedRowMap.get(nodeId);
         if (prev) {
           if (prev.left) {
             prev.left.style.top = "";
+            prev.left.style.zIndex = "";
             this.leftContent?.appendChild(prev.left);
           }
           if (prev.center) {
             prev.center.style.top = "";
+            prev.center.style.zIndex = "";
             this.centerContent?.appendChild(prev.center);
           }
           if (prev.right) {
             prev.right.style.top = "";
+            prev.right.style.zIndex = "";
             this.rightContent?.appendChild(prev.right);
           }
           for (const el of [prev.left, prev.center, prev.right]) el?.classList.remove("pg-row--sticky");
         }
-        this.stuckNodeId = null;
       }
-      if (nodeId) {
+      this.stuckNodeIds = newIds;
+      const topLevel = entries.length;
+      entries.forEach(({ nodeId, top }, i) => {
         const next = this.renderedRowMap.get(nodeId);
-        if (next) {
-          if (next.left && this.leftSticky) {
-            next.left.style.top = `${offsetPx}px`;
-            this.leftSticky.appendChild(next.left);
-          }
-          if (next.center && this.centerSticky) {
-            next.center.style.top = `${offsetPx}px`;
-            this.centerSticky.appendChild(next.center);
-          }
-          if (next.right && this.rightSticky) {
-            next.right.style.top = `${offsetPx}px`;
-            this.rightSticky.appendChild(next.right);
-          }
-          for (const el of [next.left, next.center, next.right]) el?.classList.add("pg-row--sticky");
-          this.stuckNodeId = nodeId;
+        if (!next) return;
+        const zIndex = String(topLevel - i);
+        if (next.left && this.leftSticky) {
+          next.left.style.top = `${top}px`;
+          next.left.style.zIndex = zIndex;
+          this.leftSticky.appendChild(next.left);
         }
-      }
+        if (next.center && this.centerSticky) {
+          next.center.style.top = `${top}px`;
+          next.center.style.zIndex = zIndex;
+          this.centerSticky.appendChild(next.center);
+        }
+        if (next.right && this.rightSticky) {
+          next.right.style.top = `${top}px`;
+          next.right.style.zIndex = zIndex;
+          this.rightSticky.appendChild(next.right);
+        }
+        for (const el of [next.left, next.center, next.right]) el?.classList.add("pg-row--sticky");
+      });
     }
     renderRows(rows, leftCols, centerCols, rightCols, options = {}) {
       const cStart = options.centerColStart ?? 0;
@@ -15338,6 +15496,9 @@ ${body}`;
         this.attachRowListeners(el, row, cols, colOffset, options);
         return el;
       }
+      if (options.treeData && row.type === "data") {
+        el.setAttribute("data-level", String(row.level));
+      }
       if (panel === "left") {
         if (options.showCheckboxes) {
           el.appendChild(this.cellRenderer.renderCheckboxCell(row, row.rowIndex));
@@ -15385,6 +15546,7 @@ ${body}`;
           }
         }
         this.applyMasterDetailToggle(cellEl, row, cols[i], options);
+        applyTreeToggle(cellEl, row, cols[i], options.treeData, this.iconRenderer, this.eventBus);
         el.appendChild(cellEl);
       }
       if (panel === "center") {
@@ -15588,6 +15750,7 @@ ${body}`;
         el.className = cls;
         el.setAttribute("data-row-index", rowIndexStr);
         if (row.type === "group") el.setAttribute("data-level", String(row.level));
+        if (options.treeData && row.type === "data") el.setAttribute("data-level", String(row.level));
         const cells = el.querySelectorAll(".pg-cell[data-row-index]");
         for (const cell of cells) cell.setAttribute("data-row-index", rowIndexStr);
       }
@@ -15610,6 +15773,9 @@ ${body}`;
           if (iconEl) this.iconRenderer.updateIcon(iconEl, isExpanded ? "chevronDown" : "chevronRight");
           toggleBtn.setAttribute("aria-label", isExpanded ? "Collapse detail" : "Expand detail");
         }
+      }
+      if (row.type === "data" && options.treeData) {
+        for (const el of els) syncTreeToggle(el, row, options.treeData, this.iconRenderer);
       }
     }
     /**
@@ -15708,6 +15874,8 @@ ${body}`;
       if (row.type === "group") cls.push("pg-row--group");
       if (row.type === "group-footer") cls.push("pg-row--group-footer");
       if (row.type === "detail") cls.push("pg-row--detail");
+      if (options.treeData && row.type === "data") cls.push("pg-row--tree");
+      if (row.isTreeFiller) cls.push("pg-row--tree-filler");
       if (options.rowShading && displayIndex % 2 === 1) cls.push("pg-row--alt");
       if (row.cssClass) cls.push(row.cssClass);
       return cls.join(" ");
@@ -15730,6 +15898,9 @@ ${body}`;
       this.bodyWrapEl = null;
       this.targetNodeId = null;
       this.targetPosition = "before";
+      /** `true` when Tree Data is active — switches drop-zone classification from a 2-way (before/after) to a 3-way (before/inside/after) split, and routes the commit through `treeReparentHandler` instead of the flat splice. Set via `setTreeMode`, called from `GridCore` only when a mutable hierarchy source (`parentId`/`childrenField`) is configured. */
+      this.treeModeActive = false;
+      this.treeReparentHandler = null;
       this.scrollFn = null;
       this.autoScrollRAF = null;
       this.cursorX = 0;
@@ -15743,6 +15914,17 @@ ${body}`;
       this.bodyWrapEl = bodyWrapEl;
       this.scrollFn = scrollFn;
       bodyWrapEl.addEventListener("mousedown", this.boundMouseDown, true);
+    }
+    /**
+     * Enables Tree Data drag-to-reparent. `reparentHandler` is called on drop
+     * with the resolved `'before'|'after'|'inside'` position and should mutate
+     * the raw hierarchy + trigger a pipeline refresh (see
+     * `TreeDataService.moveNode`) — this renderer never touches tree structure
+     * itself, only mouse tracking and drop-zone classification.
+     */
+    setTreeMode(active, reparentHandler) {
+      this.treeModeActive = active;
+      this.treeReparentHandler = reparentHandler;
     }
     destroy() {
       this.bodyWrapEl?.removeEventListener("mousedown", this.boundMouseDown, true);
@@ -15833,7 +16015,7 @@ ${body}`;
       for (const row of rows) {
         if (cursorContentY >= row.top && cursorContentY < row.top + row.height) {
           target = row;
-          position = cursorContentY < row.top + row.height / 2 ? "before" : "after";
+          position = this.classifyDropPosition(cursorContentY - row.top, row.height);
           break;
         }
       }
@@ -15854,11 +16036,29 @@ ${body}`;
         this.targetNodeId = newTarget;
         this.targetPosition = newPos;
         if (this.targetNodeId) {
-          this.updateRowTops();
+          if (this.treeModeActive) this.updateTreeDropHighlight();
+          else this.updateRowTops();
         } else {
           this.clearDragTops();
         }
       }
+    }
+    /** Tree mode's drop feedback: highlights the target row and flags whether the drop would nest the dragged row inside it. */
+    updateTreeDropHighlight() {
+      this.bodyWrapEl?.querySelectorAll(".pg-row--drop-target").forEach((el) => el.classList.remove("pg-row--drop-target", "pg-row--drop-inside", "pg-row--drop-before", "pg-row--drop-after"));
+      if (!this.targetNodeId) return;
+      const targetEls = this.bodyWrapEl?.querySelectorAll(`[data-node-id="${this.targetNodeId}"]`);
+      targetEls?.forEach((el) => {
+        el.classList.add("pg-row--drop-target", `pg-row--drop-${this.targetPosition}`);
+      });
+    }
+    /** 2-way (before/after) split normally; 3-way (before/inside/after, thirds) when Tree Data drag-to-reparent is active. */
+    classifyDropPosition(relativeY, rowHeight) {
+      if (!this.treeModeActive) return relativeY < rowHeight / 2 ? "before" : "after";
+      const third = rowHeight / 3;
+      if (relativeY < third) return "before";
+      if (relativeY > rowHeight - third) return "after";
+      return "inside";
     }
     // ─── Mouse up ─────────────────────────────────────────────────────────────
     onMouseUp(_e) {
@@ -15870,8 +16070,11 @@ ${body}`;
       const targetId = this.targetNodeId;
       const position = this.targetPosition;
       this.cleanupInteraction();
-      if (draggedId && targetId && draggedId !== targetId) {
-        this.reorderRows(draggedId, targetId, position);
+      if (draggedId && targetId && draggedId !== targetId && this.treeModeActive && this.treeReparentHandler) {
+        this.treeReparentHandler(draggedId, targetId, position);
+        this.cleanupVisuals();
+      } else if (draggedId && targetId && draggedId !== targetId) {
+        this.reorderRows(draggedId, targetId, position === "inside" ? "after" : position);
         requestAnimationFrame(() => requestAnimationFrame(() => this.cleanupVisuals()));
       } else {
         this.cleanupVisuals();
@@ -15943,6 +16146,7 @@ ${body}`;
     clearDragTops() {
       const s = document.querySelector("style[data-pg-row-drag-tops]");
       if (s) s.textContent = "";
+      this.bodyWrapEl?.querySelectorAll(".pg-row--drop-target").forEach((el) => el.classList.remove("pg-row--drop-target", "pg-row--drop-inside", "pg-row--drop-before", "pg-row--drop-after"));
     }
     getOrCreateTopStyle() {
       let s = document.querySelector("style[data-pg-row-drag-tops]");
@@ -16420,6 +16624,7 @@ ${body}`;
       };
       this.onWheel = (e) => {
         if (e.ctrlKey) return;
+        if (e.target?.closest(".pg-ai-panel")) return;
         e.preventDefault();
         e.stopPropagation();
         let dx = e.deltaX;
@@ -17697,12 +17902,27 @@ ${body}`;
     }
   };
 
+  // src/renderer/row-offset-search.ts
+  function findRowAtOffset(rows, offset, fallbackHeight, loIndex = 0, hiIndex = rows.length - 1) {
+    let lo = loIndex;
+    let hi = hiIndex;
+    while (lo <= hi) {
+      const mid = lo + hi >> 1;
+      const top = rows[mid].top;
+      const bottom = top + (rows[mid].height ?? fallbackHeight);
+      if (offset < top) hi = mid - 1;
+      else if (offset >= bottom) lo = mid + 1;
+      else return mid;
+    }
+    return -1;
+  }
+
   // src/renderer/sticky-row-tracker.ts
   var StickyRowTracker = class {
     compute(rows, scrollTop, rowHeight, windowStart) {
       const none = { nodeId: null, offsetPx: 0, minStart: windowStart };
       if (rows.length === 0) return none;
-      const idx = this.findRowAtOffset(rows, scrollTop, rowHeight);
+      const idx = findRowAtOffset(rows, scrollTop, rowHeight);
       if (idx < 0) return none;
       const masterIdx = this.resolveMasterIndex(rows, idx);
       if (masterIdx < 0) return none;
@@ -17735,24 +17955,49 @@ ${body}`;
       }
       return -1;
     }
-    /**
-     * Binary search (rows are laid out sequentially by `top`) for the row
-     * whose `[top, top + height)` span contains `offset`.
-     *
-     * @returns the row's index, or -1 if `offset` is before the first / after the last row.
-     */
-    findRowAtOffset(rows, offset, fallbackHeight) {
-      let lo = 0;
-      let hi = rows.length - 1;
-      while (lo <= hi) {
-        const mid = lo + hi >> 1;
-        const top = rows[mid].top;
-        const bottom = top + (rows[mid].height ?? fallbackHeight);
-        if (offset < top) hi = mid - 1;
-        else if (offset >= bottom) lo = mid + 1;
-        else return mid;
+  };
+
+  // src/renderer/tree-sticky-row-tracker.ts
+  function findChildAtOffset(children, offset, fallbackHeight) {
+    let lo = 0;
+    let hi = children.length - 1;
+    while (lo <= hi) {
+      const mid = lo + hi >> 1;
+      const child = children[mid];
+      const end = child.subtreeEndTop ?? child.top + (child.height ?? fallbackHeight);
+      if (offset < child.top) hi = mid - 1;
+      else if (offset >= end) lo = mid + 1;
+      else return child;
+    }
+    return null;
+  }
+  var TreeStickyRowTracker = class {
+    compute(rows, scrollTop, rowHeight, windowStart) {
+      const none = { entries: [], minStart: windowStart };
+      if (rows.length === 0) return none;
+      const idx = findRowAtOffset(rows, scrollTop, rowHeight);
+      if (idx < 0) return none;
+      let candidate = rows[idx];
+      while (candidate.parent) candidate = candidate.parent;
+      if (!(candidate.hasChildren || candidate.children.length > 0)) return none;
+      let minStart = windowStart;
+      let stackedTop = 0;
+      const entries = [];
+      for (; ; ) {
+        const effectiveOffset = scrollTop + stackedTop;
+        const height = candidate.height ?? rowHeight;
+        const subtreeEnd = candidate.subtreeEndTop ?? Infinity;
+        const offsetPx = Math.max(-height, Math.min(0, subtreeEnd - effectiveOffset - height));
+        entries.push({ nodeId: candidate.nodeId, top: stackedTop + offsetPx });
+        minStart = Math.min(minStart, candidate.rowIndex);
+        if (effectiveOffset >= subtreeEnd) break;
+        stackedTop += height;
+        const child = findChildAtOffset(candidate.children, scrollTop + stackedTop, rowHeight);
+        if (!child) break;
+        if (!(child.hasChildren || child.children.length > 0)) break;
+        candidate = child;
       }
-      return -1;
+      return { entries, minStart };
     }
   };
 
@@ -17852,7 +18097,7 @@ ${body}`;
     buildInputArea(config) {
       const wrap = createDiv("pg-ai-panel__input-wrap");
       const input = createElement("textarea", {
-        placeholder: config.placeholder ?? "Ask Photon AI to do something, or ask it a question...",
+        placeholder: config.placeholder ?? "Ask Photon AI to do something...",
         rows: 1
       });
       input.className = "pg-ai-panel__input";
@@ -18070,10 +18315,14 @@ ${body}`;
       /** `nodeId` of the currently-stuck master row, or `null` when none is sticky. */
       this.stickyNodeId = null;
       this.stickyRowTracker = new StickyRowTracker();
+      this.treeStickyRowTracker = new TreeStickyRowTracker();
       this.groupDropZone = null;
       this.rowDragRenderer = null;
+      this.treeDragConfig = null;
       this.detailRowRenderer = null;
       this.masterDetailEngine = null;
+      this.treeExpansionService = null;
+      this.treeToggleColumnId = null;
       /** Floating Photon AI command bar — only created when `photonAI.enabled`. */
       this.photonAIPanel = null;
       this.rafId = null;
@@ -18121,6 +18370,7 @@ ${body}`;
       this.rowPositionSheet = new RowPositionSheet();
       this.scrollController = new ScrollController();
       this.masterDetailEnabledAtConstruction = options.masterDetail?.enabled ?? false;
+      this.treeDataEnabledAtConstruction = options.treeData?.enabled ?? false;
       if (this.masterDetailEnabledAtConstruction) {
         this.scrollController.setReserveVerticalGutter(true);
       }
@@ -18155,6 +18405,19 @@ ${body}`;
       }
       this.tooltipController = new TooltipController(store, columnModel, null);
     }
+    /**
+     * Enables Tree Data drag-to-reparent on the row-drag system. Must be
+     * called before `mount()` (mirrors `setMasterDetailConfig`) — `mount()`
+     * is when `RowDragRenderer` is actually constructed.
+     */
+    setTreeDragConfig(active, reparentHandler) {
+      this.treeDragConfig = { active, reparentHandler };
+    }
+    /** Wires Tree Data's expansion state + toggle column into the body renderer, so `data-level` indentation and the expand/collapse toggle render on the configured column. A no-op (undefined `treeData` on every `renderRows` call) until this is called. */
+    setTreeRenderConfig(toggleColumnId, expansionService) {
+      this.treeToggleColumnId = toggleColumnId ?? null;
+      this.treeExpansionService = expansionService;
+    }
     mount() {
       this.colStyles.mount();
       this.rowPositionSheet.mount();
@@ -18166,6 +18429,9 @@ ${body}`;
           this.bodyWrapEl,
           (dy) => this.scrollController.scrollToY(this.scrollController.getScrollTop() + dy)
         );
+        if (this.treeDragConfig) {
+          this.rowDragRenderer.setTreeMode(this.treeDragConfig.active, this.treeDragConfig.reparentHandler);
+        }
       }
       this.subscribeToStore();
       this.scheduleRender();
@@ -18652,7 +18918,7 @@ ${body}`;
       this.headerRenderer.setResizeCallback(() => this.scheduleRender());
       this.overlayRenderer.mount(bodyWrapEl);
       if (this.detailRowRenderer) this.detailRowRenderer.mount(bodyWrapEl);
-      if (this.masterDetailEnabledAtConstruction) {
+      if (this.masterDetailEnabledAtConstruction || this.treeDataEnabledAtConstruction) {
         this.buildStickyLayer(bodyWrapEl);
       }
       if (this.photonAIPanel) {
@@ -18919,10 +19185,15 @@ ${body}`;
       }
       let stickyNodeId = null;
       let stickyOffsetPx = 0;
+      let treeStickyEntries = [];
       if (this.masterDetailEnabledAtConstruction) {
         const sticky = this.stickyRowTracker.compute(rows, scrollTop, rowHeight, start);
         stickyNodeId = sticky.nodeId;
         stickyOffsetPx = sticky.offsetPx;
+        start = sticky.minStart;
+      } else if (this.treeExpansionService) {
+        const sticky = this.treeStickyRowTracker.compute(rows, scrollTop, rowHeight, start);
+        treeStickyEntries = sticky.entries;
         start = sticky.minStart;
       }
       this.stickyNodeId = stickyNodeId;
@@ -18939,6 +19210,10 @@ ${body}`;
         toggleColumnId: this.masterDetailEngine.getConfig()?.toggleColumnId ?? allColumns[0]?.colId ?? "",
         isExpandedFn: (nodeId) => this.masterDetailEngine.isExpanded(nodeId),
         hasDetailFn: (rowData) => this.masterDetailEngine.hasDetail(rowData)
+      } : void 0;
+      const treeDataOptions = this.treeExpansionService ? {
+        toggleColumnId: this.treeToggleColumnId ?? allColumns[0]?.colId ?? "",
+        isExpandedFn: (nodeId) => this.treeExpansionService.isExpanded(nodeId)
       } : void 0;
       if (this.headerRenderer.isResizingColumn) {
         this.bodyRenderer.syncCenterRange(colStart, colStart + visibleCenterCols.length);
@@ -18965,7 +19240,8 @@ ${body}`;
           centerLeftSpacerW: leftSpacerW,
           centerRightSpacerW: rightSpacerW,
           totalCenterCols: centerCols.length,
-          masterDetail: masterDetailOptions
+          masterDetail: masterDetailOptions,
+          treeData: treeDataOptions
         });
       }
       if (this.detailRowRenderer) {
@@ -18974,7 +19250,9 @@ ${body}`;
         this.detailRowRenderer.sync(windowedDetailRows, allDetailNodeIds);
       }
       if (this.masterDetailEnabledAtConstruction) {
-        this.bodyRenderer.setSticky(stickyNodeId, stickyOffsetPx);
+        this.bodyRenderer.setStickyRows(stickyNodeId ? [{ nodeId: stickyNodeId, top: stickyOffsetPx }] : []);
+      } else if (this.treeExpansionService) {
+        this.bodyRenderer.setStickyRows(treeStickyEntries);
       }
       if (this.rowAnimator.hasPending()) {
         const animContainers = [
@@ -19557,6 +19835,48 @@ ${body}`;
       this.ctx.groupingEngine.collapseAllGroups();
       this.refresh();
     }
+    // ──────────────────── Tree Data ────────────────────
+    expandTreeNode(nodeId) {
+      const node = this.ctx.treeDataService.getNode(nodeId);
+      if (!node) return;
+      this.ctx.treeExpansionService.expand(node);
+      this.refresh();
+    }
+    collapseTreeNode(nodeId) {
+      const node = this.ctx.treeDataService.getNode(nodeId);
+      if (!node) return;
+      this.ctx.treeExpansionService.collapse(node);
+      this.refresh();
+    }
+    toggleTreeNode(nodeId) {
+      const node = this.ctx.treeDataService.getNode(nodeId);
+      if (!node) return;
+      this.ctx.treeExpansionService.toggle(node);
+      this.refresh();
+    }
+    expandAllTreeNodes() {
+      this.ctx.treeExpansionService.expandAll(this.ctx.treeDataService.getRoots());
+      this.refresh();
+    }
+    collapseAllTreeNodes() {
+      this.ctx.treeExpansionService.collapseAll();
+      this.refresh();
+    }
+    isTreeNodeExpanded(nodeId) {
+      return this.ctx.treeExpansionService.isExpanded(nodeId);
+    }
+    /** The full set of children for `nodeId` (not just currently expanded/visible ones), or `[]` if the node doesn't exist, has none, or Tree Data isn't enabled. */
+    getTreeNodeChildren(nodeId) {
+      return this.ctx.treeDataService.getNode(nodeId)?.children ?? [];
+    }
+    /**
+     * Triggers `TreeDataConfig.lazyLoadChildren` for `nodeId` if configured and
+     * not already loaded/in-flight. Refreshes automatically once the fetch
+     * resolves — no need to call `refresh()` yourself afterward.
+     */
+    loadTreeNodeChildren(nodeId) {
+      this.ctx.treeDataService.loadChildren(nodeId);
+    }
     // ──────────────────── Master/Detail ────────────────────
     /** Expands `nodeId`'s detail row (a no-op if the row has no detail or is already expanded). */
     expandDetail(nodeId) {
@@ -19764,6 +20084,7 @@ ${body}`;
         paginationPageSize: this.ctx.paginationEngine.getPageSize(),
         groupedColumns: this.ctx.store.get("groupedColumnIds"),
         expandedGroups: Array.from(this.ctx.store.get("expandedGroupKeys")),
+        expandedTreeNodeIds: Array.from(this.ctx.store.get("expandedTreeNodeIds")),
         selectedRowIds: Array.from(this.ctx.store.get("selectedRowIds"))
       };
     }
@@ -19773,6 +20094,9 @@ ${body}`;
       if (state.filterModel) this.ctx.filterEngine.setFilterModel(state.filterModel);
       if (state.paginationPage) this.ctx.paginationEngine.goToPage(state.paginationPage);
       if (state.paginationPageSize) this.ctx.paginationEngine.setPageSize(state.paginationPageSize);
+      if (state.expandedTreeNodeIds?.length) {
+        this.ctx.store.set("expandedTreeNodeIds", new Set(state.expandedTreeNodeIds));
+      }
       this.refresh();
     }
     // ──────────────────── Events ────────────────────
@@ -19809,15 +20133,22 @@ ${body}`;
     applyPipeline() {
       let rows = this.ctx.store.get("allRows");
       const columns = this.ctx.columnModel.getAllColumns();
-      rows = this.ctx.filterEngine.applyFilters(rows, columns);
-      rows = this.ctx.sortEngine.applySorting(rows, columns);
-      const groupColIds = this.ctx.store.get("groupedColumnIds");
-      if (groupColIds.length > 0) {
-        rows = this.ctx.groupingEngine.groupByColumns(groupColIds, columns, rows);
+      if (this.ctx.treeDataService.isEnabled()) {
+        rows = this.ctx.treeDataService.getFlatVisibleRows(rows, columns);
+      } else {
+        rows = this.ctx.filterEngine.applyFilters(rows, columns);
+        rows = this.ctx.sortEngine.applySorting(rows, columns);
+        const groupColIds = this.ctx.store.get("groupedColumnIds");
+        if (groupColIds.length > 0) {
+          rows = this.ctx.groupingEngine.groupByColumns(groupColIds, columns, rows);
+        }
       }
       rows = this.ctx.paginationEngine.applyPagination(rows);
       rows = this.ctx.masterDetailEngine.injectDetailRows(rows);
       this.ctx.rowModel.setVisibleRows(rows);
+      if (this.ctx.treeDataService.isEnabled()) {
+        this.ctx.treeDataService.annotateSubtreeExtents(rows);
+      }
       this.ctx.store.set("visibleRows", rows);
     }
   };
@@ -20108,6 +20439,520 @@ ${body}`;
         this.pendingNodeIds.delete(row.nodeId);
         this.refreshCallback?.();
       });
+    }
+  };
+
+  // src/engines/tree/tree-node.ts
+  var DEFAULT_ID_FIELD = "id";
+  var DEFAULT_PARENT_ID_FIELD = "parentId";
+  var DEFAULT_CHILDREN_FIELD = "children";
+  function resolveEdges(config, rawRecords) {
+    switch (config.mode) {
+      case "parentId":
+        return resolveParentIdEdges(rawRecords, config.idField ?? DEFAULT_ID_FIELD, config.parentIdField ?? DEFAULT_PARENT_ID_FIELD);
+      case "dataPath":
+        return resolveDataPathEdges(rawRecords, config.getDataPath);
+      case "custom":
+        return resolveCustomEdges(rawRecords, config.hierarchyProvider);
+      case "childrenField":
+        return flattenNestedChildren(rawRecords, config.childrenField ?? DEFAULT_CHILDREN_FIELD, config.idField ?? DEFAULT_ID_FIELD);
+      default:
+        return [];
+    }
+  }
+  function resolveParentIdEdges(records, idField, parentIdField) {
+    const edges = new Array(records.length);
+    for (let i = 0; i < records.length; i++) {
+      const record = records[i];
+      const rawId = record[idField];
+      const rawParentId = record[parentIdField];
+      edges[i] = {
+        id: rawId != null ? String(rawId) : `pos_${i}`,
+        parentId: rawParentId != null ? String(rawParentId) : null,
+        record
+      };
+    }
+    return edges;
+  }
+  function resolveDataPathEdges(records, getDataPath) {
+    const edges = /* @__PURE__ */ new Map();
+    for (const record of records) {
+      const path = getDataPath(record);
+      for (let depth = 0; depth < path.length; depth++) {
+        const id = path.slice(0, depth + 1).join("/");
+        const isLeaf = depth === path.length - 1;
+        if (isLeaf) {
+          edges.set(id, { id, parentId: depth > 0 ? path.slice(0, depth).join("/") : null, record });
+        } else if (!edges.has(id)) {
+          edges.set(id, {
+            id,
+            parentId: depth > 0 ? path.slice(0, depth).join("/") : null,
+            record: { [path[depth]]: path[depth] },
+            isFiller: true
+          });
+        }
+      }
+    }
+    return Array.from(edges.values());
+  }
+  function resolveCustomEdges(records, provider) {
+    return records.map((record) => ({
+      id: provider.getId(record),
+      parentId: provider.getParentKey(record) ?? null,
+      record
+    }));
+  }
+  function flattenNestedChildren(rootsRaw, childrenField, idField) {
+    const edges = [];
+    function walk(records, parentId, positionalPrefix) {
+      for (let i = 0; i < records.length; i++) {
+        const record = records[i];
+        const positionalId = positionalPrefix ? `${positionalPrefix}.${i}` : String(i);
+        const rawId = record[idField];
+        const id = rawId != null ? String(rawId) : positionalId;
+        edges.push({ id, parentId, record });
+        const rawChildren = record[childrenField];
+        if (Array.isArray(rawChildren) && rawChildren.length > 0) {
+          walk(rawChildren, id, positionalId);
+        }
+      }
+    }
+    walk(rootsRaw, null, "");
+    return edges;
+  }
+  function buildTree(edges, defaultRowHeight = 50) {
+    const nodesById = /* @__PURE__ */ new Map();
+    for (const edge of edges) {
+      nodesById.set(edge.id, {
+        nodeId: edge.id,
+        rowIndex: -1,
+        data: edge.record,
+        type: "data",
+        selected: false,
+        expanded: false,
+        editable: !edge.isFiller,
+        level: 0,
+        parent: null,
+        children: [],
+        hasChildren: false,
+        isTreeFiller: edge.isFiller,
+        height: defaultRowHeight,
+        top: 0
+      });
+    }
+    const roots = [];
+    for (const edge of edges) {
+      const node = nodesById.get(edge.id);
+      const parent = edge.parentId != null ? nodesById.get(edge.parentId) : void 0;
+      if (parent) {
+        parent.children.push(node);
+        parent.hasChildren = true;
+        node.parent = parent;
+      } else {
+        roots.push(node);
+      }
+    }
+    const assignLevels = (nodes, level) => {
+      for (const node of nodes) {
+        node.level = level;
+        if (node.children.length > 0) assignLevels(node.children, level + 1);
+      }
+    };
+    assignLevels(roots, 0);
+    return roots;
+  }
+  function flattenTree(roots, expandedIds) {
+    const result = [];
+    const visit = (nodes) => {
+      for (const node of nodes) {
+        node.expanded = expandedIds.has(node.nodeId);
+        result.push(node);
+        if (node.expanded && node.children.length > 0) visit(node.children);
+      }
+    };
+    visit(roots);
+    return result;
+  }
+
+  // src/engines/tree/tree-data-service.ts
+  var TreeDataService = class {
+    constructor(store, eventBus, filterEngine, sortEngine, expansionService) {
+      this.store = store;
+      this.eventBus = eventBus;
+      this.filterEngine = filterEngine;
+      this.sortEngine = sortEngine;
+      this.expansionService = expansionService;
+      this.config = null;
+      /** The last-built, unfiltered/unsorted tree — kept so `moveNode`/`loadChildren`/selection cascades can resolve a node by id without re-walking raw data. */
+      this.lastRoots = [];
+      this.lastNodesById = /* @__PURE__ */ new Map();
+      /** Node ids already evaluated against `defaultExpanded` — mirrors `MasterDetailEngine.defaultAppliedNodeIds` so a user-collapsed node is never silently re-expanded on the next pipeline run. */
+      this.defaultAppliedNodeIds = /* @__PURE__ */ new Set();
+      this.pendingLoadNodeIds = /* @__PURE__ */ new Set();
+      this.refreshCallback = null;
+    }
+    /** Applies the grid's `treeData` option block. Called once from `GridCore.initialize`. */
+    configure(config) {
+      this.config = config?.enabled ? config : null;
+    }
+    isEnabled() {
+      return this.config !== null;
+    }
+    getConfig() {
+      return this.config;
+    }
+    /** Registers the callback used to re-run the pipeline after an async lazy-load resolves or a reparent commits. Wired from `GridCore`. */
+    setRefreshCallback(fn) {
+      this.refreshCallback = fn;
+    }
+    /** `'parentId'`/`'childrenField'` hierarchies are stored data and can be mutated by drag-to-reparent; `'dataPath'`/`'custom'` are derived and read-only. */
+    supportsReparenting() {
+      return this.config?.mode === "parentId" || this.config?.mode === "childrenField";
+    }
+    /**
+     * The full build → filter → sort → flatten sequence `GridApi.applyPipeline`
+     * calls when Tree Data is enabled, replacing the flat filter/sort/group
+     * steps for this pipeline run.
+     */
+    getFlatVisibleRows(allRows, columns) {
+      if (!this.config) return allRows;
+      let roots = this.buildRoots(allRows);
+      this.applyDefaultExpansion(roots);
+      roots = this.filterTree(roots, columns);
+      roots = this.sortTree(roots, columns);
+      return flattenTree(roots, this.expansionService.getExpandedIds());
+    }
+    /** O(n) hierarchy construction from the grid's raw (flat, un-treed) row data. Caches the result for `moveNode`/`loadChildren`/selection-cascade lookups. */
+    buildRoots(allRows) {
+      if (!this.config) return [];
+      const rawRecords = allRows.map((r) => r.data);
+      const edges = resolveEdges(this.config, rawRecords);
+      const roots = buildTree(edges, allRows[0]?.height ?? 50);
+      this.lastRoots = roots;
+      this.lastNodesById = /* @__PURE__ */ new Map();
+      const index = (nodes) => {
+        for (const node of nodes) {
+          this.lastNodesById.set(node.nodeId, node);
+          if (node.children.length > 0) index(node.children);
+        }
+      };
+      index(roots);
+      return roots;
+    }
+    /**
+     * Tree-aware filtering: a node survives if it matches the active filters
+     * itself (via `FilterEngine.matchesRow` — the exact predicate the flat
+     * path uses) **or** any descendant does, so a matching leaf's ancestor
+     * chain stays visible. Builds filtered node copies rather than mutating
+     * the cached hierarchy, so `lastRoots`/`lastNodesById` stay the true,
+     * unfiltered tree for reparenting/selection.
+     */
+    filterTree(roots, columns) {
+      if (!this.filterEngine.hasActiveFilters()) return roots;
+      const filterNode = (node) => {
+        const filteredChildren = node.children.map(filterNode).filter((n) => n !== null);
+        const selfMatches = this.filterEngine.matchesRow(node, columns);
+        if (!selfMatches && filteredChildren.length === 0) return null;
+        return { ...node, children: filteredChildren, hasChildren: filteredChildren.length > 0 || node.hasChildren };
+      };
+      return roots.map(filterNode).filter((n) => n !== null);
+    }
+    /**
+     * Tree-aware sorting: reuses `SortEngine.applySorting` completely
+     * unchanged, once per sibling array (including the roots array itself).
+     * `applySorting` already no-ops when no sort is configured, so an
+     * unsorted tree walk costs one cheap pass with zero allocation.
+     */
+    sortTree(roots, columns) {
+      const sortChildren = (nodes) => {
+        const sorted = this.sortEngine.applySorting(nodes, columns);
+        for (const node of sorted) {
+          if (node.children.length > 0) node.children = sortChildren(node.children);
+        }
+        return sorted;
+      };
+      return sortChildren(roots);
+    }
+    /**
+     * Computes `RowNode.subtreeEndTop` for every tree row in the final,
+     * laid-out `visibleRows` array. Must run *after* `RowModel.setVisibleRows`
+     * assigns `top`/`height` — subtree extents can't be known before layout —
+     * so `GridApi.applyPipeline` calls this as a separate step, not from
+     * `getFlatVisibleRows`. One O(n) stack-based pass: whenever a row appears
+     * whose `level` is <= an open ancestor's level, that ancestor's subtree
+     * just ended at the new row's `top`.
+     */
+    annotateSubtreeExtents(rows) {
+      if (!this.config || rows.length === 0) return;
+      const stack = [];
+      for (const row of rows) {
+        if (row.type !== "data") continue;
+        while (stack.length > 0 && stack[stack.length - 1].level >= row.level) {
+          stack.pop().subtreeEndTop = row.top;
+        }
+        stack.push(row);
+      }
+      const lastRow = rows[rows.length - 1];
+      const end = lastRow.top + lastRow.height;
+      for (const open of stack) open.subtreeEndTop = end;
+    }
+    getNode(nodeId) {
+      return this.lastNodesById.get(nodeId);
+    }
+    /** The full, unfiltered/unsorted hierarchy from the most recent `getFlatVisibleRows`/`buildRoots` call — what `expandAllTreeNodes`/`collapseAllTreeNodes` walk. */
+    getRoots() {
+      return this.lastRoots;
+    }
+    /**
+     * Mutates the underlying raw hierarchy so a subsequent pipeline run
+     * rebuilds the tree with `draggedId` under its new parent, then requests a
+     * refresh — never hand-splices `visibleRows`, since tree mode always
+     * rebuilds it from raw data on every pipeline run anyway.
+     *
+     * `position: 'before'/'after'` reparents onto the *same parent as*
+     * `targetId`; precise sibling ordering within that parent is not yet
+     * tracked (a follow-up — see plan notes), so the node lands as that
+     * parent's last child rather than at the exact hover position.
+     */
+    moveNode(draggedId, targetId, position) {
+      if (!this.config || !this.supportsReparenting()) {
+        console.warn(`[PhotonGrid] Tree Data drag-to-reparent isn't supported for mode "${this.config?.mode}" (only "parentId"/"childrenField" have a mutable hierarchy).`);
+        return false;
+      }
+      const dragged = this.lastNodesById.get(draggedId);
+      const target = this.lastNodesById.get(targetId);
+      if (!dragged || !target || dragged.isTreeFiller || target.isTreeFiller) return false;
+      const newParent = position === "inside" ? target : target.parent;
+      if (newParent === dragged || this.isDescendantOf(newParent, dragged)) return false;
+      if (this.config.mode === "parentId") {
+        const idField = this.config.idField ?? "id";
+        const parentIdField = this.config.parentIdField ?? "parentId";
+        dragged.data[parentIdField] = newParent ? newParent.data[idField] : null;
+      } else {
+        this.reparentChildrenField(dragged, newParent);
+      }
+      this.refreshCallback?.();
+      return true;
+    }
+    /** `'childrenField'` mode: splice the raw record out of its old parent's `children` array and into the new one — both are live references shared with `RowModel`'s raw data, so this mutation is visible on the next pipeline run. */
+    reparentChildrenField(dragged, newParent) {
+      const childrenField = this.config.childrenField ?? "children";
+      const oldParentChildren = dragged.parent ? dragged.parent.data[childrenField] ?? [] : null;
+      if (oldParentChildren) {
+        const idx = oldParentChildren.indexOf(dragged.data);
+        if (idx !== -1) oldParentChildren.splice(idx, 1);
+      }
+      if (newParent) {
+        const newSiblings = newParent.data[childrenField] ?? [];
+        newSiblings.push(dragged.data);
+        newParent.data[childrenField] = newSiblings;
+      }
+    }
+    isDescendantOf(candidate, ancestor) {
+      let node = candidate;
+      while (node) {
+        if (node === ancestor) return true;
+        node = node.parent;
+      }
+      return false;
+    }
+    /**
+     * Lazy-loads a node's children via `TreeDataConfig.lazyLoadChildren`.
+     * No-ops if lazy loading isn't configured, children are already loaded, or
+     * a fetch for this node is already in flight. On resolve, appends the
+     * fetched raw records as children of `node.data` (mode-appropriate: sets
+     * `parentId` for `'parentId'` mode, pushes into the `children` array for
+     * `'childrenField'` mode) and refreshes.
+     */
+    loadChildren(nodeId) {
+      const fn = this.config?.lazyLoadChildren;
+      const node = this.lastNodesById.get(nodeId);
+      if (!fn || !node || node.childrenLoaded || this.pendingLoadNodeIds.has(nodeId)) return;
+      this.pendingLoadNodeIds.add(nodeId);
+      fn(node).then((children) => {
+        this.attachLoadedChildren(node, children);
+        node.childrenLoaded = true;
+        this.eventBus.emit(GridEventType.TREE_CHILDREN_LOADED, { nodeId, children });
+      }).catch((err) => {
+        console.error(`[PhotonGrid] treeData.lazyLoadChildren failed for node "${nodeId}":`, err);
+      }).finally(() => {
+        this.pendingLoadNodeIds.delete(nodeId);
+        this.refreshCallback?.();
+      });
+    }
+    isLoadPending(nodeId) {
+      return this.pendingLoadNodeIds.has(nodeId);
+    }
+    attachLoadedChildren(node, children) {
+      if (!this.config) return;
+      if (this.config.mode === "parentId") {
+        const idField = this.config.idField ?? "id";
+        const parentIdField = this.config.parentIdField ?? "parentId";
+        const parentId = node.data[idField];
+        for (const child of children) child[parentIdField] = parentId;
+      } else if (this.config.mode === "childrenField") {
+        const childrenField = this.config.childrenField ?? "children";
+        node.data[childrenField] = children;
+      }
+    }
+    /**
+     * Applies `TreeDataConfig.defaultExpanded` — but only to nodes never seen
+     * before (tracked in `defaultAppliedNodeIds`, mirroring
+     * `MasterDetailEngine.defaultAppliedNodeIds`). This runs on *every*
+     * pipeline refresh (including the one right after a user collapses a
+     * node), so re-evaluating already-seen nodes here would immediately
+     * stomp a manual collapse back open — the exact bug this guard prevents.
+     * `maxLevel` is `Infinity` for `defaultExpanded: true` (expand everything)
+     * or the configured depth for a number.
+     */
+    applyDefaultExpansion(roots) {
+      const { defaultExpanded } = this.config ?? {};
+      if (!defaultExpanded) return;
+      const maxLevel = defaultExpanded === true ? Infinity : defaultExpanded;
+      const toExpand = [];
+      const collect = (nodes) => {
+        for (const node of nodes) {
+          const isEligible = node.level < maxLevel && (node.children.length > 0 || node.hasChildren);
+          if (isEligible && !this.defaultAppliedNodeIds.has(node.nodeId)) {
+            this.defaultAppliedNodeIds.add(node.nodeId);
+            toExpand.push(node);
+          }
+          if (node.children.length > 0) collect(node.children);
+        }
+      };
+      collect(roots);
+      for (const node of toExpand) this.expansionService.expand(node);
+    }
+    destroy() {
+      this.lastRoots = [];
+      this.lastNodesById.clear();
+      this.defaultAppliedNodeIds.clear();
+      this.pendingLoadNodeIds.clear();
+      this.refreshCallback = null;
+    }
+  };
+
+  // src/engines/tree/tree-expansion-service.ts
+  var TreeExpansionService = class {
+    constructor(store, eventBus) {
+      this.store = store;
+      this.eventBus = eventBus;
+    }
+    expand(node) {
+      const ids = new Set(this.store.get("expandedTreeNodeIds"));
+      ids.add(node.nodeId);
+      this.store.set("expandedTreeNodeIds", ids);
+      this.eventBus.emit(GridEventType.TREE_NODE_EXPANDED, { nodeId: node.nodeId, row: node });
+    }
+    collapse(node) {
+      const ids = new Set(this.store.get("expandedTreeNodeIds"));
+      ids.delete(node.nodeId);
+      this.store.set("expandedTreeNodeIds", ids);
+      this.eventBus.emit(GridEventType.TREE_NODE_COLLAPSED, { nodeId: node.nodeId, row: node });
+    }
+    toggle(node) {
+      if (this.isExpanded(node.nodeId)) this.collapse(node);
+      else this.expand(node);
+    }
+    isExpanded(nodeId) {
+      return this.store.get("expandedTreeNodeIds").has(nodeId);
+    }
+    /** Expands every node in `roots` (and their descendants) — "expand all". */
+    expandAll(roots) {
+      const ids = /* @__PURE__ */ new Set();
+      const collect = (nodes) => {
+        for (const node of nodes) {
+          if (node.children.length > 0 || node.hasChildren) ids.add(node.nodeId);
+          if (node.children.length > 0) collect(node.children);
+        }
+      };
+      collect(roots);
+      this.store.set("expandedTreeNodeIds", ids);
+    }
+    collapseAll() {
+      this.store.set("expandedTreeNodeIds", /* @__PURE__ */ new Set());
+    }
+    /**
+     * Expands every node whose depth is less than `maxLevel` — backs
+     * `TreeDataConfig.defaultExpanded` when it's a number (e.g. `1` expands
+     * just the roots). `maxLevel <= 0` leaves everything collapsed.
+     */
+    expandToLevel(roots, maxLevel) {
+      if (maxLevel <= 0) {
+        this.collapseAll();
+        return;
+      }
+      const ids = /* @__PURE__ */ new Set();
+      const collect = (nodes) => {
+        for (const node of nodes) {
+          if (node.level < maxLevel && (node.children.length > 0 || node.hasChildren)) {
+            ids.add(node.nodeId);
+            if (node.children.length > 0) collect(node.children);
+          }
+        }
+      };
+      collect(roots);
+      this.store.set("expandedTreeNodeIds", ids);
+    }
+    getExpandedIds() {
+      return this.store.get("expandedTreeNodeIds");
+    }
+  };
+
+  // src/engines/tree/tree-selection-service.ts
+  var TreeSelectionService = class {
+    constructor(rowSelectionEngine, treeDataService) {
+      this.rowSelectionEngine = rowSelectionEngine;
+      this.treeDataService = treeDataService;
+    }
+    /** Selects `node` and every descendant in its (unfiltered) subtree. */
+    selectWithDescendants(node, visibleRows) {
+      const ids = [node.nodeId, ...this.collectDescendantIds(node)];
+      this.rowSelectionEngine.selectRows(ids, visibleRows);
+    }
+    /** Deselects `node` and every descendant in its (unfiltered) subtree. */
+    deselectWithDescendants(node, visibleRows) {
+      this.rowSelectionEngine.deselectRow(node.nodeId, visibleRows);
+      for (const id of this.collectDescendantIds(node)) {
+        this.rowSelectionEngine.deselectRow(id, visibleRows);
+      }
+    }
+    toggleWithDescendants(node, visibleRows) {
+      if (this.rowSelectionEngine.isRowSelected(node.nodeId)) {
+        this.deselectWithDescendants(node, visibleRows);
+      } else {
+        this.selectWithDescendants(node, visibleRows);
+      }
+    }
+    /**
+     * Reports whether every, some, or none of `node`'s descendants are
+     * selected — the input a checkbox renderer needs to show a filled,
+     * indeterminate (`-`), or empty box for a parent row. Walks the *full*
+     * unfiltered subtree (via `TreeDataService.getNode`), not just currently
+     * visible/expanded rows, so collapsing a partially-selected group never
+     * silently changes its reported state.
+     */
+    getDescendantSelectionState(node) {
+      const descendantIds = this.collectDescendantIds(node);
+      if (descendantIds.length === 0) return this.rowSelectionEngine.isRowSelected(node.nodeId) ? "all" : "none";
+      let selectedCount = 0;
+      for (const id of descendantIds) {
+        if (this.rowSelectionEngine.isRowSelected(id)) selectedCount++;
+      }
+      if (selectedCount === 0) return "none";
+      return selectedCount === descendantIds.length ? "all" : "some";
+    }
+    collectDescendantIds(node) {
+      const liveNode = this.treeDataService.getNode(node.nodeId) ?? node;
+      const ids = [];
+      const collect = (n) => {
+        for (const child of n.children) {
+          ids.push(child.nodeId);
+          collect(child);
+        }
+      };
+      collect(liveNode);
+      return ids;
     }
   };
 
@@ -23224,6 +24069,9 @@ ${descriptions.map((d) => `\u2022 ${d}`).join("\n")}`;
       const undoRedoEngine = new UndoRedoEngine();
       const cellSelectionEngine = new CellSelectionEngine(store, eventBus, clipboardEngine, undoRedoEngine);
       const masterDetailEngine = new MasterDetailEngine(store, eventBus, rowModel);
+      const treeExpansionService = new TreeExpansionService(store, eventBus);
+      const treeDataService = new TreeDataService(store, eventBus, filterEngine, sortEngine, treeExpansionService);
+      const treeSelectionService = new TreeSelectionService(rowSelectionEngine, treeDataService);
       const themeManager = new ThemeManager(eventBus);
       const iconRegistry = new IconRegistry();
       const iconRenderer = new IconRenderer(iconRegistry);
@@ -23265,6 +24113,14 @@ ${descriptions.map((d) => `\u2022 ${d}`).join("\n")}`;
         if (currentRows.length > 0) renderer.captureRowAnimation(currentRows, "detail");
         this.api.refresh();
       });
+      treeDataService.setRefreshCallback(() => this.api.refresh());
+      renderer.setTreeDragConfig(
+        !!options.treeData?.enabled && (options.treeData.mode === "parentId" || options.treeData.mode === "childrenField"),
+        (draggedId, targetId, position) => treeDataService.moveNode(draggedId, targetId, position)
+      );
+      if (options.treeData?.enabled) {
+        renderer.setTreeRenderConfig(options.treeData.toggleColumnId, treeExpansionService);
+      }
       return {
         options,
         containerEl,
@@ -23289,6 +24145,9 @@ ${descriptions.map((d) => `\u2022 ${d}`).join("\n")}`;
         chartEngine,
         undoRedoEngine,
         masterDetailEngine,
+        treeDataService,
+        treeExpansionService,
+        treeSelectionService,
         renderer
       };
     }
@@ -23342,6 +24201,8 @@ ${descriptions.map((d) => `\u2022 ${d}`).join("\n")}`;
         }
       }
       ctx.masterDetailEngine.configure(options.masterDetail);
+      ctx.treeDataService.configure(options.treeData);
+      ctx.cellSelectionEngine.setTreeToggleHandler((row, direction) => this.handleTreeToggleKey(ctx, row, direction));
       ctx.renderer.mount();
       ctx.renderer.setParentApiForDetail(this.api);
       if (options.photonAI?.enabled) {
@@ -23416,6 +24277,58 @@ ${descriptions.map((d) => `\u2022 ${d}`).join("\n")}`;
         ctx.masterDetailEngine.toggle(p.row);
         this.api.refresh();
       });
+      ctx.eventBus.on(GridEventType.TREE_NODE_TOGGLE_CLICKED, (payload) => {
+        const p = payload;
+        const currentRows = ctx.store.get("visibleRows");
+        if (currentRows.length > 0) ctx.renderer.captureRowAnimation(currentRows, "filter");
+        ctx.treeExpansionService.toggle(p.row);
+        this.api.refresh();
+      });
+    }
+    /**
+     * Backs `CellSelectionEngine.setTreeToggleHandler` — ArrowLeft collapses a
+     * node (or jumps focus to its parent if already collapsed/leaf), ArrowRight
+     * expands a node (or jumps focus to its first child if already expanded).
+     * Returns `false` when Tree Data isn't enabled or the row has no children,
+     * letting normal column navigation take over.
+     */
+    handleTreeToggleKey(ctx, row, direction) {
+      if (!ctx.treeDataService.isEnabled()) return false;
+      const hasChildren = row.hasChildren || row.children.length > 0;
+      const rows = ctx.store.get("visibleRows");
+      const activeCell = ctx.store.get("activeCell");
+      if (!activeCell) return false;
+      if (direction === "left") {
+        if (hasChildren && ctx.treeExpansionService.isExpanded(row.nodeId)) {
+          ctx.treeExpansionService.collapse(row);
+          this.api.refresh();
+          return true;
+        }
+        if (row.parent) {
+          const parentIndex = rows.findIndex((r) => r.nodeId === row.parent.nodeId);
+          if (parentIndex !== -1) {
+            ctx.cellSelectionEngine.startSelection(parentIndex, activeCell.colIndex);
+            return true;
+          }
+        }
+        return false;
+      }
+      if (!hasChildren) return false;
+      if (!ctx.treeExpansionService.isExpanded(row.nodeId)) {
+        if (!row.childrenLoaded && ctx.treeDataService.getConfig()?.lazyLoadChildren) {
+          ctx.treeDataService.loadChildren(row.nodeId);
+        }
+        ctx.treeExpansionService.expand(row);
+        this.api.refresh();
+        return true;
+      }
+      const rowIndex = rows.findIndex((r) => r.nodeId === row.nodeId);
+      const next = rowIndex !== -1 ? rows[rowIndex + 1] : void 0;
+      if (next && next.level > row.level) {
+        ctx.cellSelectionEngine.startSelection(rowIndex + 1, activeCell.colIndex);
+        return true;
+      }
+      return false;
     }
     /**
      * Wires cell-editing activation and teardown based on the configured

@@ -9,6 +9,7 @@ import { CellRenderer } from './cell-renderer';
 import { formatValue } from '../engines/editing/value-parser';
 import { createDiv, toggleClass } from './dom-utils';
 import { resolveColumnRenderer } from './renderer-resolver';
+import { applyTreeToggle, syncTreeToggle, type TreeToggleRenderConfig } from './tree-cell-renderer';
 
 /**
  * Sentinel `ColumnDef` emitted with `CELL_CLICKED` for the auto-group label cell.
@@ -69,6 +70,12 @@ export interface BodyRendererOptions {
     isExpandedFn: (nodeId: string) => boolean;
     hasDetailFn: (rowData: Record<string, unknown>) => boolean;
   };
+  /**
+   * When Tree Data is enabled, drives indentation (`data-level` on the row
+   * element) and the expand/collapse toggle rendered on `'data'` rows with
+   * children, in the configured toggle column.
+   */
+  treeData?: TreeToggleRenderConfig;
 }
 
 interface PanelRowSet {
@@ -95,8 +102,8 @@ export class BodyRenderer {
   private leftSticky: HTMLElement | null = null;
   private centerSticky: HTMLElement | null = null;
   private rightSticky: HTMLElement | null = null;
-  /** `nodeId` of the row currently parked in the sticky containers, if any. */
-  private stuckNodeId: string | null = null;
+  /** `nodeId`s of the rows currently parked in the sticky containers — a single Master/Detail master row, or a stack of Tree Data ancestor rows. */
+  private stuckNodeIds = new Set<string>();
 
   constructor(
     private store: GridStore,
@@ -146,58 +153,53 @@ export class BodyRenderer {
   }
 
   /**
-   * Parks `nodeId`'s row in the sticky overlay (pinned at the panel's own
-   * top, ignoring the scroll transform) — or releases whatever was
-   * previously stuck back into normal scrolled flow when `nodeId` is `null`
-   * or refers to a different row.
+   * Parks each entry's row in the sticky overlay (pinned at the panel's own
+   * top, ignoring the scroll transform, stacked in array order) — releasing
+   * whatever was previously stuck but isn't in `entries` back into normal
+   * scrolled flow. A single entry reproduces the old Master/Detail behavior;
+   * multiple entries stack Tree Data's ancestor-row chain, each at its own
+   * `top` (see `TreeStickyRowTracker`).
    *
    * Moves the *actual* cached DOM nodes (not clones) so every existing
    * listener, selection class, and edit-in-progress state carries over
    * untouched — this only ever runs on already-rendered rows.
    */
-  setSticky(nodeId: string | null, offsetPx = 0): void {
-    if (nodeId === this.stuckNodeId) {
-      // Same row still stuck — only the push-off offset changes as the user
-      // keeps scrolling, so just update `top` in place with no re-parenting.
-      // Re-adding the class is still necessary every call: `updatePanelRow`
-      // (called earlier this same render, for every cached 'data' row)
-      // overwrites `className` wholesale and has no notion of stickiness,
-      // so it silently wipes `pg-row--sticky` on every single render pass.
-      if (nodeId) {
-        const current = this.renderedRowMap.get(nodeId);
-        for (const el of [current?.left, current?.center, current?.right]) {
-          if (!el) continue;
-          el.style.top = `${offsetPx}px`;
-          el.classList.add('pg-row--sticky');
-        }
-      }
-      return;
-    }
+  setStickyRows(entries: ReadonlyArray<{ nodeId: string; top: number }>): void {
+    const newIds = new Set(entries.map((e) => e.nodeId));
 
-    if (this.stuckNodeId) {
-      const prev = this.renderedRowMap.get(this.stuckNodeId);
+    for (const nodeId of this.stuckNodeIds) {
+      if (newIds.has(nodeId)) continue;
+      const prev = this.renderedRowMap.get(nodeId);
       if (prev) {
-        if (prev.left) { prev.left.style.top = ''; this.leftContent?.appendChild(prev.left); }
-        if (prev.center) { prev.center.style.top = ''; this.centerContent?.appendChild(prev.center); }
-        if (prev.right) { prev.right.style.top = ''; this.rightContent?.appendChild(prev.right); }
+        if (prev.left) { prev.left.style.top = ''; prev.left.style.zIndex = ''; this.leftContent?.appendChild(prev.left); }
+        if (prev.center) { prev.center.style.top = ''; prev.center.style.zIndex = ''; this.centerContent?.appendChild(prev.center); }
+        if (prev.right) { prev.right.style.top = ''; prev.right.style.zIndex = ''; this.rightContent?.appendChild(prev.right); }
         for (const el of [prev.left, prev.center, prev.right]) el?.classList.remove('pg-row--sticky');
       }
-      this.stuckNodeId = null;
     }
+    this.stuckNodeIds = newIds;
 
-    if (nodeId) {
+    // Appended in order so the sticky containers' DOM order matches the
+    // visual stack (shallowest ancestor first, at the top) — plus an
+    // explicit `z-index`, shallowest highest, so stacking order is correct
+    // by rule rather than by incidental DOM order: without it, a deeper
+    // level whose push-off briefly overshoots into a shallower ancestor's
+    // slot (a real risk with `stackedTop` compounding per level) would paint
+    // over it instead of staying tucked behind, since later-appended
+    // elements win ties on `z-index: auto` by default.
+    const topLevel = entries.length;
+    entries.forEach(({ nodeId, top }, i) => {
       const next = this.renderedRowMap.get(nodeId);
-      if (next) {
-        // Inline `top` beats the RowPositionSheet stylesheet rule for this
-        // same nodeId without fighting CSS specificity — reverted above by
-        // clearing the inline style, which lets the stylesheet rule apply again.
-        if (next.left && this.leftSticky) { next.left.style.top = `${offsetPx}px`; this.leftSticky.appendChild(next.left); }
-        if (next.center && this.centerSticky) { next.center.style.top = `${offsetPx}px`; this.centerSticky.appendChild(next.center); }
-        if (next.right && this.rightSticky) { next.right.style.top = `${offsetPx}px`; this.rightSticky.appendChild(next.right); }
-        for (const el of [next.left, next.center, next.right]) el?.classList.add('pg-row--sticky');
-        this.stuckNodeId = nodeId;
-      }
-    }
+      if (!next) return;
+      const zIndex = String(topLevel - i);
+      // Inline `top` beats the RowPositionSheet stylesheet rule for this
+      // same nodeId without fighting CSS specificity — reverted above by
+      // clearing the inline style, which lets the stylesheet rule apply again.
+      if (next.left && this.leftSticky) { next.left.style.top = `${top}px`; next.left.style.zIndex = zIndex; this.leftSticky.appendChild(next.left); }
+      if (next.center && this.centerSticky) { next.center.style.top = `${top}px`; next.center.style.zIndex = zIndex; this.centerSticky.appendChild(next.center); }
+      if (next.right && this.rightSticky) { next.right.style.top = `${top}px`; next.right.style.zIndex = zIndex; this.rightSticky.appendChild(next.right); }
+      for (const el of [next.left, next.center, next.right]) el?.classList.add('pg-row--sticky');
+    });
   }
 
   renderRows(
@@ -429,6 +431,10 @@ export class BodyRenderer {
       return el;
     }
 
+    if (options.treeData && row.type === 'data') {
+      el.setAttribute('data-level', String(row.level));
+    }
+
     if (panel === 'left') {
       if (options.showCheckboxes) {
         el.appendChild(this.cellRenderer.renderCheckboxCell(row, row.rowIndex));
@@ -479,6 +485,7 @@ export class BodyRenderer {
         }
       }
       this.applyMasterDetailToggle(cellEl, row, cols[i], options);
+      applyTreeToggle(cellEl, row, cols[i], options.treeData, this.iconRenderer, this.eventBus);
       el.appendChild(cellEl);
     }
 
@@ -740,6 +747,7 @@ export class BodyRenderer {
       el.className = cls;
       el.setAttribute('data-row-index', rowIndexStr);
       if (row.type === 'group') el.setAttribute('data-level', String(row.level));
+      if (options.treeData && row.type === 'data') el.setAttribute('data-level', String(row.level));
 
       // Re-stamp every cell's own `data-row-index` too. Cells set it at build
       // time and are reused across renders — but a row's index can shift while
@@ -776,6 +784,12 @@ export class BodyRenderer {
         if (iconEl) this.iconRenderer.updateIcon(iconEl, isExpanded ? 'chevronDown' : 'chevronRight');
         toggleBtn.setAttribute('aria-label', isExpanded ? 'Collapse detail' : 'Expand detail');
       }
+    }
+
+    // Sync the Tree Data toggle icon — same reasoning as Master/Detail above:
+    // expansion state lives in `expandedTreeNodeIds`, not on the `RowNode`.
+    if (row.type === 'data' && options.treeData) {
+      for (const el of els) syncTreeToggle(el, row, options.treeData, this.iconRenderer);
     }
   }
 
@@ -907,6 +921,8 @@ export class BodyRenderer {
     if (row.type === 'group') cls.push('pg-row--group');
     if (row.type === 'group-footer') cls.push('pg-row--group-footer');
     if (row.type === 'detail') cls.push('pg-row--detail');
+    if (options.treeData && row.type === 'data') cls.push('pg-row--tree');
+    if (row.isTreeFiller) cls.push('pg-row--tree-filler');
     if (options.rowShading && displayIndex % 2 === 1) cls.push('pg-row--alt');
     if (row.cssClass) cls.push(row.cssClass);
     return cls.join(' ');

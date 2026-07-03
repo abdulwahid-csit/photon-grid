@@ -185,6 +185,13 @@ export class ScrollController {
 
   private readonly onWheel = (e: WheelEvent): void => {
     if (e.ctrlKey) return;
+    // The Photon AI panel floats as a sibling overlay inside this same
+    // `.pg-grid__body` (see `GridRenderer.buildLayout`/`PhotonAIPanel.mount`),
+    // so a wheel event over its own scrollable chat log still bubbles up to
+    // this listener. Left unchecked, `preventDefault` below blocks the
+    // panel's native scroll entirely and redirects the gesture into scrolling
+    // the grid underneath it instead — bail out here so the panel scrolls itself.
+    if ((e.target as HTMLElement | null)?.closest('.pg-ai-panel')) return;
     e.preventDefault();
     // A nested Master/Detail grid's body sits inside the parent grid's own
     // `.pg-grid__body` (a sibling of the pinned panels, not a descendant of

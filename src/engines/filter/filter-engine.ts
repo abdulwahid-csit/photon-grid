@@ -71,20 +71,31 @@ export class FilterEngine {
   }
 
   applyFilters(rows: RowNode[], columns: ColumnDef[]): RowNode[] {
+    if (!this.hasActiveFilters()) return rows;
+    return rows.filter((row) => this.matchesRow(row, columns));
+  }
+
+  /** `true` when at least one column filter or a quick filter is currently active — lets callers (e.g. `TreeDataService`) skip filtering work entirely when there's nothing to filter by. */
+  hasActiveFilters(): boolean {
+    return Object.keys(this.filterModel).length > 0 || !!this.quickFilter?.term;
+  }
+
+  /**
+   * The single row-level predicate `applyFilters` runs for every row —
+   * extracted as a public method so tree-aware filtering (`TreeDataService`)
+   * can reuse the exact same column-filter/quick-filter logic per node
+   * instead of re-implementing condition matching against a hierarchy.
+   * Non-`'data'` rows (group headers, footers, etc.) always pass, matching
+   * `applyFilters`'s prior inline behavior.
+   */
+  matchesRow(row: RowNode, columns: ColumnDef[]): boolean {
+    if (row.type !== 'data') return true;
+
     const colMap = new Map(columns.map((c) => [c.colId, c]));
     const filterEntries = Object.entries(this.filterModel);
-    const hasFilters = filterEntries.length > 0;
-    const hasQuick = !!this.quickFilter?.term;
-
-    if (!hasFilters && !hasQuick) return rows;
-
-    return rows.filter((row) => {
-      if (row.type !== 'data') return true;
-
-      if (hasFilters && !this.passesColumnFilters(row, filterEntries, colMap)) return false;
-      if (hasQuick && !this.passesQuickFilter(row, columns)) return false;
-      return true;
-    });
+    if (filterEntries.length > 0 && !this.passesColumnFilters(row, filterEntries, colMap)) return false;
+    if (this.quickFilter?.term && !this.passesQuickFilter(row, columns)) return false;
+    return true;
   }
 
   getFilterModel(): FilterModel {

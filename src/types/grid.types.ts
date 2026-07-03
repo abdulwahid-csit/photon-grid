@@ -3,6 +3,7 @@ import type { FilterModel, QuickFilterConfig } from './filter.types';
 import type { BuiltInThemeName } from './theme.types';
 import type { MasterDetailConfig } from './master-detail.types';
 import type { PhotonAIConfig } from './photon-ai.types';
+import type { TreeDataConfig } from './tree-data.types';
 
 export interface SortConfig {
   colId: string;
@@ -190,6 +191,15 @@ export interface GridOptions {
    */
   photonAI?: PhotonAIConfig;
 
+  /**
+   * Tree Data — self-referential row hierarchy (org charts, file trees,
+   * bills of materials) driven by a `parentId`/`id` pair, nested `children`
+   * arrays, a `getDataPath()` callback, or a custom hierarchy provider.
+   * Mutually exclusive with `grouping` — a grid is either tree-structured or
+   * column-value-grouped, never both at once. @see {@link TreeDataConfig}
+   */
+  treeData?: TreeDataConfig;
+
   enableStateManagement?: boolean;
   stateKey?: string;
 
@@ -220,6 +230,7 @@ export interface GridState {
   paginationPageSize: number;
   groupedColumns: string[];
   expandedGroups: string[];
+  expandedTreeNodeIds: string[];
   selectedRowIds: string[];
 }
 

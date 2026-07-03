@@ -26,6 +26,7 @@ export interface GridStoreState {
   groupedColumnIds: string[];
   expandedGroupKeys: Set<string>;
   expandedRowIds: Set<string>;
+  expandedTreeNodeIds: Set<string>;
 
   selectedRowIds: Set<string>;
   activeRowId: string | null;
@@ -151,6 +152,7 @@ export class GridStore {
       groupedColumnIds: [],
       expandedGroupKeys: new Set(),
       expandedRowIds: new Set(),
+      expandedTreeNodeIds: new Set(),
 
       selectedRowIds: new Set(),
       activeRowId: null,

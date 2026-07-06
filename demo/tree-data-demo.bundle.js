@@ -1039,7 +1039,7 @@ var PhotonGridTreeDemo = (() => {
 }
 .pg-panel--left {
   z-index: 2;
-  box-shadow: 2px 0 4px rgba(0,0,0,0.06);
+  // box-shadow: 2px 0 4px rgba(0,0,0,0.06);
   width: var(--pg-left-panel-width, auto);
 }
 .pg-panel--center {
@@ -1049,7 +1049,7 @@ var PhotonGridTreeDemo = (() => {
 }
 .pg-panel--right {
   z-index: 2;
-  box-shadow: -2px 0 4px rgba(0,0,0,0.06);
+  // box-shadow: -2px 0 4px rgba(0,0,0,0.06);
   width: var(--pg-right-panel-width, auto);
 }
 
@@ -24858,6 +24858,7 @@ ${descriptions.map((d) => `\u2022 ${d}`).join("\n")}`;
     showCheckboxes: false,
     showSerialNumber: false,
     showVerticalBorders: true,
+    rowShading: true,
     treeData: {
       enabled: true,
       mode: "parentId",

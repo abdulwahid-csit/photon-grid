@@ -1,0 +1,33 @@
+import { DIMENSION_TYPES, DATE_TYPES, MAX_CATEGORIES } from './types';
+/**
+ * Identifies categorical/ordinal columns in the selection and computes
+ * cardinality metadata needed by downstream analyzers and the
+ * RecommendationEngine.
+ */
+export class DimensionAnalyzer {
+    analyze(columns, rows) {
+        const dimCols = columns.filter((c) => DIMENSION_TYPES.has(c.type));
+        return dimCols.map((col) => {
+            const seen = new Set();
+            for (const row of rows) {
+                if (row.type !== 'data')
+                    continue;
+                const raw = row.data[col.field];
+                seen.add(raw == null ? '' : String(raw));
+            }
+            const isDate = DATE_TYPES.has(col.type);
+            const isBoolean = col.type === 'boolean';
+            const isHighCardinality = seen.size > 20;
+            const uniqueValues = Array.from(seen).slice(0, MAX_CATEGORIES);
+            return {
+                column: col,
+                role: isDate ? 'date' : isBoolean ? 'boolean' : 'category',
+                uniqueValues,
+                uniqueCount: seen.size,
+                isHighCardinality,
+                isDate,
+            };
+        });
+    }
+}
+//# sourceMappingURL=dimension-analyzer.js.map

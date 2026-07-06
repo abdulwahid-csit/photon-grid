@@ -1,6 +1,6 @@
-import { GridCore } from '../src/index';
-import type { ColumnDef } from '../src/types/column.types';
-import type { GridOptions } from '../src/types/grid.types';
+import { GridCore } from '../packages/photon-grid-core/src/index';
+import type { ColumnDef } from '../packages/photon-grid-core/src/types/column.types';
+import type { GridOptions } from '../packages/photon-grid-core/src/types/grid.types';
 
 /**
  * Standalone Tree Data demo — an employee org chart.
@@ -296,6 +296,7 @@ const options: GridOptions = {
   showCheckboxes: false,
   showSerialNumber: false,
   showVerticalBorders: true,
+  rowShading: true,
 
   treeData: {
     enabled: true,

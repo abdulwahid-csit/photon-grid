@@ -1,0 +1,1 @@
+{"version":3,"file":"histogram-analyzer.d.ts","sourceRoot":"","sources":["histogram-analyzer.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,WAAW,EAAE,aAAa,EAAE,MAAM,SAAS,CAAC;AAG1D;;;;GAIG;AACH,qBAAa,iBAAiB;IAC5B,OAAO,CAAC,QAAQ,EAAE,WAAW,EAAE,GAAG,aAAa,GAAG,IAAI;IA+BtD,OAAO,CAAC,QAAQ;CAOjB"}

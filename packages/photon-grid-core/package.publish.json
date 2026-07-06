@@ -1,0 +1,70 @@
+{
+  "name": "photon-grid-core",
+  "version": "0.0.2",
+  "description": "Professional zero-dependency TypeScript data grid with enterprise-grade features.",
+  "author": "Abdul Wahid",
+  "license": "MIT",
+
+  "type": "module",
+
+  "main": "./index.js",
+  "module": "./index.js",
+  "types": "./index.d.ts",
+
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.js",
+      "default": "./index.js"
+    },
+    "./styles/*": "./styles/*",
+    "./package.json": "./package.json"
+  },
+
+  "sideEffects": [
+    "*.css",
+    "styles/*.css"
+  ],
+
+  "keywords": [
+  "photon-grid",
+  "grid",
+  "data-grid",
+  "datatable",
+  "table",
+  "typescript",
+  "javascript",
+  "virtualization",
+  "virtual-scrolling",
+  "tree-grid",
+  "pivot-table",
+  "grouping",
+  "sorting",
+  "filtering",
+  "spreadsheet",
+  "excel",
+  "enterprise-grid",
+  "performance",
+  "zero-dependency",
+  "ag-grid-alternative"
+],
+
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/YOUR_GITHUB_USERNAME/photon-grid.git"
+  },
+
+  "homepage": "https://github.com/YOUR_GITHUB_USERNAME/photon-grid#readme",
+
+  "bugs": {
+    "url": "https://github.com/YOUR_GITHUB_USERNAME/photon-grid/issues"
+  },
+
+  "engines": {
+    "node": ">=18"
+  },
+
+  "publishConfig": {
+    "access": "public"
+  }
+}

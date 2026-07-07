@@ -19,6 +19,14 @@
     "importHelpers": true,
     "target": "ES2022",
     "module": "ES2022",
+    "paths": {
+      "photon-grid-angular": [
+        "../../packages/photon-grid-angular/dist"
+      ],
+      "photon-grid-core": [
+        "../../packages/photon-grid-core/dist"
+      ]
+    },
     "lib": [
       "ES2022",
       "dom"

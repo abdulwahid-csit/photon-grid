@@ -112,6 +112,28 @@ export type { RowNode, RowGroupNode, RowGroupFooterNode, RowDataNode, RowDropPay
 export type { FilterModel, ColumnFilter, FilterCondition, FilterOperator, QuickFilterConfig, FilterSetOption } from './types/filter.types';
 export type { Theme, ThemeTokens, ColorTokens, BuiltInThemeName } from './types/theme.types';
 export type { GridEvent, GridEventMap } from './types/event.types';
+export type {
+  ReadyEvent,
+  DataChangedEvent,
+  ScrollEvent,
+  RowSelectedEvent,
+  CellClickedEvent,
+  CellValueChangedEvent,
+  CellSelectionChangedEvent,
+  ColumnResizedEvent,
+  ColumnMovedEvent,
+  ColumnSortedEvent,
+  FilterChangedEvent,
+  QuickFilterChangedEvent,
+  PageChangedEvent,
+  ThemeChangedEvent,
+  ExportEvent,
+  ColumnsStateChangedEvent,
+  RowDetailToggleClickedEvent,
+  RowDetailOpenedEvent,
+  RowDetailClosedEvent,
+  RowDetailHeightChangedEvent,
+} from './types/event.types';
 export type { ChartConfig } from './chart/chart-engine';
 export type { ChartData, ChartDataset, ChartTransformOptions } from './chart/chart-data-transformer';
 export type { SparklineType, SparklineConfig, SparklinePoint, OHLCPoint } from './chart/sparkline/sparkline.types';

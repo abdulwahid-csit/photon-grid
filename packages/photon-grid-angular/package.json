@@ -1,37 +1,43 @@
 {
   "name": "photon-grid-angular",
-  "version": "0.0.0",
+  "version": "0.0.1",
+  "description": "Angular wrapper for Photon Grid — an enterprise-grade, framework-agnostic TypeScript data grid.",
+  "author": "Abdul Wahid",
+  "license": "MIT",
   "scripts": {
-    "ng": "ng",
-    "start": "ng serve",
-    "build": "ng build",
-    "watch": "ng build --watch --configuration development",
-    "test": "ng test"
+    "clean": "npx rimraf dist",
+    "build": "ng-packagr -p ng-package.json -c tsconfig.lib.json",
+    "build:watch": "ng-packagr -p ng-package.json -c tsconfig.lib.json --watch",
+    "prepublishOnly": "npm run build"
   },
-  "private": true,
-  "dependencies": {
-    "@angular/animations": "^18.2.0",
+  "peerDependencies": {
     "@angular/common": "^18.2.0",
-    "@angular/compiler": "^18.2.0",
     "@angular/core": "^18.2.0",
-    "@angular/forms": "^18.2.0",
-    "@angular/platform-browser": "^18.2.0",
-    "@angular/platform-browser-dynamic": "^18.2.0",
-    "@angular/router": "^18.2.0",
-    "rxjs": "~7.8.0",
-    "tslib": "^2.3.0",
-    "zone.js": "~0.14.10"
+    "photon-grid-core": "*"
+  },
+  "dependencies": {
+    "tslib": "^2.3.0"
   },
   "devDependencies": {
-    "@angular/cli": "^18.2.14",
+    "@angular/common": "^18.2.0",
+    "@angular/compiler": "^18.2.0",
     "@angular/compiler-cli": "^18.2.0",
-    "@types/jasmine": "~5.1.0",
-    "jasmine-core": "~5.2.0",
-    "karma": "~6.4.0",
-    "karma-chrome-launcher": "~3.2.0",
-    "karma-coverage": "~2.2.0",
-    "karma-jasmine": "~5.1.0",
-    "karma-jasmine-html-reporter": "~2.1.0",
-    "typescript": "~5.5.2"
-  }
+    "@angular/core": "^18.2.0",
+    "ng-packagr": "^18.2.0",
+    "rimraf": "^6.0.1",
+    "rxjs": "~7.8.0",
+    "typescript": "~5.5.2",
+    "zone.js": "~0.14.10"
+  },
+  "keywords": [
+    "angular",
+    "grid",
+    "data-grid",
+    "datatable",
+    "table",
+    "photon-grid",
+    "enterprise-grid",
+    "typescript"
+  ],
+  "sideEffects": false
 }

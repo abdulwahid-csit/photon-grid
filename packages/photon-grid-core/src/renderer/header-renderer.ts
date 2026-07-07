@@ -1185,12 +1185,19 @@ export class HeaderRenderer {
       const colRight = tRects[i].right + scrollDelta;
       if (clientX >= colLeft && clientX < colRight) { effectiveTarget = i; break; }
     }
+    // Snapping to an *adjacent* column is only meaningful when the panel holds at
+    // least two real (draggable) columns AND the source is one of them. A panel
+    // that contains only the dragged column — e.g. a center column just pinned
+    // into the left region that otherwise holds only the checkbox/serial cells —
+    // has nowhere to reorder to, so the snaps below must not run (they would
+    // produce an out-of-range index such as 1 or -1 and dereference undefined).
+    const canSnap = tRects.length > 1 && sourceIdxInPanel >= 0 && sourceIdxInPanel < tRects.length;
     // Cursor before all columns: snap to leftmost non-source column
-    if (effectiveTarget === sourceIdxInPanel && tRects.length > 0 && clientX < tRects[0].left + scrollDelta) {
+    if (canSnap && effectiveTarget === sourceIdxInPanel && clientX < tRects[0].left + scrollDelta) {
       effectiveTarget = sourceIdxInPanel === 0 ? 1 : 0;
     }
     // Cursor after all columns: snap to rightmost non-source column
-    if (effectiveTarget === sourceIdxInPanel && tRects.length > 0 && clientX >= tRects[tRects.length - 1].right + scrollDelta) {
+    if (canSnap && effectiveTarget === sourceIdxInPanel && clientX >= tRects[tRects.length - 1].right + scrollDelta) {
       const lastIdx = tRects.length - 1;
       effectiveTarget = sourceIdxInPanel === lastIdx ? lastIdx - 1 : lastIdx;
     }
@@ -1212,6 +1219,10 @@ export class HeaderRenderer {
 
     const srcRect = srcPD.rects[sourceIdxInPanel];
     const tgtRect = tRects[effectiveTarget];
+    // Defensive: if either rect is missing (e.g. panelDragData captured a frame
+    // out of step with the DOM during a live cross-panel move), abort this frame's
+    // transform rather than dereferencing undefined. The next mouse move recovers.
+    if (!srcRect || !tgtRect) { this.dragStyleEl.textContent = ''; return; }
     const srcOffset = effectiveTarget > sourceIdxInPanel ? tgtRect.right - srcRect.right : tgtRect.left - srcRect.left;
     css += `${scope}[data-col-id="${tIds[sourceIdxInPanel]}"] { --pg-drag-x: ${srcOffset}px; z-index: 10; position: relative; transition: none; }\n`;
 

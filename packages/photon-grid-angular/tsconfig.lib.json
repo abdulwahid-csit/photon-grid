@@ -1,0 +1,17 @@
+/* Library build configuration consumed by ng-packagr. */
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "declaration": true,
+    "declarationMap": true,
+    "inlineSources": true,
+    "types": [],
+    "paths": {
+      "photon-grid-core": ["../photon-grid-core/dist"]
+    }
+  },
+  "exclude": [
+    "**/*.spec.ts"
+  ]
+}

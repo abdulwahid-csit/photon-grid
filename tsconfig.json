@@ -1,0 +1,10 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@photon-grid/core": [
+        "./packages/photon-grid-core/src/index.ts"
+      ]
+    }
+  }
+}

@@ -4,20 +4,35 @@
   "version": "1.0.0",
   "description": "Photon Grid monorepo",
   "license": "MIT",
-
   "packageManager": "pnpm@10.13.1",
+  "scripts": {
+    "watch:core": "npm --prefix packages/photon-grid-core run build:watch",
+    "watch:angular": "npm --prefix packages/photon-grid-angular run build:watch",
+    "watch:react": "npm --prefix packages/photon-grid-react run dev",
+    "watch:vue": "npm --prefix packages/photon-grid-vue run dev",
 
- "scripts": {
-    "build": "pnpm -r build",
-    "build:watch": "pnpm -r build:watch",
-    "dev": "pnpm -r --parallel dev",
-    "start": "pnpm -r --parallel start",
-    "test": "pnpm -r test",
-    "lint": "pnpm -r lint",
-    "clean": "pnpm -r clean"
+    "serve:angular": "npm --prefix examples/angular run start",
+    "serve:react": "npm --prefix examples/react run dev",
+    "serve:vue": "npm --prefix examples/vue run dev",
+    "serve:vanilla": "npx --yes serve -l 5000 .",
+
+    "dev:angular": "concurrently -k -n core,lib,app -c blue,magenta,green \"npm run watch:core\" \"npm run watch:angular\" \"npm run serve:angular\"",
+    "dev:react": "concurrently -k -n core,app -c blue,green \"npm run watch:core\" \"npm run serve:react\"",
+    "dev:vue": "concurrently -k -n core,app -c blue,green \"npm run watch:core\" \"npm run serve:vue\"",
+    "dev:vanilla": "concurrently -k -n core,app -c blue,green \"npm run watch:core\" \"npm run serve:vanilla\"",
+
+    "build:core": "npm --prefix packages/photon-grid-core run build",
+    "build:angular": "npm --prefix packages/photon-grid-angular run build",
+    "build:react": "npm --prefix packages/photon-grid-react run build",
+    "build:vue": "npm --prefix packages/photon-grid-vue run build",
+    "build": "npm run build:core && npm run build:angular && npm run build:react && npm run build:vue",
+
+    "clean:core": "npm --prefix packages/photon-grid-core run clean",
+    "clean:angular": "npm --prefix packages/photon-grid-angular run clean",
+    "clean": "npm run clean:core && npm run clean:angular"
   },
-
   "devDependencies": {
+    "concurrently": "^9.2.3",
     "typescript": "^5.9.3"
   }
 }

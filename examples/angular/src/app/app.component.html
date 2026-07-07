@@ -1,0 +1,20 @@
+<main class="page">
+  <header class="page__header">
+    <h1 class="page__title">{{ title }}</h1>
+    <p class="page__subtitle">
+      A basic example of the <code>photon-grid</code> component from the
+      <code>photon-grid-angular</code> package.
+    </p>
+  </header>
+
+  <section class="grid-wrapper">
+    <photon-grid
+      [columns]="columns"
+      [dataSet]="data"
+      [options]="options"
+      (gridReady)="onGridReady($event)"
+      (rowClicked)="onRowClicked($event)"
+      (rowSelected)="onRowSelected($event)">
+    </photon-grid>
+  </section>
+</main>

@@ -1,0 +1,12 @@
+// Wrapper host sizing only. All visual theming (colours, spacing, borders,
+// fonts) is owned by the Photon Grid core theme tokens, never here.
+:host {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+.photon-grid__host {
+    width: 100%;
+    height: 100%;
+}

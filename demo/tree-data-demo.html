@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PhotonGrid — Tree Data Demo</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      height: 100%;
+      overflow: hidden;
+      font-family: system-ui, sans-serif;
+      display: flex;
+      flex-direction: column;
+      background: #f1f5f9;
+    }
+    #demo-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 20px;
+      height: 48px;
+      flex-shrink: 0;
+      background: #ffffff;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    #demo-toolbar .toolbar-logo {
+      font-size: 14px;
+      font-weight: 700;
+      color: #0f172a;
+      letter-spacing: -0.01em;
+    }
+    #demo-toolbar .toolbar-logo span { color: #2563eb; }
+    #demo-toolbar .toolbar-subtitle {
+      font-size: 12px;
+      color: #64748b;
+    }
+    #grid-wrapper {
+      flex: 1;
+      min-height: 0;
+      padding: 20px;
+    }
+    #grid-container { width: 100%; height: 100%; }
+
+    /* ── Demo-page-only cell styling (illustrative, not part of the grid engine) ── */
+    .org-employee-cell {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      min-width: 0;
+    }
+    .org-avatar {
+      width: 32px;
+      height: 32px;
+      flex-shrink: 0;
+      border-radius: 9999px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+    .org-employee-text {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      min-width: 0;
+    }
+    .org-employee-name {
+      font-weight: 600;
+      color: #0f172a;
+      font-size: 13px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .org-employee-role {
+      font-size: 11px;
+      color: #94a3b8;
+    }
+    .org-dept-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      color: #475569;
+      background: #f1f5f9;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      padding: 3px 10px;
+      white-space: nowrap;
+    }
+    .org-dept-badge--exec {
+      color: #1d4ed8;
+      background: #eff6ff;
+      border-color: #bfdbfe;
+    }
+    .org-dept-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 9999px;
+      background: currentColor;
+      opacity: 0.6;
+      flex-shrink: 0;
+    }
+    .org-location-cell {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: #334155;
+    }
+    .org-status-badge {
+      display: inline-flex;
+      align-items: center;
+      font-size: 12px;
+      font-weight: 600;
+      border-radius: 6px;
+      padding: 3px 10px;
+      white-space: nowrap;
+    }
+    .org-status-badge--paid {
+      color: #15803d;
+      background: #f0fdf4;
+    }
+    .org-status-badge--pending {
+      color: #b45309;
+      background: #fffbeb;
+    }
+    .org-contact-cell {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .org-contact-icon {
+      width: 28px;
+      height: 28px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      background: #fff;
+      color: #64748b;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .org-contact-icon:hover { border-color: #94a3b8; color: #0f172a; }
+  </style>
+</head>
+<body>
+  <div id="demo-toolbar">
+    <span class="toolbar-logo">Photon<span>Grid</span></span>
+    <span class="toolbar-subtitle">— Tree Data (org chart) demo</span>
+  </div>
+  <div id="grid-wrapper">
+    <div id="grid-container"></div>
+  </div>
+  <script src="./tree-data-demo.bundle.js"></script>
+</body>
+</html>

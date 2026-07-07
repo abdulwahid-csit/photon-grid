@@ -1,36 +1,38 @@
 {
   "name": "photon-grid",
+  "private": true,
   "version": "1.0.0",
-  "description": "Professional zero-dependency data grid core engine",
-  "main": "./dist/index.js",
-  "module": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
-    }
-  },
-  "files": [
-    "dist",
-    "src"
-  ],
-  "scripts": {
-    "build": "tsc --project tsconfig.json",
-    "build:watch": "tsc --project tsconfig.json --watch",
-    "typecheck": "tsc --noEmit",
-    "demo": "npx esbuild demo/demo.ts --bundle --outfile=demo/demo.bundle.js --format=iife --global-name=PhotonGridDemo --sourcemap --target=es2020 --platform=browser",
-    "demo:inventory": "npx esbuild demo/inventory-demo.ts --bundle --outfile=demo/inventory-demo.bundle.js --format=iife --global-name=PhotonGridInventoryDemo --sourcemap --target=es2020 --platform=browser"
-  },
-  "keywords": [
-    "data-grid",
-    "table",
-    "zero-dependency",
-    "typescript"
-  ],
+  "description": "Photon Grid monorepo",
   "license": "MIT",
+  "packageManager": "pnpm@10.13.1",
+  "scripts": {
+    "watch:core": "npm --prefix packages/photon-grid-core run build:watch",
+    "watch:angular": "npm --prefix packages/photon-grid-angular run build:watch",
+    "watch:react": "npm --prefix packages/photon-grid-react run dev",
+    "watch:vue": "npm --prefix packages/photon-grid-vue run dev",
+
+    "serve:angular": "npm --prefix examples/angular run start",
+    "serve:react": "npm --prefix examples/react run dev",
+    "serve:vue": "npm --prefix examples/vue run dev",
+    "serve:vanilla": "npx --yes serve -l 5000 .",
+
+    "dev:angular": "concurrently -k -n core,lib,app -c blue,magenta,green \"npm run watch:core\" \"npm run watch:angular\" \"npm run serve:angular\"",
+    "dev:react": "concurrently -k -n core,app -c blue,green \"npm run watch:core\" \"npm run serve:react\"",
+    "dev:vue": "concurrently -k -n core,app -c blue,green \"npm run watch:core\" \"npm run serve:vue\"",
+    "dev:vanilla": "concurrently -k -n core,app -c blue,green \"npm run watch:core\" \"npm run serve:vanilla\"",
+
+    "build:core": "npm --prefix packages/photon-grid-core run build",
+    "build:angular": "npm --prefix packages/photon-grid-angular run build",
+    "build:react": "npm --prefix packages/photon-grid-react run build",
+    "build:vue": "npm --prefix packages/photon-grid-vue run build",
+    "build": "npm run build:core && npm run build:angular && npm run build:react && npm run build:vue",
+
+    "clean:core": "npm --prefix packages/photon-grid-core run clean",
+    "clean:angular": "npm --prefix packages/photon-grid-angular run clean",
+    "clean": "npm run clean:core && npm run clean:angular"
+  },
   "devDependencies": {
-    "esbuild": "^0.28.1",
+    "concurrently": "^9.2.3",
     "typescript": "^5.9.3"
   }
 }

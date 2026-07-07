@@ -1,1 +1,0 @@
-{"version":3,"file":"photon-ai.types.d.ts","sourceRoot":"","sources":["photon-ai.types.ts"],"names":[],"mappings":"AAAA;;;;;;;;;GASG;AACH,MAAM,WAAW,cAAc;IAC7B,kFAAkF;IAClF,OAAO,EAAE,OAAO,CAAC;IAEjB,qFAAqF;IACrF,WAAW,CAAC,EAAE,MAAM,CAAC;IAErB,kEAAkE;IAClE,WAAW,CAAC,EAAE,OAAO,CAAC;CACvB"}

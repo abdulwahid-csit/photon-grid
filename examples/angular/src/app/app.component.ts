@@ -22,8 +22,8 @@ export class AppComponent {
   /** Column definitions bound to the grid's `columns` input. */
   readonly columns: ColumnDef[] = [
     { colId: 'id', field: 'id', header: 'ID', type: 'number', width: 80 },
-    { colId: 'name', field: 'name', header: 'Name', type: 'string', width: 180 },
-    { colId: 'department', field: 'department', header: 'Department', type: 'string', width: 160, flex: 1 },
+    { colId: 'name', field: 'name', header: 'Name', type: 'string', width: 180, rowDrag: true },
+    { colId: 'department', field: 'department', header: 'Department', type: 'string', width: 160,},
     { colId: 'salary', field: 'salary', header: 'Salary', type: 'currency', width: 140 },
     { colId: 'active', field: 'active', header: 'Active', type: 'boolean', width: 100 },
   ];
@@ -32,7 +32,7 @@ export class AppComponent {
   readonly data: Record<string, unknown>[] = [
     { id: 1, name: 'Alice Johnson', department: 'Engineering', salary: 120000, active: true },
     { id: 2, name: 'Brian Smith', department: 'Design', salary: 95000, active: true },
-    { id: 3, name: 'Carla Diaz', department: 'Engineering', salary: 110000, active: false, rowDrag: true },
+    { id: 3, name: 'Carla Diaz', department: 'Engineering', salary: 110000, active: false,  },
     { id: 4, name: 'David Lee', department: 'Sales', salary: 88000, active: true },
     { id: 5, name: 'Ella Brown', department: 'Marketing', salary: 92000, active: false },
     { id: 6, name: 'Frank Miller', department: 'Engineering', salary: 105000, active: true },

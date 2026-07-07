@@ -36,7 +36,13 @@ export class ColumnStyleManager {
   }
 
   initFromColumns(columns: ColumnDef[]): void {
-    this.widths.clear();
+    // Keep the previous resolved widths so a flex column that stops
+    // participating in flex distribution (e.g. it just got pinned — pinned
+    // panels are content-sized and have no container to flex against) retains
+    // the width it last resolved to, instead of collapsing back to `minWidth`.
+    // resolveFlex overwrites this placeholder for columns still in the center.
+    const prevWidths = this.widths;
+    this.widths = new Map<string, number>();
     this.flexCols.clear();
     for (const col of columns) {
       if (this.userResizedWidths.has(col.colId)) {
@@ -45,7 +51,10 @@ export class ColumnStyleManager {
       } else if (col.flex != null) {
         const minW = col.minWidth ?? 80;
         this.flexCols.set(col.colId, { flex: col.flex, minWidth: minW });
-        this.widths.set(col.colId, minW); // placeholder until resolveFlex
+        // Carry the last resolved width forward as the placeholder (never below
+        // minWidth); falls back to minWidth on first render before any resolve.
+        const prev = prevWidths.get(col.colId);
+        this.widths.set(col.colId, prev != null ? Math.max(minW, prev) : minW);
       } else {
         this.widths.set(col.colId, col.width ?? col.minWidth ?? 150);
       }

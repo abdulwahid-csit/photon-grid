@@ -741,7 +741,7 @@ export class HeaderRenderer {
 
     if (col.resizable !== false) {
       const resizeHandle = createDiv('pg-th__resize-handle');
-      resizeHandle.innerHTML = '|';
+      // resizeHandle.innerHTML = '|';
       resizeHandle.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation(); this.startResize(e, col, th); });
       th.appendChild(resizeHandle);
     }

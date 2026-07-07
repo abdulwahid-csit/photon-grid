@@ -244,6 +244,12 @@ export class BodyRenderer {
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
+      // Display position for serial numbers AND row-shading parity. Must be the
+      // row's ABSOLUTE index in the visible-row list (`row.rowIndex`, assigned by
+      // RowModel.layoutNodes), NOT the loop counter `i` — `rows` here is only the
+      // virtualized window slice, so `i` restarts at 0 on every render and would
+      // make serials reset to 1 (and stripe parity flip) whenever the grid scrolls.
+      const displayIndex = row.rowIndex;
       let existing = this.renderedRowMap.get(row.nodeId);
 
       // Group header and footer rows carrying aggregated values must be fully
@@ -266,16 +272,16 @@ export class BodyRenderer {
         // never appear in these panels at all.
       } else if (existing && existing.center !== null) {
         // Normal update — row and center already in DOM
-        this.updatePanelRow(existing, row, i, options);
+        this.updatePanelRow(existing, row, displayIndex, options);
       } else if (existing) {
         // Center was invalidated (col range changed) — rebuild center only
-        this.updatePanelRow(existing, row, i, options);
-        const newCenter = this.buildSingleRow(row, i, 'center', centerCols, centerOffset, options);
+        this.updatePanelRow(existing, row, displayIndex, options);
+        const newCenter = this.buildSingleRow(row, displayIndex, 'center', centerCols, centerOffset, options);
         existing.center = newCenter;
         centerFrag.appendChild(newCenter);
       } else {
         // Entirely new row
-        const ps = this.buildPanelRow(row, i, leftCols, centerCols, rightCols, centerOffset, rightOffset, options);
+        const ps = this.buildPanelRow(row, displayIndex, leftCols, centerCols, rightCols, centerOffset, rightOffset, options);
         this.renderedRowMap.set(row.nodeId, ps);
         if (ps.left) leftFrag.appendChild(ps.left);
         if (ps.center) centerFrag.appendChild(ps.center);
@@ -757,6 +763,17 @@ export class BodyRenderer {
       // selection on any row whose index moved without a full rebuild.
       const cells = el.querySelectorAll<HTMLElement>('.pg-cell[data-row-index]');
       for (const cell of cells) cell.setAttribute('data-row-index', rowIndexStr);
+    }
+
+    // Keep the serial-number cell in sync. Its value is a display POSITION
+    // (`displayIndex + 1`), not row data, so it can change on any re-render that
+    // reuses this cached DOM — scrolling the virtual window, sorting, filtering,
+    // deleting a row above, or a drag-reorder — none of which rebuild the row.
+    // Without this the serial would keep the value baked in when the row was
+    // first built and silently drift out of order.
+    if (options.showSerialNumber && ps.left) {
+      const serial = ps.left.querySelector<HTMLElement>('.pg-cell__serial');
+      if (serial) serial.textContent = String(displayIndex + 1);
     }
 
     // Sync expand/collapse icon — expanded state can change without a full row rebuild.

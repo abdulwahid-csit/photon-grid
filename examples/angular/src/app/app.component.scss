@@ -30,6 +30,6 @@
 // Gives the grid a bounded, scrollable viewport. The grid fills this box; all
 // colours/borders inside come from Photon Grid's own theme tokens.
 .grid-wrapper {
-  height: 480px;
+  height:calc(100vh - 200px);
   width: 100%;
 }

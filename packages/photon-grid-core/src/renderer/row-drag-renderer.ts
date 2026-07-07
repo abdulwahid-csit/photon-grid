@@ -335,6 +335,10 @@ export class RowDragRenderer {
     }
 
     this.getOrCreateTopStyle().textContent = css;
+
+    // Keep the serial-number column consistent with the live preview: the rows
+    // have just been repositioned, so their serials must follow suit.
+    this.renumberSerialCells(virtual);
   }
 
   private clearDragTops(): void {
@@ -342,6 +346,55 @@ export class RowDragRenderer {
     if (s) s.textContent = '';
     this.bodyWrapEl?.querySelectorAll<HTMLElement>('.pg-row--drop-target')
       .forEach((el) => el.classList.remove('pg-row--drop-target', 'pg-row--drop-inside', 'pg-row--drop-before', 'pg-row--drop-after'));
+
+    // Restore the serial column to the real row order. On a committed drop the
+    // subsequent re-render already carries the correct serials, so this is a
+    // harmless identity pass; on a cancelled/reverted drag it undoes the
+    // preview renumbering (no re-render happens in that path).
+    this.renumberSerialCells(this.store.get('visibleRows') as RowNode[]);
+  }
+
+  /**
+   * Re-numbers the serial-number column so the on-screen serials read in
+   * ascending order top-to-bottom for the given row order.
+   *
+   * The set of serial VALUES currently rendered is invariant during a drag
+   * (only their row assignment changes), so those exact values are
+   * redistributed to the rows in `order`. This is intentionally agnostic to how
+   * serials are computed (absolute vs. window-relative) — it neither knows nor
+   * needs the numbering scheme, which avoids any value "jump" at drag start.
+   *
+   * Only rows currently in the DOM carry serial cells; `order` may be the full
+   * visible-row list and non-rendered rows are simply skipped. No-op when the
+   * serial column is disabled (no serial cells present).
+   *
+   * @param order - Row nodes in the desired visual order (previewed order while
+   *                dragging; real `visibleRows` order to restore).
+   */
+  private renumberSerialCells(order: ReadonlyArray<RowNode>): void {
+    if (!this.bodyWrapEl) return;
+
+    const spanByNode = new Map<string, HTMLElement>();
+    const values: number[] = [];
+    this.bodyWrapEl.querySelectorAll<HTMLElement>('.pg-cell--serial').forEach((cell) => {
+      const nodeId = cell.closest<HTMLElement>('[data-node-id]')?.getAttribute('data-node-id');
+      const span = cell.querySelector<HTMLElement>('.pg-cell__serial');
+      if (!nodeId || !span || spanByNode.has(nodeId)) return;
+      const n = parseInt(span.textContent ?? '', 10);
+      if (Number.isNaN(n)) return;
+      spanByNode.set(nodeId, span);
+      values.push(n);
+    });
+    if (spanByNode.size === 0) return;
+
+    // Ascending values assigned to rows in visual order → serials always count
+    // up the screen regardless of which row moved.
+    values.sort((a, b) => a - b);
+    let k = 0;
+    for (const row of order) {
+      const span = spanByNode.get(row.nodeId);
+      if (span) span.textContent = String(values[k++]);
+    }
   }
 
   private getOrCreateTopStyle(): HTMLStyleElement {

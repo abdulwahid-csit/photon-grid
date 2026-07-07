@@ -17,7 +17,7 @@ export const rootCss = `
   border-radius: var(--pg-borders-radius-md, 6px);
   background: var(--pg-colors-row-background, #fff);
   color: var(--pg-colors-text-primary, #0f172a);
-  font-family: var(--pg-typography-font-family, system-ui, sans-serif);
+  font-family: var(--pg-typography-font-family, "Inter", system-ui, sans-serif);
   font-size: var(--pg-typography-font-size-md, 13px);
   box-sizing: border-box;
   position: relative;

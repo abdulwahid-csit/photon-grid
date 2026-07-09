@@ -639,6 +639,7 @@ export class GridApi {
       expandedGroups: Array.from(this.ctx.store.get('expandedGroupKeys')),
       expandedTreeNodeIds: Array.from(this.ctx.store.get('expandedTreeNodeIds')),
       selectedRowIds: Array.from(this.ctx.store.get('selectedRowIds')),
+      chartModels: this.ctx.rangeChartService?.getChartModels() ?? [],
     };
   }
 
@@ -652,6 +653,14 @@ export class GridApi {
       this.ctx.store.set('expandedTreeNodeIds', new Set(state.expandedTreeNodeIds));
     }
     this.refresh();
+    // Restore charts only when the key is present, so partial states leave
+    // existing charts untouched. Done after refresh() so linked charts build
+    // from the restored rows. Existing charts are cleared first to avoid
+    // duplicate ids.
+    if (state.chartModels) {
+      this.ctx.rangeChartService?.disposeAll();
+      for (const model of state.chartModels) this.ctx.rangeChartService?.restoreChart(model);
+    }
   }
 
   // ──────────────────── Events ────────────────────

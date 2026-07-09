@@ -5,7 +5,7 @@ import type { MasterDetailConfig } from './master-detail.types';
 import type { PhotonAIConfig } from './photon-ai.types';
 import type { TreeDataConfig } from './tree-data.types';
 import type { ChartPanelType } from '../chart/chart-panel';
-import type { ChartModelPatch } from '../chart/model/chart-model';
+import type { ChartModel, ChartModelPatch } from '../chart/model/chart-model';
 import type {
   ChartCreatedEvent,
   ChartRangeSelectionChangedEvent,
@@ -290,6 +290,12 @@ export interface GridState {
   expandedGroups: string[];
   expandedTreeNodeIds: string[];
   selectedRowIds: string[];
+  /**
+   * Serialized range-chart models. Present when charts exist at capture time; on
+   * restore each model is recreated via the range chart service. Optional so
+   * older saved states — and grids without charts — remain valid.
+   */
+  chartModels?: ChartModel[];
 }
 
 export interface GridDimensions {

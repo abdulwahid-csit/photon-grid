@@ -79,6 +79,14 @@ export interface ChartModel {
   /** The grid cell range the chart was created from. */
   readonly cellRange: CellRange;
 
+  /**
+   * Column ids that form the chart's candidate pool — the union of every source
+   * cell range's columns, in visible order. Drives which columns the Set Up tab
+   * offers for the category and series roles, so non-contiguous multi-range
+   * selections are represented faithfully (not just the bounding {@link cellRange}).
+   */
+  readonly chartColIds: readonly string[];
+
   /** Column id whose values form the category (x) axis. */
   readonly categoryColId: string;
   /** Column ids plotted as series (one dataset each). */
@@ -110,6 +118,8 @@ export interface ChartModelSeed {
   readonly cellRange: CellRange;
   readonly categoryColId: string;
   readonly seriesColIds: readonly string[];
+  /** Candidate column pool. Defaults to the category plus every series column. */
+  readonly chartColIds?: readonly string[];
   readonly aggregation?: ChartAggregation;
   readonly title?: string;
 }
@@ -127,6 +137,9 @@ export function createDefaultChartModel(seed: ChartModelSeed): ChartModel {
     chartId: seed.chartId,
     chartType: seed.chartType,
     cellRange: seed.cellRange,
+    chartColIds: seed.chartColIds
+      ? [...seed.chartColIds]
+      : [seed.categoryColId, ...seed.seriesColIds],
     categoryColId: seed.categoryColId,
     seriesColIds: [...seed.seriesColIds],
     aggregation: seed.aggregation ?? 'sum',
@@ -157,6 +170,7 @@ export function applyModelChange(model: ChartModel, patch: ChartModelPatch): Cha
   const next: ChartModel = {
     ...model,
     ...patch,
+    chartColIds: patch.chartColIds ? [...patch.chartColIds] : model.chartColIds,
     seriesColIds: patch.seriesColIds ? [...patch.seriesColIds] : model.seriesColIds,
     title: patch.title ? { ...model.title, ...patch.title } : model.title,
     subtitle: patch.subtitle ? { ...model.subtitle, ...patch.subtitle } : model.subtitle,
@@ -176,6 +190,7 @@ export function applyModelChange(model: ChartModel, patch: ChartModelPatch): Cha
 export interface ChartModelPatch {
   readonly chartType?: ChartPanelType;
   readonly cellRange?: CellRange;
+  readonly chartColIds?: readonly string[];
   readonly categoryColId?: string;
   readonly seriesColIds?: readonly string[];
   readonly aggregation?: ChartAggregation;

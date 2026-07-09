@@ -18,8 +18,18 @@ const DIMENSION_TYPES = new Set<string>(['string', 'dropdown', 'date', 'boolean'
 
 /** Parameters for {@link RangeChartService.createRangeChart}. */
 export interface CreateRangeChartParams {
-  /** Grid cell range the chart is built from. */
+  /**
+   * Grid cell range the chart is built from. For a single-range selection this
+   * is the range; for a multi-range selection it should be the primary range,
+   * with the full set passed via {@link CreateRangeChartParams.cellRanges}.
+   */
   readonly cellRange: CellRange;
+  /**
+   * All selected cell ranges when charting a multi-range (e.g. non-contiguous
+   * column) selection. Their columns are unioned into the candidate pool. When
+   * omitted, only {@link CreateRangeChartParams.cellRange} is used.
+   */
+  readonly cellRanges?: readonly CellRange[];
   /** Chart type. Defaults to the grid's `defaultChartType`, then `column-grouped`. */
   readonly chartType?: ChartPanelType;
   /** Category (x-axis) column id. Auto-detected from the range when omitted. */
@@ -82,10 +92,10 @@ export class RangeChartService {
   updateChart(model: ChartModel): void {
     const controller = this.charts.get(model.chartId);
     if (!controller) return;
-    const current = controller.getModel();
     controller.updateModel({
       chartType: model.chartType,
       cellRange: model.cellRange,
+      chartColIds: model.chartColIds,
       categoryColId: model.categoryColId,
       seriesColIds: model.seriesColIds,
       aggregation: model.aggregation,
@@ -99,7 +109,6 @@ export class RangeChartService {
       series: model.series,
       style: model.style,
     });
-    void current;
   }
 
   /** Recreates a chart from a previously saved model, opening its panel. */

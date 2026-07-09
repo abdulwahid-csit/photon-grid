@@ -8,6 +8,7 @@ import type {
 import type { RowNode, RowDropPayload, RowClickPayload, RowEditPayload } from './row.types';
 import type { FilterModel, QuickFilterConfig } from './filter.types';
 import type { CellRange } from './grid.types';
+import type { ChartModel } from '../chart/model/chart-model';
 import type { TreeNodeToggleClickedPayload, TreeNodeTogglePayload, TreeChildrenLoadedPayload } from './tree-data.types';
 
 export const GridEventType = {
@@ -70,6 +71,7 @@ export const GridEventType = {
   CHART_CREATED: 'chart:created',
   CHART_DESTROYED: 'chart:destroyed',
   CHART_RANGE_SELECTION_CHANGED: 'chart:rangeSelectionChanged',
+  CHART_OPTIONS_CHANGED: 'chart:optionsChanged',
 
   LOADING_STARTED: 'loading:started',
   LOADING_STOPPED: 'loading:stopped',
@@ -192,6 +194,30 @@ export interface RowDetailHeightChangedEvent {
   height: number;
 }
 
+/** Fired once when a range chart is first created. */
+export interface ChartCreatedEvent {
+  chartId: string;
+  chartType: string;
+  cellRange: CellRange;
+  chartModel: ChartModel;
+}
+/** Fired when the grid data range backing a linked chart changes (re-render). */
+export interface ChartRangeSelectionChangedEvent {
+  chartId: string;
+  cellRange: CellRange;
+}
+/** Fired whenever the chart's configuration (type, series, styling…) changes. */
+export interface ChartOptionsChangedEvent {
+  chartId: string;
+  chartType: string;
+  chartModel: ChartModel;
+}
+/** Fired when a chart is destroyed. */
+export interface ChartDestroyedEvent {
+  chartId: string;
+  chartType: string;
+}
+
 export type GridEventMap = {
   [GridEventType.READY]: ReadyEvent;
   [GridEventType.DATA_CHANGED]: DataChangedEvent;
@@ -234,4 +260,8 @@ export type GridEventMap = {
   [GridEventType.TREE_CHILDREN_LOADED]: TreeChildrenLoadedPayload;
   [GridEventType.ROW_DETAIL_CLOSED]: RowDetailClosedEvent;
   [GridEventType.ROW_DETAIL_HEIGHT_CHANGED]: RowDetailHeightChangedEvent;
+  [GridEventType.CHART_CREATED]: ChartCreatedEvent;
+  [GridEventType.CHART_RANGE_SELECTION_CHANGED]: ChartRangeSelectionChangedEvent;
+  [GridEventType.CHART_OPTIONS_CHANGED]: ChartOptionsChangedEvent;
+  [GridEventType.CHART_DESTROYED]: ChartDestroyedEvent;
 };

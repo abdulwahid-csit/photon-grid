@@ -28,8 +28,7 @@ import { ThemeManager } from '../theme/theme-manager';
 import { IconRegistry } from '../icons/icon-registry';
 import { IconRenderer } from '../icons/icon-renderer';
 import { ChartEngine } from '../chart/chart-engine';
-import { ChartPanel } from '../chart/chart-panel';
-import { ChartAnalyzer } from '../chart/chart-analyzer';
+import { RangeChartService } from '../chart/range-chart-service';
 import { GridRenderer } from '../renderer/grid-renderer';
 import { GridApi } from './grid-api';
 import { GridEventType } from '../types/event.types';
@@ -283,15 +282,15 @@ export class GridCore {
       ctx.renderer.setPhotonAISubmitHandler((text) => this.photonAIService!.submit(text));
     }
 
-    const gridWrapper = ctx.containerEl.querySelector<HTMLElement>('.pg-grid') ?? ctx.containerEl;
-    const chartPanel = new ChartPanel(gridWrapper);
-    const chartAnalyzer = new ChartAnalyzer();
+    const rangeChartService = new RangeChartService(ctx);
+    ctx.rangeChartService = rangeChartService;
     ctx.cellSelectionEngine.setChartOpenCallback((type) => {
       const ranges = ctx.store.get('cellRanges') as import('../types/grid.types').CellRange[];
-      const rows = ctx.store.get('visibleRows') as import('../types/row.types').RowNode[];
-      const cols = ctx.columnModel.getVisibleColumns();
-      const result = chartAnalyzer.analyzeForType(type, ranges, rows, cols);
-      chartPanel.open(type as import('../chart/chart-panel').ChartPanelType, result?.title ?? '', result?.data ?? null);
+      if (ranges.length === 0) return;
+      rangeChartService.createRangeChart({
+        cellRange: ranges[0],
+        chartType: type as import('../chart/chart-panel').ChartPanelType,
+      });
     });
 
     ctx.renderer.setSearchCallback((term) => this.api.setQuickFilter(term));
@@ -317,6 +316,13 @@ export class GridCore {
   }
 
   private wireEventHandlers(ctx: GridContext): void {
+    // Bridge typed chart events to the GridOptions callbacks (mirrors onReady).
+    const o = ctx.options;
+    if (o.onChartCreated) ctx.eventBus.on(GridEventType.CHART_CREATED, (p) => o.onChartCreated!(p as import('../types/event.types').ChartCreatedEvent));
+    if (o.onChartRangeSelectionChanged) ctx.eventBus.on(GridEventType.CHART_RANGE_SELECTION_CHANGED, (p) => o.onChartRangeSelectionChanged!(p as import('../types/event.types').ChartRangeSelectionChangedEvent));
+    if (o.onChartOptionsChanged) ctx.eventBus.on(GridEventType.CHART_OPTIONS_CHANGED, (p) => o.onChartOptionsChanged!(p as import('../types/event.types').ChartOptionsChangedEvent));
+    if (o.onChartDestroyed) ctx.eventBus.on(GridEventType.CHART_DESTROYED, (p) => o.onChartDestroyed!(p as import('../types/event.types').ChartDestroyedEvent));
+
     // Sort changed from header/menu clicks → snapshot positions then re-run pipeline
     ctx.eventBus.on(GridEventType.SORT_CHANGED, () => {
       const currentRows = ctx.store.get('visibleRows') as Array<{ nodeId: string; top: number }>;
@@ -771,6 +777,7 @@ export class GridCore {
   }
 
   destroy(): void {
+    this.ctx.rangeChartService?.disposeAll();
     this.api.destroy();
   }
 }

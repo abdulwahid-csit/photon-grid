@@ -4,6 +4,28 @@ import type { BuiltInThemeName } from './theme.types';
 import type { MasterDetailConfig } from './master-detail.types';
 import type { PhotonAIConfig } from './photon-ai.types';
 import type { TreeDataConfig } from './tree-data.types';
+import type { ChartPanelType } from '../chart/chart-panel';
+import type { ChartModelPatch } from '../chart/model/chart-model';
+import type {
+  ChartCreatedEvent,
+  ChartRangeSelectionChangedEvent,
+  ChartOptionsChangedEvent,
+  ChartDestroyedEvent,
+} from './event.types';
+
+/** Which configuration tabs the chart tool panel exposes, and the default. */
+export interface ChartToolPanelsDef {
+  /** Tabs to show, in order. Defaults to all three. */
+  panels?: ChartToolPanelName[];
+  /** Tab shown first when the tool panel opens. Defaults to `'chart'`. */
+  defaultToolPanel?: ChartToolPanelName;
+}
+
+/** Identifier of a chart tool-panel tab. */
+export type ChartToolPanelName = 'chart' | 'setup' | 'customize';
+
+/** Item in the chart panel's `⋮` toolbar menu. */
+export type ChartToolbarItem = 'edit' | 'advancedSettings' | 'unlink' | 'download';
 
 export interface SortConfig {
   colId: string;
@@ -172,6 +194,33 @@ export interface GridOptions {
   enableCharts?: boolean;
   enableFullScreen?: boolean;
 
+  /**
+   * Chart type pre-selected when a range chart is created without an explicit
+   * type. Defaults to `'column-grouped'`.
+   */
+  defaultChartType?: ChartPanelType;
+
+  /**
+   * Default chart configuration merged over every newly created chart's model
+   * (titles, legend, axes, series colors, style). Applied once at creation.
+   */
+  chartThemeOverrides?: ChartModelPatch;
+
+  /**
+   * Controls which tabs the chart configuration tool panel exposes and which
+   * one opens first. Defaults to all tabs, starting on `'chart'`.
+   */
+  chartToolPanelsDef?: ChartToolPanelsDef;
+
+  /**
+   * Customizes the chart panel's `⋮` toolbar menu. Return the items to show,
+   * in order. Return an empty array to hide the menu entirely.
+   *
+   * @param defaultItems - The items Photon would show by default.
+   * @returns The items to render.
+   */
+  getChartToolbarItems?: (defaultItems: ChartToolbarItem[]) => ChartToolbarItem[];
+
   showGroupingBar?: boolean;
 
   /** Column-group header configuration. @see {@link ColumnGroupConfig} */
@@ -220,6 +269,15 @@ export interface GridOptions {
   suppressColumnVirtualisation?: boolean;
 
   onReady?: (api: unknown) => void;
+
+  /** Fired once when a range chart is created. */
+  onChartCreated?: (event: ChartCreatedEvent) => void;
+  /** Fired when a linked chart's grid data range changes and it re-renders. */
+  onChartRangeSelectionChanged?: (event: ChartRangeSelectionChangedEvent) => void;
+  /** Fired when a chart's configuration changes (type, series, styling…). */
+  onChartOptionsChanged?: (event: ChartOptionsChangedEvent) => void;
+  /** Fired when a chart is destroyed. */
+  onChartDestroyed?: (event: ChartDestroyedEvent) => void;
 }
 
 export interface GridState {

@@ -17,6 +17,7 @@ import type { CellSelectionEngine } from '../cell-selection/cell-selection-engin
 import type { ThemeManager } from '../theme/theme-manager';
 import type { IconRegistry } from '../icons/icon-registry';
 import type { ChartEngine } from '../chart/chart-engine';
+import type { RangeChartService } from '../chart/range-chart-service';
 import type { AggregationEngine } from '../engines/aggregation/aggregation-engine';
 import type { GridRenderer } from '../renderer/grid-renderer';
 import type { UndoRedoEngine } from '../engines/undo-redo/undo-redo-engine';
@@ -47,6 +48,12 @@ export interface GridContext {
   themeManager: ThemeManager;
   iconRegistry: IconRegistry;
   chartEngine: ChartEngine;
+  /**
+   * Manages AG-Grid-style range charts (configurable, live-linked). Assigned in
+   * `GridCore.initialize` once the grid DOM exists, so it is optional on the
+   * context type but always present by the time chart APIs run.
+   */
+  rangeChartService?: RangeChartService;
   /** Manages undo/redo history for cell edits, cut, and paste operations. */
   undoRedoEngine: UndoRedoEngine;
   /** Drives Master/Detail row expansion state, detail-data caching, and height tracking. */

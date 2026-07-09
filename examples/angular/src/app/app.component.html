@@ -7,6 +7,16 @@
     </p>
   </header>
 
+  <!-- Referenced by the `country` column's template-based renderer (see
+       app.component.ts). Renders nothing on its own — an <ng-template> is
+       only ever instantiated through its TemplateRef. -->
+  <ng-template #countryTpl let-params>
+    <div class="country-cell">
+      <span class="country-cell__flag"><img [src]="'http://flagcdn.com/32x24/' + COUNTRY_FLAGS[params.value]?.toLowerCase() + '.png'" /></span>
+      <span class="country-cell__name">{{ params.value }}</span>
+    </div>
+  </ng-template>
+
   <section class="grid-wrapper">
     <photon-grid
       [columns]="columns"

@@ -7,7 +7,7 @@
  */
 export const sparklineCss = `/* ──────────────────── Context menu submenu ──────────────────── */
 .pg-context-menu__item { display: flex; align-items: center; gap: 8px; }
-.pg-context-menu__item--has-sub { position: relative; padding-right: 28px; }
+.pg-context-menu__item--has-sub { position: relative; padding-right: 28px; max-width: stretch; }
 .pg-context-menu__item--has-sub > .pg-context-menu__sub { display: none; }
 .pg-context-menu__item--has-sub:hover > .pg-context-menu__sub { display: block; }
 .pg-context-menu__sub {

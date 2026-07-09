@@ -1,9 +1,12 @@
 import {
     AfterViewInit,
+    ApplicationRef,
     ChangeDetectionStrategy,
     Component,
     ElementRef,
+    EnvironmentInjector,
     EventEmitter,
+    Injector,
     Input,
     OnChanges,
     OnDestroy,
@@ -18,7 +21,6 @@ import type {
     CellClickedEvent,
     CellSelectionChangedEvent,
     CellValueChangedEvent,
-    ColumnDef,
     ColumnMovedEvent,
     ColumnResizedEvent,
     ColumnsStateChangedEvent,
@@ -35,14 +37,23 @@ import type {
     ThemeChangedEvent,
 } from 'photon-grid-core';
 
+import { RendererAdapter } from './angular-renderer.adapter';
+import type {ColumnDef as GridColumnDef } from './angular-renderer.types';
+
 /**
  * Angular wrapper around the framework-agnostic Photon Grid core.
  *
- * The component owns a single {@link GridCore} instance, keeps it in sync with
- * the `columns`, `dataSet` and `options` inputs, and re-emits the grid's
- * internal events as strongly-typed Angular `@Output`s. All business logic
- * lives in the core; this class only bridges Angular's binding system to the
- * core's imperative API.
+ * The component owns a single {@link GridCore} instance, keeps it in sync
+ * with the `columns`, `dataSet` and `options` inputs, and re-emits the
+ * grid's internal events as strongly-typed Angular `@Output`s.
+ *
+ * Cell/header/editor/etc. renderers may be plain functions (raw
+ * `HTMLElement`/`string`, identical to the core's own API), or declarative
+ * Angular specs — `{ kind: 'component', component: MyBadge }` or
+ * `{ kind: 'template', template: myTemplateRef }` — via {@link GridColumnDef}.
+ * An internal {@link RendererAdapter} mounts/unmounts those for every
+ * renderer invocation and disposes them as soon as the core discards their
+ * host element, so virtualization/recycling never leaks components.
  *
  * @example
  * ```html
@@ -53,6 +64,34 @@ import type {
  *   (gridReady)="onReady($event)"
  *   (rowClicked)="onRowClicked($event)">
  * </photon-grid>
+ * ```
+ *
+ * @example Component-based cell renderer
+ * ```ts
+ * columns: GridColumnDef[] = [{
+ *   colId: 'status', field: 'status', header: 'Status', type: 'string',
+ *   renderer: {
+ *     display: {
+ *       kind: 'component',
+ *       component: StatusBadgeComponent,
+ *       inputs: (params) => ({ value: params.value }),
+ *     },
+ *   },
+ * }];
+ * ```
+ *
+ * @example Template-based cell renderer
+ * ```html
+ * <ng-template #statusTpl let-params>
+ *   <span class="badge">{{ params.value }}</span>
+ * </ng-template>
+ * ```
+ * ```ts
+ * @ViewChild('statusTpl') statusTpl!: TemplateRef<RendererContext<DisplayRendererParams>>;
+ * columns: GridColumnDef[] = [{
+ *   colId: 'status', field: 'status', header: 'Status', type: 'string',
+ *   renderer: { display: { kind: 'template', template: this.statusTpl } },
+ * }];
  * ```
  */
 @Component({
@@ -71,9 +110,11 @@ export class PhotonGridComponent implements AfterViewInit, OnChanges, OnDestroy 
     /**
      * Column definitions. Bound to {@link GridApi.setColumns} on change.
      * Provided as a dedicated input rather than through `options.columns`.
+     * Renderer slots accept Angular components/templates in addition to
+     * plain functions — see {@link GridColumnDef}.
      */
     @Input()
-    columns: ColumnDef[] = [];
+    columns: GridColumnDef[] = [];
 
     /**
      * Row data. Bound to {@link GridApi.setData} on change. Provided as a
@@ -148,6 +189,28 @@ export class PhotonGridComponent implements AfterViewInit, OnChanges, OnDestroy 
     /** Unsubscribe callbacks for every wired core event; drained on teardown. */
     private readonly disposers: Array<() => void> = [];
 
+    /**
+     * Bridges Angular component/template renderer specs to the core's
+     * plain-function `ColumnRendererMap`. Owned for the lifetime of this
+     * component (not DI-provided) so its mounted-view tracking is scoped
+     * to this grid instance alone.
+     *
+     * Built explicitly in the constructor body (rather than as a field
+     * initializer referencing constructor-parameter properties) so it isn't
+     * subject to field-initializer-vs-parameter-property ordering: at this
+     * point `appRef`/`environmentInjector`/`elementInjector` are plain local
+     * constructor arguments, guaranteed to already be set.
+     */
+    private readonly rendererAdapter: RendererAdapter;
+
+    constructor(
+        appRef: ApplicationRef,
+        environmentInjector: EnvironmentInjector,
+        elementInjector: Injector,
+    ) {
+        this.rendererAdapter = new RendererAdapter(appRef, environmentInjector, elementInjector);
+    }
+
     ngAfterViewInit(): void {
         this.createGrid();
     }
@@ -166,7 +229,7 @@ export class PhotonGridComponent implements AfterViewInit, OnChanges, OnDestroy 
         }
 
         if (changes['columns'] && !changes['columns'].firstChange) {
-            this.grid.api.setColumns(this.columns);
+            this.grid.api.setColumns(this.rendererAdapter.adaptColumns(this.columns));
         }
 
         if (changes['dataSet'] && !changes['dataSet'].firstChange) {
@@ -180,9 +243,13 @@ export class PhotonGridComponent implements AfterViewInit, OnChanges, OnDestroy 
 
     /** Builds the core from the current inputs and wires its events. */
     private createGrid(): void {
+        // Must be observing *before* the core mounts anything, so every
+        // renderer-produced element is tracked for cleanup from the start.
+        this.rendererAdapter.observe(this.gridHost.nativeElement);
+
         const mergedOptions: GridOptions = {
             ...this.options,
-            columns: this.columns,
+            columns: this.rendererAdapter.adaptColumns(this.columns),
             data: this.dataSet,
         };
 
@@ -202,7 +269,16 @@ export class PhotonGridComponent implements AfterViewInit, OnChanges, OnDestroy 
         this.createGrid();
     }
 
-    /** Disposes event subscriptions and the core instance, if any. */
+    /**
+     * Disposes event subscriptions, the renderer adapter (stopping its
+     * observer and destroying every mounted component/embedded view), and
+     * the core instance itself, if any.
+     *
+     * Order matters: the adapter is disposed *after* `grid.destroy()` so
+     * any teardown-time DOM removal is irrelevant (dispose() unconditionally
+     * destroys all remaining mounts rather than depending on the
+     * MutationObserver having flushed).
+     */
     private teardownGrid(): void {
         for (const dispose of this.disposers) {
             dispose();
@@ -211,6 +287,8 @@ export class PhotonGridComponent implements AfterViewInit, OnChanges, OnDestroy 
 
         this.grid?.destroy();
         this.grid = undefined;
+
+        this.rendererAdapter.dispose();
     }
 
     /** Subscribes every core event to its corresponding `@Output` emitter. */

@@ -1,15 +1,60 @@
 {
   "name": "photon-grid-react",
-  "private": true,
-  "version": "0.0.0",
+  "version": "0.0.3",
+  "description": "A high-performance React data grid built on Photon Grid Core with virtualization, sorting, filtering, editing, grouping, and custom React renderers.",
   "type": "module",
+  "keywords": [
+    "react",
+    "react-grid",
+    "react-data-grid",
+    "react-table",
+    "datatable",
+    "data-grid",
+    "grid",
+    "table",
+    "virtual-scroll",
+    "virtualization",
+    "infinite-scroll",
+    "tree-grid",
+    "grouping",
+    "sorting",
+    "filtering",
+    "pagination",
+    "spreadsheet",
+    "excel",
+    "editable-table",
+    "enterprise-grid",
+    "ag-grid-alternative",
+    "react-components",
+    "typescript",
+    "photon-grid",
+    "photon-grid-react"
+  ],
+  "homepage": "https://github.com/abdulwahid-csit/photon-grid",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/abdulwahid-csit/photon-grid.git"
+  },
+  "bugs": {
+    "url": "https://github.com/abdulwahid-csit/photon-grid/issues"
+  },
+  "license": "MIT",
+  "author": "Abdul Wahid",
+  "main": "./index.cjs",
+  "module": "./index.js",
+  "types": "./index.d.ts",
+  "files": [
+    "*"
+  ],
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && npm run copy-files",
+    "copy-files": "copy package.json dist && copy README.md dist && copy LICENSE dist",
     "lint": "eslint .",
     "preview": "vite preview"
   },
   "dependencies": {
+    "photon-grid-core": "^0.0.3",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },

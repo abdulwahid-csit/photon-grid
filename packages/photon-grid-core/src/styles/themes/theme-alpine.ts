@@ -24,7 +24,7 @@ export const themeAlpineCss = `
   --pg-colors-resize-handle-color: #d1d5db;
 
   --pg-typography-font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
-  --pg-typography-font-size-md: 13px;
+  --pg-typography-font-size-md: 0.8rem;
   --pg-typography-font-size-sm: 12px;
   --pg-typography-font-size-xs: 11px;
   --pg-typography-font-weight-medium: 400;

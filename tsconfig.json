@@ -6,5 +6,6 @@
         "./packages/photon-grid-core/src/index.ts"
       ]
     }
-  }
+  },
+  "jsx": "react-jsx"
 }

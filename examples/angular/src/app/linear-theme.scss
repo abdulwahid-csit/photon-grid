@@ -1,0 +1,1117 @@
+/* ==========================================================================
+   Photon Grid Theme
+   Theme: Linear
+   Inspired by: Linear • Vercel • Notion
+   Version: 1.0
+   ========================================================================== */
+
+.pg-theme-linear,
+.pg-theme-linear.pg-grid {
+
+  /* ==========================================================================
+     COLORS
+     ========================================================================== */
+
+  --pg-colors-primary: #5b6cff;
+  --pg-colors-primary-hover: #4958eb;
+  --pg-colors-primary-active: #3946c9;
+  --pg-colors-primary-text: #ffffff;
+
+  --pg-colors-secondary: #6b7280;
+  --pg-colors-secondary-hover: #4b5563;
+
+  --pg-colors-background: #f8fafc;
+  --pg-colors-background-alt: #f2f5f9;
+
+  --pg-colors-surface: #ffffff;
+  --pg-colors-surface-raised: #ffffff;
+  --pg-colors-surface-overlay: #ffffff;
+  --pg-colors-surface-sunken: #f9fafb;
+
+  --pg-colors-border: #e8edf3;
+  --pg-colors-border-strong: #d8dee8;
+  --pg-colors-border-focus: #5b6cff;
+
+  --pg-colors-text-primary: #111827;
+  --pg-colors-text-secondary: #6b7280;
+  --pg-colors-text-disabled: #a0a8b8;
+  --pg-colors-text-inverse: #ffffff;
+
+  /* ==========================================================================
+     HEADER
+     ========================================================================== */
+
+  --pg-colors-header-background: #fcfcfd;
+  --pg-colors-header-text: #374151;
+  --pg-colors-header-border: #edf1f5;
+  --pg-colors-header-hover: #f6f8fb;
+
+  /* ==========================================================================
+     ROWS
+     ========================================================================== */
+
+  --pg-colors-row-background: #ffffff;
+  --pg-colors-row-background-alt: #fcfcfd;
+  --pg-colors-row-hover: #f7f9fc;
+  --pg-colors-row-selected: #eef2ff;
+  --pg-colors-row-selected-border: #b7c4ff;
+
+  /* ==========================================================================
+     CELL EDIT
+     ========================================================================== */
+
+  --pg-colors-cell-edit-background: #ffffff;
+  --pg-colors-cell-edit-border: #5b6cff;
+
+  /* ==========================================================================
+     RANGE SELECTION
+     ========================================================================== */
+
+  --pg-colors-selection-background: rgba(91,108,255,.10);
+  --pg-colors-selection-border: rgba(91,108,255,.95);
+  --pg-colors-selection-corner: #5b6cff;
+
+  /* ==========================================================================
+     FOOTER
+     ========================================================================== */
+
+  --pg-colors-footer-background: #fcfcfd;
+  --pg-colors-footer-text: #4b5563;
+  --pg-colors-footer-border: #edf1f5;
+
+  /* ==========================================================================
+     PINNED
+     ========================================================================== */
+
+  --pg-colors-pinned-background: #ffffff;
+  --pg-colors-pinned-shadow:
+      8px 0 24px rgba(15,23,42,.05);
+
+  /* ==========================================================================
+     FILTERS
+     ========================================================================== */
+
+  --pg-colors-filter-background: #ffffff;
+  --pg-colors-filter-border: #dce4ef;
+
+  --pg-colors-filter-active-background: #eef2ff;
+  --pg-colors-filter-active-border: #9cb2ff;
+
+  /* ==========================================================================
+     SCROLLBAR
+     ========================================================================== */
+
+  --pg-colors-scrollbar-track: transparent;
+  --pg-colors-scrollbar-thumb: #d4dbe7;
+  --pg-colors-scrollbar-thumb-hover: #bcc5d4;
+
+  /* ==========================================================================
+     RESIZE
+     ========================================================================== */
+
+  --pg-colors-resize-handle-color: #dde3ec;
+  --pg-colors-resize-handle-active-color: #5b6cff;
+
+  /* ==========================================================================
+     DRAG
+     ========================================================================== */
+
+  --pg-colors-drag-preview-background: #ffffff;
+  --pg-colors-drag-preview-border: #dbe2ec;
+  --pg-colors-drag-over-highlight: rgba(91,108,255,.05);
+
+  /* ==========================================================================
+     CHECKBOX
+     ========================================================================== */
+
+  --pg-colors-checkbox-background: #ffffff;
+  --pg-colors-checkbox-border: #cfd6e3;
+  --pg-colors-checkbox-checked-background: #5b6cff;
+
+  /* ==========================================================================
+     BADGES
+     ========================================================================== */
+
+  --pg-colors-badge-background: #eef2ff;
+  --pg-colors-badge-text: #4f46e5;
+
+  /* ==========================================================================
+     GROUP ROW
+     ========================================================================== */
+
+  --pg-colors-group-row-background: #f8fafc;
+  --pg-colors-group-row-border: #e8edf3;
+
+  /* ==========================================================================
+     TOOLTIP
+     ========================================================================== */
+
+  --pg-colors-tooltip-background: #111827;
+  --pg-colors-tooltip-text: #f9fafb;
+
+  /* ==========================================================================
+     STATUS
+     ========================================================================== */
+
+  --pg-colors-success: #16a34a;
+  --pg-colors-success-light: #dcfce7;
+
+  --pg-colors-warning: #d97706;
+  --pg-colors-warning-light: #fef3c7;
+
+  --pg-colors-error: #dc2626;
+  --pg-colors-error-light: #fee2e2;
+
+  --pg-colors-info: #0284c7;
+  --pg-colors-info-light: #e0f2fe;
+
+  /* ==========================================================================
+     TYPOGRAPHY
+     ========================================================================== */
+
+  --pg-typography-font-family:
+      Inter,
+      ui-sans-serif,
+      system-ui,
+      -apple-system,
+      BlinkMacSystemFont,
+      "Segoe UI",
+      sans-serif;
+
+  --pg-typography-font-family-mono:
+      "JetBrains Mono",
+      Consolas,
+      monospace;
+
+  --pg-typography-font-size-xs:11px;
+  --pg-typography-font-size-sm:12px;
+//   --pg-typography-font-size-md:13px;
+  --pg-typography-font-size-lg:14px;
+  --pg-typography-font-size-xl:16px;
+
+  --pg-typography-font-weight-regular:400;
+  --pg-typography-font-weight-medium:500;
+  --pg-typography-font-weight-semi-bold:600;
+  --pg-typography-font-weight-bold:700;
+
+  --pg-typography-line-height-tight:1.2;
+  --pg-typography-line-height-base:1.45;
+  --pg-typography-line-height-relaxed:1.7;
+
+  --pg-typography-letter-spacing-tight:-0.02em;
+  --pg-typography-letter-spacing-base:0;
+  --pg-typography-letter-spacing-wide:.03em;
+
+  /* ==========================================================================
+     SPACING
+     ========================================================================== */
+
+  --pg-spacing-xs:4px;
+  --pg-spacing-sm:8px;
+  --pg-spacing-md:12px;
+  --pg-spacing-lg:16px;
+  --pg-spacing-xl:24px;
+  --pg-spacing-xxl:32px;
+
+  /* ==========================================================================
+     SIZING
+     ========================================================================== */
+
+  --pg-sizing-row-height-sm:34px;
+  --pg-sizing-row-height-md:40px;
+  --pg-sizing-row-height-lg:52px;
+
+  --pg-sizing-header-row-height:42px;
+  --pg-sizing-footer-row-height:42px;
+  --pg-sizing-filter-row-height:36px;
+
+  --pg-sizing-scrollbar-width:10px;
+
+  --pg-sizing-resize-handle-width:4px;
+  --pg-sizing-column-min-width:48px;
+
+  --pg-sizing-checkbox-size:16px;
+
+  --pg-sizing-icon-size-sm:14px;
+  --pg-sizing-icon-size-md:16px;
+  --pg-sizing-icon-size-lg:20px;
+
+  /* ==========================================================================
+     BORDERS
+     ========================================================================== */
+
+  --pg-borders-radius-sm:6px;
+  --pg-borders-radius-md:10px;
+  --pg-borders-radius-lg:14px;
+  --pg-borders-radius-pill:999px;
+
+  --pg-borders-width-thin:1px;
+  --pg-borders-width-base:1px;
+  --pg-borders-width-thick:2px;
+
+  --pg-borders-style-base:solid;
+
+  /* ==========================================================================
+     SHADOWS
+     ========================================================================== */
+
+  --pg-shadows-none:none;
+
+  --pg-shadows-xs:
+      0 1px 2px rgba(15,23,42,.04);
+
+  --pg-shadows-sm:
+      0 2px 4px rgba(15,23,42,.05),
+      0 1px 2px rgba(15,23,42,.04);
+
+  --pg-shadows-md:
+      0 8px 24px rgba(15,23,42,.06),
+      0 2px 8px rgba(15,23,42,.04);
+
+  --pg-shadows-lg:
+      0 18px 48px rgba(15,23,42,.08);
+
+  --pg-shadows-dropdown:
+      0 24px 60px rgba(15,23,42,.12);
+
+  --pg-shadows-tooltip:
+      0 12px 30px rgba(15,23,42,.18);
+
+  --pg-shadows-pinned-left:
+      8px 0 20px rgba(15,23,42,.06);
+
+  --pg-shadows-pinned-right:
+      -8px 0 20px rgba(15,23,42,.06);
+
+  --pg-shadows-drag-preview:
+      0 24px 50px rgba(15,23,42,.15);
+
+  /* ==========================================================================
+     TRANSITIONS
+     ========================================================================== */
+
+  --pg-transitions-duration-fast:80ms;
+  --pg-transitions-duration-base:140ms;
+  --pg-transitions-duration-slow:220ms;
+
+  --pg-transitions-easing-base:cubic-bezier(.2,.8,.2,1);
+  --pg-transitions-easing-decelerate:cubic-bezier(0,0,.2,1);
+  --pg-transitions-easing-accelerate:cubic-bezier(.4,0,1,1);
+}
+
+
+/* ==========================================================================
+   PHOTON LINEAR THEME
+   PART 2 — GRID LAYOUT & COMPONENTS
+   ========================================================================== */
+
+.pg-theme-linear,
+.pg-theme-linear.pg-grid {
+
+    background: var(--pg-colors-background);
+    color: var(--pg-colors-text-primary);
+
+    font-family: var(--pg-typography-font-family);
+    font-size: var(--pg-typography-font-size-md, 0.8rem);
+
+    border: 1px solid var(--pg-colors-border);
+    border-radius: 14px;
+
+    overflow: hidden;
+
+    box-shadow: var(--pg-shadows-lg);
+
+    transition:
+        background var(--pg-transitions-duration-base),
+        border-color var(--pg-transitions-duration-base);
+}
+
+
+/* ============================================================
+   VIEWPORT
+   ============================================================ */
+
+.pg-theme-linear .pg-viewport,
+.pg-theme-linear .pg-body,
+.pg-theme-linear .pg-center-container {
+
+    background: var(--pg-colors-row-background);
+}
+
+
+/* ============================================================
+   HEADER
+   ============================================================ */
+
+.pg-theme-linear .pg-header {
+
+    background: var(--pg-colors-header-background);
+
+    border-bottom: 1px solid var(--pg-colors-header-border);
+
+    box-shadow:
+        inset 0 -1px 0 rgba(255,255,255,.7);
+}
+
+
+/* ============================================================
+   HEADER ROW
+   ============================================================ */
+
+.pg-theme-linear .pg-header-row {
+
+    height: var(--pg-sizing-header-row-height);
+
+    background: inherit;
+}
+
+
+/* ============================================================
+   HEADER CELL
+   ============================================================ */
+
+.pg-theme-linear .pg-header-cell {
+
+    background: inherit;
+
+    color: var(--pg-colors-header-text);
+
+    font-weight: 600;
+
+    letter-spacing: -.02em;
+
+    border-right: 1px solid var(--pg-colors-header-border);
+
+    transition: all .16s ease;
+
+    position: relative;
+}
+
+.pg-theme-linear .pg-header-cell:last-child{
+
+    border-right:none;
+}
+
+.pg-theme-linear .pg-header-cell:hover{
+
+    background: var(--pg-colors-header-hover);
+}
+
+
+/* subtle highlight */
+
+.pg-theme-linear .pg-header-cell::after{
+
+    content:"";
+
+    position:absolute;
+
+    inset:auto 12px 0 12px;
+
+    height:2px;
+
+    background:transparent;
+
+    transition:.18s;
+}
+
+.pg-theme-linear .pg-header-cell:hover::after{
+
+    background:var(--pg-colors-primary);
+}
+
+
+/* ============================================================
+   HEADER TITLE
+   ============================================================ */
+
+.pg-theme-linear .pg-header-title{
+
+    white-space:nowrap;
+
+    overflow:hidden;
+
+    text-overflow:ellipsis;
+}
+
+
+/* ============================================================
+   ROWS
+   ============================================================ */
+
+.pg-theme-linear .pg-row{
+
+    background:var(--pg-colors-row-background);
+
+    border-bottom:1px solid var(--pg-colors-border);
+
+    transition:
+        background .12s,
+        box-shadow .12s;
+}
+
+.pg-theme-linear .pg-row:nth-child(even){
+
+    background:var(--pg-colors-row-background-alt);
+}
+
+
+/* ============================================================
+   ROW HOVER
+   ============================================================ */
+
+.pg-theme-linear .pg-row:hover{
+
+    background:var(--pg-colors-row-hover);
+
+    z-index:2;
+}
+
+
+/* ============================================================
+   SELECTED ROW
+   ============================================================ */
+
+.pg-theme-linear .pg-row.pg-selected{
+
+    background:var(--pg-colors-row-selected);
+
+    box-shadow:
+        inset 3px 0 0 var(--pg-colors-primary);
+}
+
+
+/* ============================================================
+   CELLS
+   ============================================================ */
+
+.pg-theme-linear .pg-cell{
+
+    color:var(--pg-colors-text-primary);
+
+    border-right:1px solid rgba(232,237,243,.65);
+
+    font-size:13px;
+
+    transition:
+        background .12s,
+        color .12s;
+
+    white-space:nowrap;
+
+    overflow:hidden;
+
+    text-overflow:ellipsis;
+}
+
+.pg-theme-linear .pg-cell:last-child{
+
+    border-right:none;
+}
+
+
+/* ============================================================
+   CELL HOVER
+   ============================================================ */
+
+.pg-theme-linear .pg-cell:hover{
+
+    background:rgba(91,108,255,.035);
+}
+
+
+/* ============================================================
+   FOCUSED CELL
+   ============================================================ */
+
+.pg-theme-linear .pg-cell.pg-focused{
+
+    outline:none;
+
+    background:rgba(91,108,255,.06);
+
+    box-shadow:
+        inset 0 0 0 2px var(--pg-colors-primary);
+}
+
+
+/* ============================================================
+   RANGE SELECTION
+   ============================================================ */
+
+.pg-theme-linear .pg-cell.pg-range-selected{
+
+    background:var(--pg-colors-selection-background);
+
+    box-shadow:
+        inset 0 0 0 1px var(--pg-colors-selection-border);
+}
+
+
+/* ============================================================
+   EDITING
+   ============================================================ */
+
+.pg-theme-linear .pg-cell.pg-editing{
+
+    background:var(--pg-colors-cell-edit-background);
+
+    box-shadow:
+        inset 0 0 0 2px var(--pg-colors-cell-edit-border);
+
+    z-index:5;
+}
+
+
+/* ============================================================
+   PINNED COLUMNS
+   ============================================================ */
+
+.pg-theme-linear .pg-pinned-left,
+.pg-theme-linear .pg-pinned-right{
+
+    background:var(--pg-colors-pinned-background);
+
+    z-index:10;
+}
+
+.pg-theme-linear .pg-pinned-left{
+
+    box-shadow:var(--pg-shadows-pinned-left);
+}
+
+.pg-theme-linear .pg-pinned-right{
+
+    box-shadow:var(--pg-shadows-pinned-right);
+}
+
+
+/* ============================================================
+   GROUP ROWS
+   ============================================================ */
+
+.pg-theme-linear .pg-group-row{
+
+    background:var(--pg-colors-group-row-background);
+
+    font-weight:600;
+
+    color:var(--pg-colors-text-primary);
+
+    border-bottom:1px solid var(--pg-colors-group-row-border);
+}
+
+
+/* ============================================================
+   FOOTER
+   ============================================================ */
+
+.pg-theme-linear .pg-footer{
+
+    background:var(--pg-colors-footer-background);
+
+    border-top:1px solid var(--pg-colors-footer-border);
+
+    color:var(--pg-colors-footer-text);
+}
+
+
+/* ============================================================
+   SCROLLBARS
+   ============================================================ */
+
+.pg-theme-linear ::-webkit-scrollbar{
+
+    width:10px;
+    height:10px;
+}
+
+.pg-theme-linear ::-webkit-scrollbar-track{
+
+    background:transparent;
+}
+
+.pg-theme-linear ::-webkit-scrollbar-thumb{
+
+    background:var(--pg-colors-scrollbar-thumb);
+
+    border-radius:999px;
+
+    border:2px solid transparent;
+
+    background-clip:padding-box;
+}
+
+.pg-theme-linear ::-webkit-scrollbar-thumb:hover{
+
+    background:var(--pg-colors-scrollbar-thumb-hover);
+
+    background-clip:padding-box;
+}
+
+
+/* ============================================================
+   RESIZE HANDLE
+   ============================================================ */
+
+.pg-theme-linear .pg-column-resize-handle{
+
+    width:4px;
+
+    background:transparent;
+
+    transition:.12s;
+}
+
+.pg-theme-linear .pg-column-resize-handle:hover{
+
+    background:var(--pg-colors-primary);
+}
+
+
+/* ============================================================
+   DRAG PREVIEW
+   ============================================================ */
+
+.pg-theme-linear .pg-drag-preview{
+
+    background:var(--pg-colors-drag-preview-background);
+
+    border:1px solid var(--pg-colors-drag-preview-border);
+
+    border-radius:10px;
+
+    box-shadow:var(--pg-shadows-drag-preview);
+
+    backdrop-filter:blur(12px);
+}
+
+/* ==========================================================================
+   PHOTON LINEAR THEME
+   PART 3 — COMPONENTS
+   ========================================================================== */
+
+
+/* ==========================================================
+   CHECKBOX
+   ========================================================== */
+
+.pg-theme-linear input[type="checkbox"]{
+    width:16px;
+    height:16px;
+    margin:0;
+    cursor:pointer;
+
+    accent-color:var(--pg-colors-primary);
+
+    border-radius:4px;
+}
+
+
+/* ==========================================================
+   FILTER BAR
+   ========================================================== */
+
+.pg-theme-linear .pg-group-drop-zone{
+
+    display:flex;
+    align-items:center;
+    gap:12px;
+
+    padding:12px 16px;
+
+    background:#fbfcff;
+
+    border-bottom:1px solid var(--pg-colors-border);
+}
+
+
+.pg-theme-linear .pg-group-drop-zone__hint{
+
+    color:var(--pg-colors-text-secondary);
+
+    font-size:12px;
+}
+
+
+.pg-theme-linear .pg-group-zone-chips{
+
+    display:flex;
+    align-items:center;
+    gap:8px;
+}
+
+
+/* ==========================================================
+   GROUP SEARCH
+   ========================================================== */
+
+.pg-theme-linear .pg-group-search{
+
+    display:flex;
+    align-items:center;
+
+    gap:8px;
+
+    padding:8px 12px;
+
+    background:white;
+
+    border:1px solid var(--pg-colors-border);
+
+    border-radius:10px;
+
+    transition:.15s;
+}
+
+.pg-theme-linear .pg-group-search:focus-within{
+
+    border-color:var(--pg-colors-primary);
+
+    box-shadow:0 0 0 3px rgba(91,108,255,.10);
+}
+
+.pg-theme-linear .pg-group-search__input{
+
+    border:none;
+    outline:none;
+    background:transparent;
+    flex:1;
+
+    color:var(--pg-colors-text-primary);
+}
+
+.pg-theme-linear .pg-group-search__icon{
+
+    color:#94a3b8;
+}
+
+
+/* ==========================================================
+   FILTER BUTTON
+   ========================================================== */
+
+.pg-theme-linear .pg-th__filter-btn,
+.pg-theme-linear .pg-th__menu-btn{
+
+    display:flex;
+    align-items:center;
+    justify-content:center;
+
+    width:26px;
+    height:26px;
+
+    border-radius:8px;
+
+    transition:.15s;
+}
+
+.pg-theme-linear .pg-th__filter-btn:hover,
+.pg-theme-linear .pg-th__menu-btn:hover{
+
+    background:#eef2ff;
+
+    color:var(--pg-colors-primary);
+}
+
+.pg-theme-linear .pg-th__menu-btn--active{
+
+    background:#e8eeff;
+
+    color:var(--pg-colors-primary);
+}
+
+
+/* ==========================================================
+   PANELS
+   ========================================================== */
+
+.pg-theme-linear .pg-panel{
+
+    background:white;
+
+    border:1px solid var(--pg-colors-border);
+
+    border-radius:14px;
+
+    box-shadow:var(--pg-shadows-dropdown);
+
+    overflow:hidden;
+}
+
+.pg-theme-linear .pg-panel__header{
+
+    background:#fafcff;
+
+    border-bottom:1px solid var(--pg-colors-border);
+
+    padding:12px 16px;
+
+    font-weight:600;
+}
+
+.pg-theme-linear .pg-panel__body{
+
+    padding:14px;
+}
+
+
+/* ==========================================================
+   CONTEXT MENU
+   ========================================================== */
+
+.pg-theme-linear .pg-context-menu,
+.pg-theme-linear .pg-col-ctx-menu{
+
+    background:white;
+
+    border:1px solid var(--pg-colors-border);
+
+    border-radius:12px;
+
+    overflow:hidden;
+
+    box-shadow:0 20px 45px rgba(15,23,42,.18);
+
+    padding:6px;
+}
+
+
+.pg-theme-linear .pg-context-menu__item,
+.pg-theme-linear .pg-col-ctx-menu__item{
+
+    display:flex;
+
+    align-items:center;
+
+    gap:12px;
+
+    padding:10px 12px;
+
+    border-radius:8px;
+
+    cursor:pointer;
+
+    transition:.15s;
+
+    font-size:13px;
+}
+
+
+.pg-theme-linear .pg-context-menu__item:hover,
+.pg-theme-linear .pg-col-ctx-menu__item:hover{
+
+    background:#eef4ff;
+}
+
+
+.pg-theme-linear .pg-context-menu__icon,
+.pg-theme-linear .pg-col-ctx-menu__item-icon{
+
+    width:16px;
+
+    color:#64748b;
+}
+
+
+.pg-theme-linear .pg-context-menu__label,
+.pg-theme-linear .pg-col-ctx-menu__item-label{
+
+    flex:1;
+}
+
+
+.pg-theme-linear .pg-context-menu__kbd{
+
+    color:#94a3b8;
+
+    font-size:11px;
+}
+
+
+.pg-theme-linear .pg-context-menu__sep,
+.pg-theme-linear .pg-col-ctx-menu__separator{
+
+    // height:1px;
+
+    // margin:6px 0;
+
+    // background:#edf2f7;
+    border-top:1px solid #edf2f7;
+}
+
+
+.pg-theme-linear .pg-col-ctx-menu__item--disabled{
+
+    opacity:.45;
+
+    pointer-events:none;
+}
+
+
+/* ==========================================================
+   PAGINATION
+   ========================================================== */
+
+.pg-theme-linear .pg-footer{
+
+    display:flex;
+
+    align-items:center;
+
+    justify-content:space-between;
+
+    padding:10px 16px;
+}
+
+
+.pg-theme-linear button{
+
+    transition:.15s;
+}
+
+
+.pg-theme-linear button:hover{
+
+    transform:translateY(-1px);
+}
+
+
+/* ==========================================================
+   BADGES
+   ========================================================== */
+
+.pg-theme-linear .pg-badge{
+
+    display:inline-flex;
+
+    align-items:center;
+
+    padding:4px 10px;
+
+    border-radius:999px;
+
+    background:#eef4ff;
+
+    color:#4567ff;
+
+    font-size:12px;
+
+    font-weight:600;
+}
+
+
+/* ==========================================================
+   TOOLTIP
+   ========================================================== */
+
+.pg-theme-linear .pg-tooltip{
+
+    background:#111827;
+
+    color:white;
+
+    border-radius:10px;
+
+    padding:8px 12px;
+
+    font-size:12px;
+
+    box-shadow:0 10px 30px rgba(0,0,0,.25);
+}
+
+
+/* ==========================================================
+   LOADING
+   ========================================================== */
+
+.pg-theme-linear .pg-loading{
+
+    backdrop-filter:blur(5px);
+
+    background:rgba(255,255,255,.70);
+}
+
+
+/* ==========================================================
+   EMPTY STATE
+   ========================================================== */
+
+.pg-theme-linear .pg-empty{
+
+    display:flex;
+
+    flex-direction:column;
+
+    align-items:center;
+
+    justify-content:center;
+
+    gap:12px;
+
+    color:#64748b;
+}
+
+
+/* ==========================================================
+   EMPLOYEE CELL
+   ========================================================== */
+
+.pg-theme-linear .employee-cell{
+
+    display:flex;
+
+    align-items:center;
+
+    gap:12px;
+}
+
+
+.pg-theme-linear .employee-cell__avatar{
+
+    width:38px;
+
+    height:38px;
+
+    border-radius:50%;
+
+    overflow:hidden;
+
+    border:2px solid white;
+
+    box-shadow:0 3px 10px rgba(0,0,0,.12);
+
+    flex-shrink:0;
+}
+
+
+.pg-theme-linear .employee-cell__name{
+
+    font-weight:600;
+
+    color:#111827;
+}
+
+
+.pg-theme-linear .employee-cell__title{
+
+    margin-top:2px;
+
+    font-size:12px;
+
+    color:#64748b;
+}
+
+
+/* ==========================================================
+   SMOOTH INTERACTION
+   ========================================================== */
+
+.pg-theme-linear *{
+
+    transition:
+        background-color .14s ease,
+        border-color .14s ease,
+        color .14s ease,
+        box-shadow .14s ease;
+}

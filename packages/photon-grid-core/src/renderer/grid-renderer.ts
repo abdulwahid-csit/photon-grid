@@ -1093,7 +1093,7 @@ export class GridRenderer {
       // Set left/right panel CSS vars BEFORE resolving flex so that
       // centerBodyEl.clientWidth reflects the true center panel width.
       w.style.setProperty('--pg-left-panel-width',  hasLeft  ? `${showCb + showSn + leftPinnedWidth}px` : '0px');
-      w.style.setProperty('--pg-right-panel-width', hasRight ? `${rightContentWidth}px`                 : '0px');
+      w.style.setProperty('--pg-right-panel-width', hasRight ? `${rightContentWidth + 2}px`                 : '0px');
 
       // Resolve flex columns — clientWidth read forces a layout reflow;
       // done here so it only happens when column definitions change.

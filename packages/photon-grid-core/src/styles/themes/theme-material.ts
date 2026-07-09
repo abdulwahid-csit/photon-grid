@@ -28,7 +28,6 @@ export const themeMaterialCss = `
   --pg-colors-resize-handle-color: rgba(0,0,0,.20);
 
   --pg-typography-font-family: Roboto, 'Helvetica Neue', Arial, sans-serif;
-  --pg-typography-font-size-md: 14px;
   --pg-typography-font-size-sm: 12px;
   --pg-typography-font-size-xs: 11px;
   --pg-typography-font-weight-medium: 400;

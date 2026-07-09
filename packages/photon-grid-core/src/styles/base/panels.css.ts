@@ -39,6 +39,7 @@ export const panelsCss = `/* ─────────────────
   min-height: 0;
   overflow: hidden;
   position: relative;
+  transform: translateZ(10px)
 }
 
 /* ──────────────────── Panel base ──────────────────── */
@@ -61,6 +62,7 @@ export const panelsCss = `/* ─────────────────
 .pg-panel--right {
   z-index: 2;
   width: var(--pg-right-panel-width, auto);
+  padding-inline: 1px
 }
 /* ── Pinned-region divider ──────────────────────────────────────────────
    Structural boundary between a frozen (pinned) column region and the

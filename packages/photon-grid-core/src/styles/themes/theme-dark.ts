@@ -38,7 +38,7 @@ export const themeDarkCss = `
   --pg-colors-resize-handle-color: #475569;
 
   --pg-typography-font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --pg-typography-font-size-md: 13px;
+  --pg-typography-font-size-md: 0.9rem;
   --pg-typography-font-size-sm: 12px;
   --pg-typography-font-size-xs: 11px;
   --pg-typography-font-weight-medium: 400;

@@ -24,7 +24,6 @@ export const themeBalhamCss = `
   --pg-colors-resize-handle-color: #d1d5db;
 
   --pg-typography-font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-  --pg-typography-font-size-md: 12px;
   --pg-typography-font-size-sm: 11px;
   --pg-typography-font-size-xs: 10px;
   --pg-typography-font-weight-medium: 400;

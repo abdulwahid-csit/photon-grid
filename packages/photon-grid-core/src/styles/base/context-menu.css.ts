@@ -42,8 +42,8 @@ export const contextMenuCss = `/* ─── Context menu ─── */
   letter-spacing: 0.01em;
 }
 .pg-context-menu__sep {
-  height: 1px;
   margin: 4px 0;
+  border-top: 1px solid var(--pg-colors-border-ctxt-menu, #e2e8f0);
   background: var(--pg-colors-border, #e2e8f0);
 }
 

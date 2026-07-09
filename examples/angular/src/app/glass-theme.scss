@@ -1,0 +1,1165 @@
+.pg-theme-glass {
+
+    /* ==========================================================
+       PRIMARY
+       ========================================================== */
+
+    --pg-colors-primary: #5b6cff;
+    --pg-colors-primary-hover: #7383ff;
+    --pg-colors-primary-active: #4255ff;
+    --pg-colors-primary-text: #ffffff;
+
+    --pg-colors-secondary: #6b7280;
+    --pg-colors-secondary-hover: #374151;
+
+    /* ==========================================================
+       BACKGROUND
+       ========================================================== */
+
+    --pg-colors-background:
+        linear-gradient(
+            135deg,
+            #edf4ff 0%,
+            #eef7ff 30%,
+            #f7faff 70%,
+            #fefeff 100%
+        );
+
+    --pg-colors-background-alt:#f6faff;
+
+    /* ==========================================================
+       SURFACE
+       ========================================================== */
+
+    --pg-colors-surface:rgba(255,255,255,.60);
+    --pg-colors-surface-raised:rgba(255,255,255,.72);
+    --pg-colors-surface-overlay:rgba(255,255,255,.82);
+    --pg-colors-surface-sunken:rgba(255,255,255,.40);
+
+    /* ==========================================================
+       BORDER
+       ========================================================== */
+
+    --pg-colors-border:
+        rgba(255,255,255,.55);
+
+    --pg-colors-border-strong:
+        rgba(255,255,255,.72);
+
+    --pg-colors-border-focus:
+        #5b6cff;
+
+    /* ==========================================================
+       TEXT
+       ========================================================== */
+
+    --pg-colors-text-primary:#1f2937;
+    --pg-colors-text-secondary:#5b6475;
+    --pg-colors-text-disabled:#9aa5b5;
+    --pg-colors-text-inverse:#ffffff;
+
+    /* ==========================================================
+       HEADER
+       ========================================================== */
+
+    --pg-colors-header-background:
+        rgba(255,255,255,.55);
+
+    --pg-colors-header-text:#273142;
+
+    --pg-colors-header-border:
+        rgba(255,255,255,.55);
+
+    --pg-colors-header-hover:
+        rgba(255,255,255,.82);
+
+    /* ==========================================================
+       ROWS
+       ========================================================== */
+
+    --pg-colors-row-background:
+        rgba(255,255,255,.48);
+
+    --pg-colors-row-background-alt:
+        rgba(255,255,255,.30);
+
+    --pg-colors-row-hover:
+        rgba(255,255,255,.82);
+
+    --pg-colors-row-selected:
+        rgba(91,108,255,.12);
+
+    --pg-colors-row-selected-border:
+        rgba(91,108,255,.45);
+
+    /* ==========================================================
+       EDITING
+       ========================================================== */
+
+    --pg-colors-cell-edit-background:
+        rgba(255,255,255,.92);
+
+    --pg-colors-cell-edit-border:#5b6cff;
+
+    /* ==========================================================
+       RANGE
+       ========================================================== */
+
+    --pg-colors-selection-background:
+        rgba(91,108,255,.10);
+
+    --pg-colors-selection-border:
+        rgba(91,108,255,.85);
+
+    --pg-colors-selection-corner:#5b6cff;
+
+    /* ==========================================================
+       FOOTER
+       ========================================================== */
+
+    --pg-colors-footer-background:
+        rgba(255,255,255,.55);
+
+    --pg-colors-footer-text:#445066;
+
+    --pg-colors-footer-border:
+        rgba(255,255,255,.55);
+
+    /* ==========================================================
+       PINNED
+       ========================================================== */
+
+    --pg-colors-pinned-background:
+        rgba(255,255,255,.66);
+
+    --pg-colors-pinned-shadow:
+        0 10px 30px rgba(31,41,55,.12);
+
+    /* ==========================================================
+       FILTER
+       ========================================================== */
+
+    --pg-colors-filter-background:
+        rgba(255,255,255,.78);
+
+    --pg-colors-filter-border:
+        rgba(255,255,255,.70);
+
+    --pg-colors-filter-active-background:
+        rgba(91,108,255,.10);
+
+    --pg-colors-filter-active-border:#7c8cff;
+
+    /* ==========================================================
+       SCROLLBAR
+       ========================================================== */
+
+    --pg-colors-scrollbar-track:
+        transparent;
+
+    --pg-colors-scrollbar-thumb:
+        rgba(130,145,170,.42);
+
+    --pg-colors-scrollbar-thumb-hover:
+        rgba(90,105,130,.65);
+
+    /* ==========================================================
+       RESIZE
+       ========================================================== */
+
+    --pg-colors-resize-handle-color:
+        rgba(255,255,255,.85);
+
+    --pg-colors-resize-handle-active-color:#5b6cff;
+
+    /* ==========================================================
+       DRAG
+       ========================================================== */
+
+    --pg-colors-drag-preview-background:
+        rgba(255,255,255,.82);
+
+    --pg-colors-drag-preview-border:
+        rgba(255,255,255,.92);
+
+    --pg-colors-drag-over-highlight:
+        rgba(91,108,255,.06);
+
+    /* ==========================================================
+       CHECKBOX
+       ========================================================== */
+
+    --pg-colors-checkbox-background:
+        rgba(255,255,255,.72);
+
+    --pg-colors-checkbox-border:
+        rgba(255,255,255,.95);
+
+    --pg-colors-checkbox-checked-background:#5b6cff;
+
+    /* ==========================================================
+       BADGE
+       ========================================================== */
+
+    --pg-colors-badge-background:
+        rgba(91,108,255,.12);
+
+    --pg-colors-badge-text:#4255ff;
+
+    /* ==========================================================
+       GROUP
+       ========================================================== */
+
+    --pg-colors-group-row-background:
+        rgba(255,255,255,.55);
+
+    --pg-colors-group-row-border:
+        rgba(255,255,255,.70);
+
+    /* ==========================================================
+       TOOLTIP
+       ========================================================== */
+
+    --pg-colors-tooltip-background:#1f2937;
+    --pg-colors-tooltip-text:#ffffff;
+
+    /* ==========================================================
+       STATUS
+       ========================================================== */
+
+    --pg-colors-success:#22c55e;
+    --pg-colors-warning:#f59e0b;
+    --pg-colors-error:#ef4444;
+    --pg-colors-info:#3b82f6;
+
+    /* ==========================================================
+       SHADOWS
+       ========================================================== */
+
+    --pg-shadows-xs:
+        0 2px 8px rgba(31,41,55,.04);
+
+    --pg-shadows-sm:
+        0 6px 18px rgba(31,41,55,.06);
+
+    --pg-shadows-md:
+        0 12px 32px rgba(31,41,55,.10);
+
+    --pg-shadows-lg:
+        0 30px 70px rgba(31,41,55,.18);
+
+    --pg-shadows-dropdown:
+        0 24px 60px rgba(31,41,55,.20);
+
+    --pg-shadows-tooltip:
+        0 10px 25px rgba(0,0,0,.22);
+
+    --pg-shadows-drag-preview:
+        0 30px 60px rgba(31,41,55,.18);
+
+    --pg-shadows-pinned-left:
+        10px 0 30px rgba(31,41,55,.10);
+
+    --pg-shadows-pinned-right:
+        -10px 0 30px rgba(31,41,55,.10);
+
+    /* ==========================================================
+       RADIUS
+       ========================================================== */
+
+    --pg-borders-radius-sm:10px;
+    --pg-borders-radius-md:14px;
+    --pg-borders-radius-lg:18px;
+    --pg-borders-radius-pill:999px;
+}
+
+
+/* ==========================================================================
+   PHOTON GLASS THEME
+   PART 2 — GLASS COMPONENTS
+   ========================================================================== */
+
+
+/* ==========================================================
+   GRID
+   ========================================================== */
+
+.pg-theme-glass {
+
+    position: relative;
+
+    background: var(--pg-colors-background);
+
+    border-radius: 22px;
+
+    overflow: hidden;
+
+    border: 1px solid rgba(255,255,255,.55);
+
+    box-shadow:
+        0 25px 80px rgba(15,23,42,.15);
+
+    backdrop-filter: blur(24px);
+}
+
+
+/* floating glow */
+
+.pg-theme-glass::before{
+
+    content:"";
+
+    position:absolute;
+
+    inset:0;
+
+    pointer-events:none;
+
+    background:
+        radial-gradient(circle at top left,
+            rgba(255,255,255,.55),
+            transparent 45%),
+
+        radial-gradient(circle at bottom right,
+            rgba(91,108,255,.08),
+            transparent 55%);
+
+    z-index:0;
+}
+
+
+/* ==========================================================
+   GRID MAIN
+   ========================================================== */
+
+.pg-theme-glass .pg-grid-main{
+
+    position:relative;
+
+    z-index:2;
+}
+
+
+/* ==========================================================
+   HEADER
+   ========================================================== */
+
+.pg-theme-glass .pg-grid__header{
+
+    background:rgba(255,255,255,.40);
+
+    backdrop-filter:blur(28px);
+
+    -webkit-backdrop-filter:blur(28px);
+
+    border-bottom:1px solid rgba(255,255,255,.65);
+
+    box-shadow:
+
+        inset 0 -1px rgba(255,255,255,.55),
+
+        0 6px 24px rgba(15,23,42,.05);
+}
+
+
+/* ==========================================================
+   HEADER ROW
+   ========================================================== */
+
+.pg-theme-glass .pg-header-row{
+
+    background:transparent;
+}
+
+
+/* ==========================================================
+   HEADER CELL
+   ========================================================== */
+
+.pg-theme-glass .pg-th{
+
+    transition:.22s ease;
+
+    position:relative;
+
+    border-right:1px solid rgba(255,255,255,.28);
+
+    color:#334155;
+}
+
+
+.pg-theme-glass .pg-th:hover{
+
+    background:rgba(255,255,255,.42);
+}
+
+
+/* ==========================================================
+   HEADER CONTENT
+   ========================================================== */
+
+.pg-theme-glass .pg-th__content{
+
+    display:flex;
+
+    align-items:center;
+
+    gap:10px;
+}
+
+
+.pg-theme-glass .pg-th__label{
+
+    font-weight:600;
+
+    letter-spacing:-.015em;
+}
+
+
+/* ==========================================================
+   MENU BUTTON
+   ========================================================== */
+
+.pg-theme-glass .pg-th__menu-btn,
+.pg-theme-glass .pg-th__filter-btn{
+
+    width:28px;
+
+    height:28px;
+
+    border-radius:10px;
+
+    transition:.18s;
+}
+
+
+.pg-theme-glass .pg-th__menu-btn:hover,
+.pg-theme-glass .pg-th__filter-btn:hover{
+
+    background:rgba(255,255,255,.60);
+
+    backdrop-filter:blur(20px);
+}
+
+
+/* ==========================================================
+   BODY
+   ========================================================== */
+
+.pg-theme-glass .pg-grid__body{
+
+    background:transparent;
+}
+
+
+/* ==========================================================
+   ROW
+   ========================================================== */
+
+.pg-theme-glass .pg-row{
+
+    position:relative;
+
+    background:rgba(255,255,255,.22);
+
+    transition:.18s;
+
+    border-bottom:1px solid rgba(255,255,255,.18);
+}
+
+
+/* ==========================================================
+   FLOATING ROW EFFECT
+   ========================================================== */
+
+.pg-theme-glass .pg-row:hover{
+
+    background:rgba(255,255,255,.72);
+
+    transform:translateY(-1px);
+
+    box-shadow:
+
+        0 8px 18px rgba(15,23,42,.06),
+
+        inset 0 1px rgba(255,255,255,.7);
+
+    z-index:5;
+}
+
+
+/* ==========================================================
+   ALTERNATE ROW
+   ========================================================== */
+
+.pg-theme-glass .pg-row:nth-child(even){
+
+    background:rgba(255,255,255,.14);
+}
+
+
+/* ==========================================================
+   SELECTED ROW
+   ========================================================== */
+
+.pg-theme-glass .pg-row.pg-selected{
+
+    background:
+
+        linear-gradient(
+
+            90deg,
+
+            rgba(91,108,255,.10),
+
+            rgba(255,255,255,.55)
+
+        );
+
+    box-shadow:
+
+        inset 3px 0 #5b6cff,
+
+        0 6px 18px rgba(91,108,255,.08);
+}
+
+
+/* ==========================================================
+   CELLS
+   ========================================================== */
+
+.pg-theme-glass .pg-cell{
+
+    border-right:1px solid rgba(255,255,255,.16);
+
+    transition:.18s;
+
+    color:#1f2937;
+}
+
+
+.pg-theme-glass .pg-cell:last-child{
+
+    border-right:none;
+}
+
+
+/* ==========================================================
+   CELL HOVER
+   ========================================================== */
+
+.pg-theme-glass .pg-cell:hover{
+
+    background:rgba(255,255,255,.20);
+}
+
+
+/* ==========================================================
+   CELL FOCUS
+   ========================================================== */
+
+.pg-theme-glass .pg-cell.pg-focused{
+
+    background:rgba(91,108,255,.08);
+
+    box-shadow:
+
+        inset 0 0 0 2px #5b6cff;
+}
+
+
+/* ==========================================================
+   RANGE SELECTION
+   ========================================================== */
+
+.pg-theme-glass .pg-cell.pg-range-selected{
+
+    background:rgba(91,108,255,.08);
+
+    box-shadow:
+
+        inset 0 0 0 1px rgba(91,108,255,.9);
+}
+
+
+/* ==========================================================
+   PINNED PANELS
+   ========================================================== */
+
+.pg-theme-glass .pg-panel{
+
+    background:rgba(255,255,255,.35);
+
+    backdrop-filter:blur(28px);
+
+    border-right:1px solid rgba(255,255,255,.45);
+
+    box-shadow:
+
+        0 0 30px rgba(15,23,42,.05);
+}
+
+
+/* ==========================================================
+   FOOTER
+   ========================================================== */
+
+.pg-theme-glass .pg-footer{
+
+    background:rgba(255,255,255,.42);
+
+    backdrop-filter:blur(22px);
+
+    border-top:1px solid rgba(255,255,255,.55);
+}
+
+
+/* ==========================================================
+   SCROLLBAR
+   ========================================================== */
+
+.pg-theme-glass ::-webkit-scrollbar{
+
+    width:12px;
+
+    height:12px;
+}
+
+
+.pg-theme-glass ::-webkit-scrollbar-track{
+
+    background:transparent;
+}
+
+
+.pg-theme-glass ::-webkit-scrollbar-thumb{
+
+    background:rgba(160,175,195,.42);
+
+    border-radius:999px;
+
+    border:3px solid transparent;
+
+    background-clip:padding-box;
+}
+
+
+.pg-theme-glass ::-webkit-scrollbar-thumb:hover{
+
+    background:rgba(110,125,150,.65);
+
+    background-clip:padding-box;
+}
+
+
+/* ==========================================================
+   RESIZE HANDLE
+   ========================================================== */
+
+.pg-theme-glass .pg-th__resize-handle{
+
+    opacity:0;
+
+    transition:.18s;
+}
+
+
+.pg-theme-glass .pg-th:hover .pg-th__resize-handle{
+
+    opacity:1;
+
+    background:#5b6cff;
+}
+
+
+/* ==========================================================
+   EMPLOYEE CELL
+   ========================================================== */
+
+.pg-theme-glass .employee-cell{
+
+    display:flex;
+
+    align-items:center;
+
+    gap:12px;
+}
+
+
+.pg-theme-glass .employee-cell__avatar{
+
+    width:40px;
+
+    height:40px;
+
+    border-radius:50%;
+
+    border:2px solid rgba(255,255,255,.8);
+
+    overflow:hidden;
+
+    box-shadow:
+
+        0 6px 18px rgba(15,23,42,.15);
+}
+
+
+.pg-theme-glass .employee-cell__name{
+
+    font-weight:600;
+
+    color:#1f2937;
+}
+
+
+.pg-theme-glass .employee-cell__title{
+
+    color:#64748b;
+
+    font-size:12px;
+}
+
+/* ==========================================================================
+   PHOTON GLASS THEME
+   PART 3 — MENUS • FILTERS • OVERLAYS • FINISHING TOUCHES
+   ========================================================================== */
+
+
+/* ==========================================================
+   CONTEXT MENUS
+   ========================================================== */
+
+.pg-theme-glass .pg-context-menu,
+.pg-theme-glass .pg-col-ctx-menu{
+
+    min-width:220px;
+
+    padding:8px;
+
+    border-radius:18px;
+
+    border:1px solid rgba(255,255,255,.55);
+
+    background:rgba(255,255,255,.70);
+
+    backdrop-filter:blur(32px);
+    -webkit-backdrop-filter:blur(32px);
+
+    box-shadow:
+        0 24px 60px rgba(15,23,42,.20);
+
+    overflow:hidden;
+}
+
+
+/* ==========================================================
+   MENU ITEMS
+   ========================================================== */
+
+.pg-theme-glass .pg-context-menu__item,
+.pg-theme-glass .pg-col-ctx-menu__item{
+
+    display:flex;
+
+    align-items:center;
+
+    gap:12px;
+
+    padding:10px 14px;
+
+    border-radius:12px;
+
+    cursor:pointer;
+
+    transition:all .18s ease;
+}
+
+.pg-theme-glass .pg-context-menu__item:hover,
+.pg-theme-glass .pg-col-ctx-menu__item:hover{
+
+    background:rgba(91,108,255,.08);
+
+    transform:translateX(3px);
+}
+
+
+.pg-theme-glass .pg-context-menu__icon,
+.pg-theme-glass .pg-col-ctx-menu__item-icon{
+
+    width:18px;
+
+    color:#5b6cff;
+}
+
+
+.pg-theme-glass .pg-context-menu__label,
+.pg-theme-glass .pg-col-ctx-menu__item-label{
+
+    flex:1;
+
+    color:#1f2937;
+}
+
+
+.pg-theme-glass .pg-context-menu__kbd{
+
+    padding:3px 8px;
+
+    border-radius:8px;
+
+    background:rgba(255,255,255,.65);
+
+    font-size:11px;
+
+    color:#64748b;
+}
+
+
+.pg-theme-glass .pg-context-menu__sep,
+.pg-theme-glass .pg-col-ctx-menu__separator{
+
+    height:1px;
+
+    margin:8px 0;
+
+    background:rgba(255,255,255,.55);
+}
+
+
+/* ==========================================================
+   GROUP BAR
+   ========================================================== */
+
+.pg-theme-glass .pg-group-drop-zone{
+
+    padding:14px 18px;
+
+    background:rgba(255,255,255,.38);
+
+    backdrop-filter:blur(22px);
+
+    border-bottom:1px solid rgba(255,255,255,.55);
+}
+
+
+.pg-theme-glass .pg-group-drop-zone__hint{
+
+    color:#64748b;
+
+    font-size:12px;
+}
+
+
+/* ==========================================================
+   SEARCH BOX
+   ========================================================== */
+
+.pg-theme-glass .pg-group-search{
+
+    display:flex;
+
+    align-items:center;
+
+    gap:10px;
+
+    padding:10px 14px;
+
+    border-radius:14px;
+
+    background:rgba(255,255,255,.55);
+
+    border:1px solid rgba(255,255,255,.60);
+
+    backdrop-filter:blur(18px);
+
+    transition:.2s;
+}
+
+
+.pg-theme-glass .pg-group-search:focus-within{
+
+    border-color:#5b6cff;
+
+    box-shadow:
+        0 0 0 4px rgba(91,108,255,.12);
+}
+
+
+.pg-theme-glass .pg-group-search__input{
+
+    border:none;
+
+    outline:none;
+
+    background:transparent;
+
+    flex:1;
+
+    color:#1f2937;
+}
+
+
+.pg-theme-glass .pg-group-search__input::placeholder{
+
+    color:#94a3b8;
+}
+
+
+/* ==========================================================
+   FILTER BUTTONS
+   ========================================================== */
+
+.pg-theme-glass .pg-th__filter-btn,
+.pg-theme-glass .pg-th__menu-btn{
+
+    border-radius:10px;
+
+    transition:.18s;
+}
+
+.pg-theme-glass .pg-th__filter-btn:hover,
+.pg-theme-glass .pg-th__menu-btn:hover{
+
+    background:rgba(255,255,255,.60);
+
+    backdrop-filter:blur(16px);
+}
+
+
+/* ==========================================================
+   CHECKBOX
+   ========================================================== */
+
+.pg-theme-glass input[type="checkbox"]{
+
+    appearance:none;
+
+    width:18px;
+
+    height:18px;
+
+    border-radius:6px;
+
+    border:1px solid rgba(255,255,255,.75);
+
+    background:rgba(255,255,255,.45);
+
+    backdrop-filter:blur(12px);
+
+    cursor:pointer;
+
+    transition:.15s;
+}
+
+
+.pg-theme-glass input[type="checkbox"]:checked{
+
+    background:#5b6cff;
+
+    border-color:#5b6cff;
+}
+
+
+/* ==========================================================
+   PAGINATION
+   ========================================================== */
+
+.pg-theme-glass .pg-footer{
+
+    display:flex;
+
+    align-items:center;
+
+    justify-content:space-between;
+
+    padding:14px 18px;
+}
+
+
+.pg-theme-glass .pg-footer button{
+
+    border:none;
+
+    background:rgba(255,255,255,.50);
+
+    backdrop-filter:blur(18px);
+
+    border-radius:12px;
+
+    padding:8px 14px;
+
+    transition:.18s;
+}
+
+
+.pg-theme-glass .pg-footer button:hover{
+
+    background:white;
+
+    transform:translateY(-2px);
+
+    box-shadow:
+        0 8px 22px rgba(15,23,42,.10);
+}
+
+
+/* ==========================================================
+   TOOLTIP
+   ========================================================== */
+
+.pg-theme-glass .pg-tooltip{
+
+    padding:10px 14px;
+
+    border-radius:14px;
+
+    background:rgba(31,41,55,.92);
+
+    backdrop-filter:blur(24px);
+
+    color:white;
+
+    box-shadow:
+        0 14px 30px rgba(0,0,0,.25);
+}
+
+
+/* ==========================================================
+   BADGES
+   ========================================================== */
+
+.pg-theme-glass .pg-badge{
+
+    display:inline-flex;
+
+    align-items:center;
+
+    padding:5px 10px;
+
+    border-radius:999px;
+
+    background:rgba(91,108,255,.12);
+
+    color:#4f5fff;
+
+    font-weight:600;
+
+    backdrop-filter:blur(16px);
+}
+
+
+/* ==========================================================
+   LOADING
+   ========================================================== */
+
+.pg-theme-glass .pg-loading{
+
+    backdrop-filter:blur(16px);
+
+    background:rgba(255,255,255,.45);
+}
+
+
+/* ==========================================================
+   EMPTY STATE
+   ========================================================== */
+
+.pg-theme-glass .pg-empty{
+
+    display:flex;
+
+    flex-direction:column;
+
+    align-items:center;
+
+    justify-content:center;
+
+    gap:14px;
+
+    color:#64748b;
+}
+
+
+/* ==========================================================
+   ICONS
+   ========================================================== */
+
+.pg-theme-glass .pg-icon{
+
+    transition:.15s;
+}
+
+.pg-theme-glass .pg-icon:hover{
+
+    color:#5b6cff;
+
+    transform:scale(1.08);
+}
+
+
+/* ==========================================================
+   CHIP
+   ========================================================== */
+
+.pg-theme-glass .pg-group-zone-chips>*{
+
+    padding:6px 12px;
+
+    border-radius:999px;
+
+    background:rgba(255,255,255,.55);
+
+    border:1px solid rgba(255,255,255,.70);
+
+    backdrop-filter:blur(18px);
+
+    box-shadow:
+        0 8px 20px rgba(15,23,42,.06);
+}
+
+
+/* ==========================================================
+   PREMIUM ANIMATION
+   ========================================================== */
+
+.pg-theme-glass .pg-row,
+.pg-theme-glass .pg-cell,
+.pg-theme-glass .pg-th,
+.pg-theme-glass .pg-context-menu,
+.pg-theme-glass .pg-panel{
+
+    transition:
+        background-color .18s ease,
+        border-color .18s ease,
+        box-shadow .18s ease,
+        transform .18s ease,
+        opacity .18s ease;
+}
+
+
+/* ==========================================================
+   LIGHT REFLECTION
+   ========================================================== */
+
+.pg-theme-glass .pg-grid::after{
+
+    content:"";
+
+    position:absolute;
+
+    inset:0;
+
+    pointer-events:none;
+
+    background:
+
+        linear-gradient(
+            120deg,
+            rgba(255,255,255,.22),
+            transparent 35%,
+            transparent 70%,
+            rgba(255,255,255,.10)
+        );
+
+    mix-blend-mode:screen;
+}

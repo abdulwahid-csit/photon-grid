@@ -35,7 +35,7 @@ export const columnContextMenuCss = `/* ─────────────�
 
 /* Horizontal divider between section groups */
 .pg-col-ctx-menu__separator {
-  height: 1px;
+  border-top: 1px solid var(--pg-colors-border-col-ctxt-menu, #e2e8f0);
   background: var(--pg-colors-border, #e2e8f0);
   margin: 4px 0;
 }

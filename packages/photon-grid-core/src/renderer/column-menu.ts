@@ -568,18 +568,18 @@ export class ColumnMenu {
     return {
       key:   ColumnMenuSection.FILTER,
       items: colDef.filterable === false ? [] : [
+        // {
+        //   kind:   'leaf',
+        //   label:  'Quick Filter…',
+        //   icon:   'search',
+        //   action: () => {
+        //     this.menuCallbacks.onQuickFilter?.(colDef.colId);
+        //     this.onAction('quick-filter', colDef.colId);
+        //   },
+        // },
         {
           kind:   'leaf',
-          label:  'Quick Filter…',
-          icon:   'search',
-          action: () => {
-            this.menuCallbacks.onQuickFilter?.(colDef.colId);
-            this.onAction('quick-filter', colDef.colId);
-          },
-        },
-        {
-          kind:   'leaf',
-          label:  'Advanced Filter…',
+          label:  'Filter',
           icon:   'filter',
           action: () => {
             const anchor = this.anchorEl ?? document.createElement('div');
@@ -587,20 +587,20 @@ export class ColumnMenu {
             this.onAction('advanced-filter', colDef.colId);
           },
         },
-        {
-          kind:     'leaf',
-          label:    'Clear Filter',
-          icon:     'close',
-          disabled: !filterActive,
-          action: () => {
-            this.eventBus.emit(GridEventType.COLUMN_FILTER_CHANGED, {
-              colId: colDef.colId,
-              field: colDef.field,
-              term:  '',
-            });
-            this.onAction('clear-filter', colDef.colId);
-          },
-        },
+        // {
+        //   kind:     'leaf',
+        //   label:    'Clear Filter',
+        //   icon:     'close',
+        //   disabled: !filterActive,
+        //   action: () => {
+        //     this.eventBus.emit(GridEventType.COLUMN_FILTER_CHANGED, {
+        //       colId: colDef.colId,
+        //       field: colDef.field,
+        //       term:  '',
+        //     });
+        //     this.onAction('clear-filter', colDef.colId);
+        //   },
+        // },
       ],
     };
   }

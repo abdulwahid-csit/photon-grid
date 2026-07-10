@@ -1,22 +1,74 @@
 {
   "name": "photon-grid-vue",
-  "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
+  "description": "Vue 3 wrapper for Photon Grid — an enterprise-grade, framework-agnostic TypeScript data grid.",
+  "author": "Abdul Wahid",
+  "license": "MIT",
   "type": "module",
+  "main": "./index.cjs",
+  "module": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.js",
+      "require": "./index.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "*"
+  ],
+  "sideEffects": false,
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc -b && vite build",
+    "clean": "npx rimraf dist",
+    "build": "vite build && npm run copy-files",
+    "copy-files": "node ../../scripts/copy-pkg-to-dist.mjs",
     "preview": "vite preview"
   },
-  "dependencies": {
-    "vue": "^3.5.39"
+  "peerDependencies": {
+    "photon-grid-core": "^0.1.0",
+    "vue": "^3.4.0"
   },
   "devDependencies": {
     "@types/node": "^24.13.2",
-    "@vitejs/plugin-vue": "^6.0.7",
     "@vue/tsconfig": "^0.9.1",
+    "photon-grid-core": "^0.1.0",
+    "rimraf": "^6.0.1",
     "typescript": "~6.0.3",
     "vite": "^8.1.3",
-    "vue-tsc": "^3.3.5"
+    "vite-plugin-dts": "^4.5.4",
+    "vue": "^3.5.39"
+  },
+  "keywords": [
+    "vue",
+    "vue3",
+    "vue-grid",
+    "vue-data-grid",
+    "vue-table",
+    "datatable",
+    "data-grid",
+    "grid",
+    "table",
+    "virtualization",
+    "tree-grid",
+    "enterprise-grid",
+    "photon-grid",
+    "typescript"
+  ],
+  "homepage": "https://github.com/abdulwahid-csit/photon-grid#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/abdulwahid-csit/photon-grid.git"
+  },
+  "bugs": {
+    "url": "https://github.com/abdulwahid-csit/photon-grid/issues"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

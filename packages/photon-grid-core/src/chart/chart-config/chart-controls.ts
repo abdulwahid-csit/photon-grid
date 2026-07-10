@@ -81,13 +81,14 @@ export function createColorInput(value: string, onChange: (value: string) => voi
   return labelledRow(label, input);
 }
 
-/** A numeric input with optional bounds. */
+/** A numeric input with optional bounds and step. */
 export function createNumberInput(
   value: number,
   onChange: (value: number) => void,
   label: string,
   min?: number,
   max?: number,
+  step?: number,
 ): HTMLElement {
   const input = document.createElement('input');
   input.type = 'number';
@@ -95,6 +96,7 @@ export function createNumberInput(
   input.value = String(value);
   if (min !== undefined) input.min = String(min);
   if (max !== undefined) input.max = String(max);
+  if (step !== undefined) input.step = String(step);
   input.addEventListener('input', () => {
     const n = Number(input.value);
     if (!Number.isNaN(n)) onChange(n);

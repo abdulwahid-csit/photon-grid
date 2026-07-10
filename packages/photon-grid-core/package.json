@@ -1,6 +1,6 @@
 {
   "name": "photon-grid-core",
-  "version": "0.0.2",
+  "version": "0.1.0",
   "description": "Professional zero-dependency TypeScript data grid with enterprise-grade features.",
   "author": "Abdul Wahid",
   "license": "MIT",
@@ -39,8 +39,7 @@
   "scripts": {
     "clean": "npx rimraf dist",
 
-    "build": "tsc && npm run copy-package",
-    "copy-package": "copy package.publish.json dist\\package.json && copy README.md dist\\README.md && copy LICENSE dist\\LICENSE",
+    "build": "tsc && node scripts/make-dist-pkg.mjs",
 
     "build:watch": "tsc --project tsconfig.json --watch",
 
@@ -79,13 +78,13 @@
 
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/photon-grid.git"
+    "url": "git+https://github.com/abdulwahid-csit/photon-grid.git"
   },
 
-  "homepage": "https://github.com/yourusername/photon-grid#readme",
+  "homepage": "https://github.com/abdulwahid-csit/photon-grid#readme",
 
   "bugs": {
-    "url": "https://github.com/yourusername/photon-grid/issues"
+    "url": "https://github.com/abdulwahid-csit/photon-grid/issues"
   },
 
   "engines": {

@@ -12,9 +12,9 @@ export const chartPanelCss = `/* ───────────────�
   overflow: hidden;
   pointer-events: none;
 }
-.pg-chart-panel-backdrop--open {
-  pointer-events: auto;
-}
+// .pg-chart-panel-backdrop--open {
+//   pointer-events: auto;
+// }
 .pg-chart-panel-backdrop--fullscreen {
   position: fixed !important;
   background: rgba(0,0,0,0.40) !important;
@@ -59,7 +59,15 @@ export const chartPanelCss = `/* ───────────────�
   color: var(--pg-colors-text-primary,#0f172a);
 }
 .pg-chart-panel__body {
-  flex: 1; min-height: 0; position: relative; padding: 8px; overflow: hidden;
+  flex: 1; min-height: 0; position: relative; overflow: hidden;
+}
+.pg-chart-panel__chart-area {
+  position: absolute; top: 0; left: 0; bottom: 0; right: 0;
+  padding: 8px; overflow: hidden;
+  transition: right 240ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .pg-chart-panel__chart-area { transition: none; }
 }
 .pg-chart-panel__canvas { display: block; }
 .pg-chart-panel__dots-btn {

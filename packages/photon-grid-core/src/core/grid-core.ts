@@ -289,6 +289,7 @@ export class GridCore {
       if (ranges.length === 0) return;
       rangeChartService.createRangeChart({
         cellRange: ranges[0],
+        cellRanges: ranges,
         chartType: type as import('../chart/chart-panel').ChartPanelType,
       });
     });

@@ -1,6 +1,8 @@
 import type { ChartPanelType } from '../chart-panel';
 import type { ChartModel, ChartModelPatch, LegendPosition, TextAlign } from '../model/chart-model';
 import type { ChartToolPanelName } from '../../types/grid.types';
+import type { ChartData } from '../chart-data-transformer';
+import { ChartRenderer } from '../chart-renderer';
 import { AGGREGATION_OPTIONS } from '../model/chart-model-mapper';
 import {
   createCollapsibleSection,
@@ -37,7 +39,6 @@ export interface ChartToolPanelHost {
 interface GalleryEntry {
   readonly type: ChartPanelType;
   readonly label: string;
-  readonly icon: string;
 }
 
 /** Gallery groups mirroring AG Grid's Chart tab. */
@@ -45,40 +46,61 @@ const GALLERY: ReadonlyArray<{ group: string; entries: readonly GalleryEntry[] }
   {
     group: 'Column',
     entries: [
-      { type: 'column-grouped', label: 'Grouped', icon: barsIcon(false) },
-      { type: 'column-stacked', label: 'Stacked', icon: stackedIcon(false) },
-      { type: 'column-100stacked', label: '100% Stacked', icon: stackedIcon(false) },
+      { type: 'column-grouped', label: 'Grouped' },
+      { type: 'column-stacked', label: 'Stacked' },
+      { type: 'column-100stacked', label: '100% Stacked' },
     ],
   },
   {
     group: 'Bar',
     entries: [
-      { type: 'bar-grouped', label: 'Grouped', icon: barsIcon(true) },
-      { type: 'bar-stacked', label: 'Stacked', icon: stackedIcon(true) },
-      { type: 'bar-100stacked', label: '100% Stacked', icon: stackedIcon(true) },
+      { type: 'bar-grouped', label: 'Grouped' },
+      { type: 'bar-stacked', label: 'Stacked' },
+      { type: 'bar-100stacked', label: '100% Stacked' },
     ],
   },
   {
     group: 'Pie',
     entries: [
-      { type: 'pie', label: 'Pie', icon: pieIcon(false) },
-      { type: 'doughnut', label: 'Doughnut', icon: pieIcon(true) },
-      { type: 'polar', label: 'Polar', icon: pieIcon(false) },
+      { type: 'pie', label: 'Pie' },
+      { type: 'doughnut', label: 'Doughnut' },
+      { type: 'polar', label: 'Polar' },
     ],
   },
   {
     group: 'Line & Area',
     entries: [
-      { type: 'line', label: 'Line', icon: lineIcon(false) },
-      { type: 'area', label: 'Area', icon: lineIcon(true) },
-      { type: 'scatter', label: 'Scatter', icon: scatterIcon() },
+      { type: 'line', label: 'Line' },
+      { type: 'area', label: 'Area' },
+      { type: 'scatter', label: 'Scatter' },
     ],
   },
   {
     group: 'Other',
-    entries: [{ type: 'funnel', label: 'Funnel', icon: funnelIcon() }],
+    entries: [{ type: 'funnel', label: 'Funnel' }],
   },
 ];
+
+/**
+ * Fixed sample data used to draw each gallery thumbnail. Two short series give
+ * every chart family a representative silhouette (grouped vs. stacked columns,
+ * multi-slice pies, two-line charts). Labels are intentionally empty so previews
+ * render as pure, full-bleed charts with no category text.
+ */
+const PREVIEW_DATA: ChartData = {
+  labels: ['', '', '', ''],
+  datasets: [
+    { label: 'Series 1', data: [6, 9, 5, 8] },
+    { label: 'Series 2', data: [4, 6, 8, 5] },
+  ],
+};
+
+/** Fallback thumbnail resolution used before the canvas has been laid out. */
+const THUMB_W = 132;
+const THUMB_H = 64;
+
+/** Drawer slide duration; must match the CSS `transition` on `.pg-chart-config`. */
+const DRAWER_TRANSITION_MS = 240;
 
 const LEGEND_POSITIONS: ReadonlyArray<{ value: LegendPosition; label: string }> = [
   { value: 'top', label: 'Top' },
@@ -91,6 +113,17 @@ const ALIGNMENTS: ReadonlyArray<{ value: TextAlign; label: string }> = [
   { value: 'left', label: 'Left' },
   { value: 'center', label: 'Center' },
   { value: 'right', label: 'Right' },
+];
+
+/** Font-family presets offered in the Customize tab. Empty value inherits the theme font. */
+const FONT_FAMILIES: ReadonlyArray<{ value: string; label: string }> = [
+  { value: '', label: 'Theme default' },
+  { value: 'Inter, system-ui, sans-serif', label: 'Inter' },
+  { value: 'system-ui, sans-serif', label: 'System UI' },
+  { value: 'Arial, Helvetica, sans-serif', label: 'Arial' },
+  { value: 'Roboto, Arial, sans-serif', label: 'Roboto' },
+  { value: 'Georgia, "Times New Roman", serif', label: 'Georgia' },
+  { value: '"Courier New", monospace', label: 'Monospace' },
 ];
 
 const ICON_CLOSE = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
@@ -111,10 +144,19 @@ export class ChartToolPanel {
   private tabsEl: HTMLElement | null = null;
   private bodyEl: HTMLElement | null = null;
   private activeTab: ChartToolPanelName;
+  /** Live renderers backing the Chart-tab preview thumbnails; disposed on rebuild. */
+  private thumbRenderers: ChartRenderer[] = [];
+  /** Pending slide-in RAF handle, so an immediate destroy can cancel it. */
+  private openRaf: number | null = null;
+  /** Pending slide-out timer, cleared if the panel is reopened or destroyed. */
+  private closeTimer: number | null = null;
 
   constructor(
     private readonly containerEl: HTMLElement,
     private readonly host: ChartToolPanelHost,
+    /** Notified with the drawer's width on open and 0 on close, so the host can
+     * reflow the chart beside the drawer instead of behind it. */
+    private readonly onReserveChange?: (px: number) => void,
   ) {
     this.activeTab = host.getDefaultPanel();
   }
@@ -124,36 +166,72 @@ export class ChartToolPanel {
     return this.rootEl !== null;
   }
 
-  /** Mounts the panel (optionally on a specific tab) and renders it. */
+  /** Mounts the drawer (optionally on a specific tab), rendering and sliding it in. */
   open(tab?: ChartToolPanelName): void {
     if (tab) this.activeTab = tab;
+    // A pending slide-out is aborted so a reopen resolves to the open state.
+    if (this.closeTimer !== null) {
+      clearTimeout(this.closeTimer);
+      this.closeTimer = null;
+    }
     if (!this.rootEl) this.build();
     else this.render();
+    this.slideIn();
+    // Reserve the chart space for the drawer's width so the chart reflows beside it.
+    this.onReserveChange?.(this.rootEl ? this.rootEl.offsetWidth : 0);
   }
 
-  /** Unmounts and destroys the panel. */
+  /**
+   * Slides the drawer out (left → right) and unmounts it once the transition
+   * ends. The instance is retained so a later {@link open} rebuilds cleanly.
+   */
+  close(): void {
+    if (!this.rootEl) return;
+    if (this.openRaf !== null) {
+      cancelAnimationFrame(this.openRaf);
+      this.openRaf = null;
+    }
+    this.rootEl.classList.remove('pg-chart-config--open');
+    this.onReserveChange?.(0);
+    const root = this.rootEl;
+    this.closeTimer = window.setTimeout(() => {
+      this.closeTimer = null;
+      if (this.rootEl === root) this.teardown();
+    }, DRAWER_TRANSITION_MS);
+  }
+
+  /** Immediately unmounts and disposes the drawer with no exit animation. */
   destroy(): void {
+    if (this.openRaf !== null) {
+      cancelAnimationFrame(this.openRaf);
+      this.openRaf = null;
+    }
+    if (this.closeTimer !== null) {
+      clearTimeout(this.closeTimer);
+      this.closeTimer = null;
+    }
+    this.onReserveChange?.(0);
+    this.teardown();
+  }
+
+  /** Removes the DOM and releases the preview renderers. */
+  private teardown(): void {
+    this.disposeThumbnails();
     this.rootEl?.remove();
     this.rootEl = null;
     this.tabsEl = null;
     this.bodyEl = null;
   }
 
-  /**
-   * Docks the panel flush against the right edge of the chart card. Uses fixed
-   * positioning against the card's viewport rect while remaining a DOM child of
-   * the themed grid container so theme tokens still resolve.
-   */
-  dock(cardRect: DOMRect): void {
+  /** Adds the open modifier on the next frame so the slide-in transition runs. */
+  private slideIn(): void {
     if (!this.rootEl) return;
-    const gap = 8;
-    const width = this.rootEl.offsetWidth;
-    let left = cardRect.right + gap;
-    // Flip to the left of the card if it would overflow the viewport.
-    if (left + width > window.innerWidth - 8) left = Math.max(8, cardRect.left - width - gap);
-    this.rootEl.style.left = `${left}px`;
-    this.rootEl.style.top = `${cardRect.top}px`;
-    this.rootEl.style.height = `${cardRect.height}px`;
+    const root = this.rootEl;
+    if (root.classList.contains('pg-chart-config--open')) return;
+    this.openRaf = requestAnimationFrame(() => {
+      this.openRaf = null;
+      root.classList.add('pg-chart-config--open');
+    });
   }
 
   /** Rebuilds the tab strip and active tab body from the current model. */
@@ -171,8 +249,9 @@ export class ChartToolPanel {
     header.className = 'pg-chart-config__header';
     const closeBtn = document.createElement('button');
     closeBtn.className = 'pg-chart-config__close';
+    closeBtn.title = 'Close settings';
     closeBtn.innerHTML = ICON_CLOSE;
-    closeBtn.addEventListener('click', () => this.destroy());
+    closeBtn.addEventListener('click', () => this.close());
     const tabs = document.createElement('div');
     tabs.className = 'pg-chart-config__tabs';
     header.appendChild(closeBtn);
@@ -208,6 +287,9 @@ export class ChartToolPanel {
   }
 
   private renderBody(): void {
+    // Preview renderers only exist on the Chart tab; release them before any
+    // rebuild so switching tabs or editing never leaks canvases/animation RAFs.
+    this.disposeThumbnails();
     const body = this.bodyEl!;
     body.innerHTML = '';
     const model = this.host.getModel();
@@ -218,9 +300,14 @@ export class ChartToolPanel {
     }
   }
 
-  // ── Chart tab: type gallery ────────────────────────────────────────────────
+  // ── Chart tab: type gallery with live previews ─────────────────────────────
 
   private renderChartTab(body: HTMLElement, model: ChartModel): void {
+    // Collect (canvas, type) pairs while building, then render in a second pass
+    // once every canvas is attached to the DOM — the renderer resolves theme
+    // tokens via getComputedStyle, which only works on connected elements.
+    const pending: Array<{ canvas: HTMLCanvasElement; type: ChartPanelType }> = [];
+
     for (const { group, entries } of GALLERY) {
       const heading = document.createElement('div');
       heading.className = 'pg-chart-config__group-title';
@@ -230,15 +317,72 @@ export class ChartToolPanel {
       const grid = document.createElement('div');
       grid.className = 'pg-chart-config__gallery';
       for (const entry of entries) {
-        const cell = document.createElement('button');
-        cell.className = 'pg-chart-config__gallery-item';
-        cell.classList.toggle('pg-chart-config__gallery-item--active', entry.type === model.chartType);
-        cell.innerHTML = `<span class="pg-chart-config__gallery-icon">${entry.icon}</span><span class="pg-chart-config__gallery-label">${entry.label}</span>`;
-        cell.addEventListener('click', () => this.host.updateModel({ chartType: entry.type }));
-        grid.appendChild(cell);
+        grid.appendChild(this.buildGalleryItem(entry, entry.type === model.chartType, pending));
       }
       body.appendChild(grid);
     }
+
+    for (const { canvas, type } of pending) this.renderThumbnail(canvas, type);
+  }
+
+  /**
+   * Builds one gallery cell: a real, full-bleed mini-chart of {@link PREVIEW_DATA}
+   * rendered in the entry's type. Clicking applies the type to the model, which
+   * updates the live chart in real time. The canvas is queued in `pending` for
+   * rendering after DOM insertion (so it has a measured size and theme tokens).
+   */
+  private buildGalleryItem(
+    entry: GalleryEntry,
+    active: boolean,
+    pending: Array<{ canvas: HTMLCanvasElement; type: ChartPanelType }>,
+  ): HTMLElement {
+    const cell = document.createElement('button');
+    cell.type = 'button';
+    cell.className = 'pg-chart-config__gallery-item';
+    cell.classList.toggle('pg-chart-config__gallery-item--active', active);
+    cell.title = entry.label;
+    cell.setAttribute('aria-label', entry.label);
+
+    const canvas = document.createElement('canvas');
+    canvas.className = 'pg-chart-config__gallery-canvas';
+
+    cell.appendChild(canvas);
+    // Structural change: apply the type, then re-render the tab so the active
+    // highlight moves. Safe to rebuild here — a gallery click has no open input.
+    cell.addEventListener('click', () => { this.host.updateModel({ chartType: entry.type }); this.render(); });
+
+    pending.push({ canvas, type: entry.type });
+    return cell;
+  }
+
+  /**
+   * Draws a static, full-bleed preview of a chart type into a thumbnail canvas.
+   * The backing store is sized to the canvas's measured display size × DPR for a
+   * crisp, undistorted image; `compact` collapses the axis gutters so the chart
+   * fills the cell edge-to-edge.
+   */
+  private renderThumbnail(canvas: HTMLCanvasElement, type: ChartPanelType): void {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const cssW = canvas.clientWidth || THUMB_W;
+    const cssH = canvas.clientHeight || THUMB_H;
+    const renderer = new ChartRenderer(canvas);
+    renderer.render(PREVIEW_DATA, {
+      type,
+      width: Math.round(cssW * dpr),
+      height: Math.round(cssH * dpr),
+      padding: Math.round(6 * dpr),
+      compact: true,
+      animationDuration: 0,
+      showGrid: false,
+      showLegend: false,
+    });
+    this.thumbRenderers.push(renderer);
+  }
+
+  /** Disposes every preview renderer created for the Chart tab. */
+  private disposeThumbnails(): void {
+    for (const renderer of this.thumbRenderers) renderer.destroy();
+    this.thumbRenderers = [];
   }
 
   // ── Set Up tab: category / series / aggregate / switch ─────────────────────
@@ -275,7 +419,8 @@ export class ChartToolPanel {
       createReorderableList(
         seriesItems,
         (orderedIds) => this.host.updateModel({ seriesColIds: orderedIds }),
-        (id) => this.host.updateModel({ seriesColIds: model.seriesColIds.filter((s) => s !== id) }),
+        // Removing a series changes the list structure → refresh the tab.
+        (id) => { this.host.updateModel({ seriesColIds: model.seriesColIds.filter((s) => s !== id) }); this.render(); },
       ),
     );
 
@@ -287,7 +432,7 @@ export class ChartToolPanel {
           [{ value: '', label: '+ Add series…' }, ...addable.map((c) => ({ value: c.colId, label: c.header }))],
           '',
           (colId) => {
-            if (colId) this.host.updateModel({ seriesColIds: [...model.seriesColIds, colId] });
+            if (colId) { this.host.updateModel({ seriesColIds: [...model.seriesColIds, colId] }); this.render(); }
           },
         ),
       );
@@ -321,6 +466,9 @@ export class ChartToolPanel {
       createColorInput(model.style.backgroundColor ?? '#ffffff', (c) => this.host.updateModel({ style: { backgroundColor: c } }), 'Background'),
     );
     style.body.appendChild(
+      createDropdown(FONT_FAMILIES, model.style.fontFamily ?? '', (f) => this.host.updateModel({ style: { fontFamily: f } }), 'Font family'),
+    );
+    style.body.appendChild(
       createNumberInput(model.style.fontSize ?? 12, (n) => this.host.updateModel({ style: { fontSize: n } }), 'Font size', 8, 32),
     );
     body.appendChild(style.section);
@@ -330,6 +478,8 @@ export class ChartToolPanel {
     titles.body.appendChild(createColorInput(model.title.color ?? '#0f172a', (c) => this.host.updateModel({ title: { color: c } }), 'Title color'));
     titles.body.appendChild(createSegmented(ALIGNMENTS, model.title.align ?? 'left', (a) => this.host.updateModel({ title: { align: a as TextAlign } }), 'Title align'));
     titles.body.appendChild(createTextInput(model.subtitle.text ?? '', (t) => this.host.updateModel({ subtitle: { text: t } }), 'Subtitle', 'Subtitle'));
+    titles.body.appendChild(createColorInput(model.subtitle.color ?? '#64748b', (c) => this.host.updateModel({ subtitle: { color: c } }), 'Subtitle color'));
+    titles.body.appendChild(createSegmented(ALIGNMENTS, model.subtitle.align ?? 'left', (a) => this.host.updateModel({ subtitle: { align: a as TextAlign } }), 'Subtitle align'));
     body.appendChild(titles.section);
 
     const legend = createCollapsibleSection('Legend', false);
@@ -349,46 +499,29 @@ export class ChartToolPanel {
         ),
       );
     }
+    // Stroke width and fill opacity apply to line/area series across the chart.
+    series.body.appendChild(
+      createNumberInput(model.series.strokeWidth ?? 2, (n) => this.host.updateModel({ series: { strokeWidth: n } }), 'Stroke width', 0, 10, 0.5),
+    );
+    series.body.appendChild(
+      createNumberInput(model.series.fillOpacity ?? 0.4, (n) => this.host.updateModel({ series: { fillOpacity: n } }), 'Fill opacity', 0, 1, 0.05),
+    );
     body.appendChild(series.section);
 
     const xAxis = createCollapsibleSection('Horizontal Axis', false);
     xAxis.body.appendChild(createTextInput(model.xAxis.title ?? '', (t) => this.host.updateModel({ xAxis: { title: t } }), 'Title', 'X-axis title'));
+    xAxis.body.appendChild(createColorInput(model.xAxis.labelColor ?? '#64748b', (c) => this.host.updateModel({ xAxis: { labelColor: c } }), 'Label color'));
+    xAxis.body.appendChild(createColorInput(model.xAxis.lineColor ?? '#e2e8f0', (c) => this.host.updateModel({ xAxis: { lineColor: c } }), 'Line color'));
+    xAxis.body.appendChild(createToggle(model.xAxis.showGridLines ?? false, (on) => this.host.updateModel({ xAxis: { showGridLines: on } }), 'Show grid lines'));
     xAxis.body.appendChild(createToggle(model.xAxis.showLabels ?? true, (on) => this.host.updateModel({ xAxis: { showLabels: on } }), 'Show labels'));
     body.appendChild(xAxis.section);
 
     const yAxis = createCollapsibleSection('Vertical Axis', false);
     yAxis.body.appendChild(createTextInput(model.yAxis.title ?? '', (t) => this.host.updateModel({ yAxis: { title: t } }), 'Title', 'Y-axis title'));
+    yAxis.body.appendChild(createColorInput(model.yAxis.labelColor ?? '#64748b', (c) => this.host.updateModel({ yAxis: { labelColor: c } }), 'Label color'));
+    yAxis.body.appendChild(createColorInput(model.yAxis.lineColor ?? '#e2e8f0', (c) => this.host.updateModel({ yAxis: { lineColor: c } }), 'Line color'));
     yAxis.body.appendChild(createToggle(model.yAxis.showGridLines ?? true, (on) => this.host.updateModel({ yAxis: { showGridLines: on } }), 'Show grid lines'));
     yAxis.body.appendChild(createToggle(model.yAxis.showLabels ?? true, (on) => this.host.updateModel({ yAxis: { showLabels: on } }), 'Show labels'));
     body.appendChild(yAxis.section);
   }
-}
-
-// ── Gallery icons (theme-inheriting via currentColor) ────────────────────────
-
-function barsIcon(horizontal: boolean): string {
-  return horizontal
-    ? `<svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="4" width="14" height="3" rx="1"/><rect x="3" y="10" width="9" height="3" rx="1"/><rect x="3" y="16" width="18" height="3" rx="1"/></svg>`
-    : `<svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="8" width="3" height="12" rx="1"/><rect x="10" y="4" width="3" height="16" rx="1"/><rect x="16" y="12" width="3" height="8" rx="1"/></svg>`;
-}
-function stackedIcon(horizontal: boolean): string {
-  return horizontal
-    ? `<svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="5" width="8" height="4" rx="1"/><rect x="11" y="5" width="9" height="4" rx="1" opacity="0.55"/><rect x="3" y="12" width="12" height="4" rx="1"/><rect x="15" y="12" width="5" height="4" rx="1" opacity="0.55"/></svg>`
-    : `<svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="10" width="4" height="10" rx="1"/><rect x="5" y="5" width="4" height="4" rx="1" opacity="0.55"/><rect x="15" y="8" width="4" height="12" rx="1"/><rect x="15" y="4" width="4" height="3" rx="1" opacity="0.55"/></svg>`;
-}
-function pieIcon(doughnut: boolean): string {
-  return doughnut
-    ? `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4"><circle cx="12" cy="12" r="7"/></svg>`
-    : `<svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3a9 9 0 1 0 9 9h-9z"/><path d="M11 3a9 9 0 0 0-8 8h8z" opacity="0.55"/></svg>`;
-}
-function lineIcon(area: boolean): string {
-  return area
-    ? `<svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><path d="M3 17l5-6 4 3 6-8v11z" opacity="0.6"/><path d="M3 17l5-6 4 3 6-8" fill="none" stroke="currentColor" stroke-width="2"/></svg>`
-    : `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 17 8 11 12 14 18 6"/></svg>`;
-}
-function scatterIcon(): string {
-  return `<svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><circle cx="6" cy="15" r="2"/><circle cx="11" cy="8" r="2"/><circle cx="16" cy="14" r="2"/><circle cx="19" cy="6" r="2"/></svg>`;
-}
-function funnelIcon(): string {
-  return `<svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><path d="M3 5h18l-6 7v6l-6 2v-8z"/></svg>`;
 }

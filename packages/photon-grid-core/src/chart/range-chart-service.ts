@@ -150,23 +150,26 @@ export class RangeChartService {
 
   /**
    * Builds a default model from the params, auto-detecting the category and
-   * series columns from the range when the caller didn't specify them. Returns
-   * `null` when the range contains no numeric column to plot.
+   * series columns from the selection when the caller didn't specify them.
+   * Collapses one or many cell ranges into a single ordered, de-duplicated pool
+   * of candidate columns. Returns `null` when the selection contains no numeric
+   * column to plot.
    */
   private seedModel(params: CreateRangeChartParams): ChartModel | null {
     const visible = this.ctx.columnModel.getVisibleColumns() as ColumnDef[];
-    const { startColIndex, endColIndex } = params.cellRange;
-    const lo = Math.min(startColIndex, endColIndex);
-    const hi = Math.max(startColIndex, endColIndex);
-    const rangeCols = visible.slice(lo, hi + 1);
-    const cols = rangeCols.length > 0 ? rangeCols : visible;
+    const ranges = params.cellRanges && params.cellRanges.length > 0
+      ? params.cellRanges
+      : [params.cellRange];
+
+    const cols = this.collectRangeColumns(visible, ranges);
+    const chartColIds = cols.map((c) => c.colId);
 
     const categoryColId = params.categoryColId
       ?? cols.find((c) => DIMENSION_TYPES.has(c.type))?.colId
       ?? cols[0]?.colId;
 
     const seriesColIds = params.seriesColIds
-      ?? cols.filter((c) => MEASURE_TYPES.has(c.type)).map((c) => c.colId);
+      ?? cols.filter((c) => MEASURE_TYPES.has(c.type) && c.colId !== categoryColId).map((c) => c.colId);
 
     if (!categoryColId || seriesColIds.length === 0) return null;
 
@@ -177,6 +180,7 @@ export class RangeChartService {
       chartId: `chart-${this.nextId++}`,
       chartType,
       cellRange: params.cellRange,
+      chartColIds,
       categoryColId,
       seriesColIds,
       aggregation: params.aggregation,
@@ -186,5 +190,22 @@ export class RangeChartService {
     const overrides = this.ctx.options.chartThemeOverrides;
     if (overrides) model = applyModelChange(model, overrides);
     return model;
+  }
+
+  /**
+   * Unions the visible columns spanned by every cell range into a single list in
+   * visible (left-to-right) order, without duplicates. Falls back to all visible
+   * columns when the ranges resolve to an empty span. `O(ranges + columns)`.
+   */
+  private collectRangeColumns(visible: readonly ColumnDef[], ranges: readonly CellRange[]): ColumnDef[] {
+    const inRange = new Set<number>();
+    for (const range of ranges) {
+      const lo = Math.max(0, Math.min(range.startColIndex, range.endColIndex));
+      const hi = Math.min(visible.length - 1, Math.max(range.startColIndex, range.endColIndex));
+      for (let i = lo; i <= hi; i++) inRange.add(i);
+    }
+    if (inRange.size === 0) return [...visible];
+    // Iterate the visible order once, keeping only spanned indices → ordered, de-duped.
+    return visible.filter((_, i) => inRange.has(i));
   }
 }

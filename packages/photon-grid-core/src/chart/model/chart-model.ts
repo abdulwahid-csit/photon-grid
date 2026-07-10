@@ -150,7 +150,7 @@ export function createDefaultChartModel(seed: ChartModelSeed): ChartModel {
     legend: { enabled: seed.seriesColIds.length > 1, position: 'bottom' },
     xAxis: { showGridLines: false, showTicks: true, showLabels: true },
     yAxis: { showGridLines: true, showTicks: true, showLabels: true },
-    series: { colorByKey: {} },
+    series: { colorByKey: {}, strokeWidth: 2, fillOpacity: 0.4 },
     style: {},
   };
   return deepFreeze(model);

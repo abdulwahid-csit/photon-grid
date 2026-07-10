@@ -4,7 +4,12 @@
   "version": "1.0.0",
   "description": "Photon Grid monorepo",
   "license": "MIT",
-  "packageManager": "pnpm@10.13.1",
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "watch:core": "npm --prefix packages/photon-grid-core run build:watch",
     "watch:angular": "npm --prefix packages/photon-grid-angular run build:watch",
@@ -27,11 +32,19 @@
     "build:vue": "npm --prefix packages/photon-grid-vue run build",
     "build": "npm run build:core && npm run build:angular && npm run build:react && npm run build:vue",
 
+    "typecheck": "npm --prefix packages/photon-grid-core run typecheck",
+
     "clean:core": "npm --prefix packages/photon-grid-core run clean",
     "clean:angular": "npm --prefix packages/photon-grid-angular run clean",
-    "clean": "npm run clean:core && npm run clean:angular"
+    "clean": "npm run clean:core && npm run clean:angular",
+
+    "changeset": "changeset",
+    "version": "changeset version && npm install --package-lock-only",
+    "release": "npm run build && node scripts/publish-packages.mjs"
   },
   "devDependencies": {
+    "@changesets/changelog-github": "^0.5.1",
+    "@changesets/cli": "^2.29.7",
     "concurrently": "^9.2.3",
     "typescript": "^5.9.3"
   }

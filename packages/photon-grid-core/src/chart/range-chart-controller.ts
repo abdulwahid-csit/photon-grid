@@ -71,7 +71,10 @@ export class RangeChartController implements ChartPanelHost, ChartToolPanelHost 
 
     this.panel.setChartType(this.model.chartType);
     this.panel.update(this.buildData());
-    this.toolPanel?.render();
+    // Note: the tool panel is NOT rebuilt here. Rebuilding on every edit would
+    // destroy the control mid-interaction (e.g. an open color picker). Structural
+    // controls (chart-type gallery, series add/remove) refresh themselves; live
+    // style controls keep their own DOM state and only drive the chart.
 
     this.ctx.eventBus.emit(GridEventType.CHART_OPTIONS_CHANGED, {
       chartId: this.model.chartId,
@@ -90,12 +93,14 @@ export class RangeChartController implements ChartPanelHost, ChartToolPanelHost 
     });
   }
 
-  /** Opens the configuration tool panel, optionally on a specific tab. */
+  /** Opens the configuration drawer inside the chart card, optionally on a tab. */
   openToolPanel(tab?: ChartToolPanelName): void {
-    if (!this.toolPanel) this.toolPanel = new ChartToolPanel(this.hostEl, this);
+    const body = this.panel.getBodyElement();
+    if (!body) return;
+    if (!this.toolPanel) {
+      this.toolPanel = new ChartToolPanel(body, this, (px) => this.panel.setConfigReserve(px));
+    }
     this.toolPanel.open(tab);
-    const rect = this.panel.getCardElement()?.getBoundingClientRect();
-    if (rect) this.toolPanel.dock(rect);
   }
 
   /** Detaches the chart from the grid, freezing its current snapshot. */
@@ -161,8 +166,9 @@ export class RangeChartController implements ChartPanelHost, ChartToolPanelHost 
     this.unlink();
   }
 
-  onMove(rect: DOMRect): void {
-    this.toolPanel?.dock(rect);
+  onMove(_rect: DOMRect): void {
+    // The configuration drawer is a child of the chart card, so it moves with
+    // the card automatically — no external re-docking is required.
   }
 
   onClose(): void {
@@ -172,12 +178,23 @@ export class RangeChartController implements ChartPanelHost, ChartToolPanelHost 
   // ── ChartToolPanelHost ─────────────────────────────────────────────────────
 
   getColumnOptions(): ChartColumnOption[] {
-    const visible = this.ctx.columnModel.getVisibleColumns();
-    const { startColIndex, endColIndex } = this.model.cellRange;
-    const lo = Math.min(startColIndex, endColIndex);
-    const hi = Math.max(startColIndex, endColIndex);
-    const inRange = visible.slice(lo, hi + 1);
-    const cols = inRange.length > 0 ? inRange : visible;
+    const visible = this.ctx.columnModel.getVisibleColumns() as ColumnDef[];
+    // Prefer the model's explicit candidate pool (union of the source ranges);
+    // fall back to the bounding cellRange for models seeded before chartColIds,
+    // then to all visible columns.
+    let cols: ColumnDef[];
+    if (this.model.chartColIds && this.model.chartColIds.length > 0) {
+      const byId = new Map(visible.map((c) => [c.colId, c]));
+      cols = this.model.chartColIds
+        .map((id) => byId.get(id))
+        .filter((c): c is ColumnDef => c !== undefined);
+    } else {
+      const { startColIndex, endColIndex } = this.model.cellRange;
+      const lo = Math.min(startColIndex, endColIndex);
+      const hi = Math.max(startColIndex, endColIndex);
+      const inRange = visible.slice(lo, hi + 1);
+      cols = inRange.length > 0 ? inRange : visible;
+    }
     return cols.map((c) => ({
       colId: c.colId,
       header: c.header,

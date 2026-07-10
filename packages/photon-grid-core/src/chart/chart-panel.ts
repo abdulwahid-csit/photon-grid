@@ -55,6 +55,8 @@ interface ChartMenuEntry {
 export class ChartPanel {
   private backdropEl: HTMLElement | null = null;
   private cardEl: HTMLElement | null = null;
+  private bodyEl: HTMLElement | null = null;
+  private chartAreaEl: HTMLElement | null = null;
   private canvasEl: HTMLCanvasElement | null = null;
   private dotsMenuEl: HTMLElement | null = null;
   private dotsBtnEl: HTMLElement | null = null;
@@ -107,6 +109,27 @@ export class ChartPanel {
     return this.cardEl;
   }
 
+  /**
+   * The scrollable body element that hosts the canvas. The configuration drawer
+   * mounts here so it slides in over the plot area while the header (close /
+   * fullscreen) and legend stay accessible.
+   */
+  getBodyElement(): HTMLElement | null {
+    return this.bodyEl;
+  }
+
+  /**
+   * Reserves `px` of space on the right of the plot for the configuration drawer,
+   * so the chart reflows beside it instead of being hidden underneath. Passing 0
+   * releases the reservation. The chart re-renders to fill the new area (the
+   * chart-area ResizeObserver also fires as the reflow transition runs).
+   */
+  setConfigReserve(px: number): void {
+    if (!this.chartAreaEl) return;
+    this.chartAreaEl.style.right = `${Math.max(0, px)}px`;
+    this.renderChart();
+  }
+
   /** Updates the chart type used for subsequent renders. */
   setChartType(type: ChartPanelType): void {
     this.currentType = type;
@@ -140,6 +163,12 @@ export class ChartPanel {
   close(): void {
     if (this.closing) return;
     this.closing = true;
+    // Whether an actual panel was mounted. `open()` calls `close()` first to
+    // reset state; on a fresh panel nothing is mounted, and in that case we must
+    // NOT fire `onClose` — doing so would dispose the just-created controller
+    // before it ever renders. Only a real close (× button, backdrop click,
+    // dispose) should notify the host.
+    const wasMounted = this.backdropEl !== null;
     this.detachOutsideMousedown();
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
@@ -148,6 +177,8 @@ export class ChartPanel {
     this.backdropEl?.remove();
     this.backdropEl = null;
     this.cardEl = null;
+    this.bodyEl = null;
+    this.chartAreaEl = null;
     this.canvasEl = null;
     this.dotsMenuEl = null;
     this.dotsBtnEl = null;
@@ -156,15 +187,14 @@ export class ChartPanel {
     this.currentData = null;
     const host = this.host;
     this.closing = false;
-    host?.onClose();
+    if (wasMounted) host?.onClose();
   }
 
   private buildDom(title: string, isEmpty: boolean): void {
     const backdrop = document.createElement('div');
     backdrop.className = 'pg-chart-panel-backdrop pg-chart-panel-backdrop--open';
-    backdrop.addEventListener('mousedown', (e) => {
-      if (e.target === backdrop) this.close();
-    });
+    // Intentionally no outside-click-to-close: the panel is dismissed only via
+    // its own close (×) button, so a stray click on the grid never loses it.
 
     const card = document.createElement('div');
     card.className = 'pg-chart-panel';
@@ -199,9 +229,16 @@ export class ChartPanel {
     header.appendChild(actions);
     card.appendChild(header);
 
-    // Body
+    // Body: a positioning context that holds the chart area and, when open, the
+    // sliding configuration drawer. The chart area reflows (shrinks) to sit
+    // beside the drawer rather than being hidden beneath it.
     const body = document.createElement('div');
     body.className = 'pg-chart-panel__body';
+
+    const chartArea = document.createElement('div');
+    chartArea.className = 'pg-chart-panel__chart-area';
+    body.appendChild(chartArea);
+    this.chartAreaEl = chartArea;
 
     if (isEmpty) {
       const emptyEl = document.createElement('div');
@@ -211,17 +248,19 @@ export class ChartPanel {
         <span class="pg-chart-panel__empty-text">No chart data available</span>
         <span class="pg-chart-panel__empty-sub">Select cells that include Number, Currency, or Percentage columns</span>
       `;
-      body.appendChild(emptyEl);
+      chartArea.appendChild(emptyEl);
     } else {
       const canvas = document.createElement('canvas');
       canvas.className = 'pg-chart-panel__canvas';
-      body.appendChild(canvas);
+      chartArea.appendChild(canvas);
 
       this.canvasEl = canvas;
-      this.buildDotsMenu(body);
+      this.buildDotsMenu(chartArea);
 
+      // Observe the chart area (not the whole body) so the chart re-renders as it
+      // reflows when the configuration drawer opens and closes.
       this.resizeObserver = new ResizeObserver(() => { this.renderChart(); });
-      this.resizeObserver.observe(body);
+      this.resizeObserver.observe(chartArea);
     }
 
     card.appendChild(body);
@@ -237,6 +276,7 @@ export class ChartPanel {
 
     this.backdropEl = backdrop;
     this.cardEl = card;
+    this.bodyEl = body;
     this.fullscreenBtnEl = fullscreenBtn;
 
     this.centerPanel();

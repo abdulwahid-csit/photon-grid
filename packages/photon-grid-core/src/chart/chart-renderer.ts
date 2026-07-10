@@ -63,6 +63,13 @@ export interface ChartRenderOptions {
   strokeWidth?: number;
   /** 0–1 fill opacity for area / polar fills. */
   fillOpacity?: number;
+
+  /**
+   * Compact preview mode: collapses every axis / label gutter to a uniform
+   * {@link ChartRenderOptions.padding} so the plot fills the canvas edge-to-edge.
+   * Used for the chart-type gallery thumbnails; has no effect on normal charts.
+   */
+  compact?: boolean;
 }
 
 const DEFAULTS: Required<ChartRenderOptions> = {
@@ -107,6 +114,7 @@ const DEFAULTS: Required<ChartRenderOptions> = {
   seriesColors: {},
   strokeWidth: 0,
   fillOpacity: 0,
+  compact: false,
 };
 
 const APEX_COLORS = [
@@ -652,10 +660,11 @@ export class ChartRenderer {
     const xTitleH = opts.xAxisTitle ? opts.fontSize + 10 : 0;
     const yTitleW = opts.yAxisTitle ? opts.fontSize + 12 : 0;
 
-    let plotTop = 20 + titleH;
-    let plotBottom = opts.height - 36 - xTitleH;
-    let plotLeft = 65 + yTitleW;
-    let plotRight = opts.width - 20;
+    // Compact previews use a uniform padding gutter so the plot fills the canvas.
+    let plotTop = opts.compact ? opts.padding + titleH : 20 + titleH;
+    let plotBottom = opts.compact ? opts.height - opts.padding : opts.height - 36 - xTitleH;
+    let plotLeft = opts.compact ? opts.padding : 65 + yTitleW;
+    let plotRight = opts.width - (opts.compact ? opts.padding : 20);
 
     if (legendOn) {
       if (pos === 'top') plotTop += band;
@@ -853,18 +862,30 @@ export class ChartRenderer {
     const { ctx } = this;
     const { plotLeft, plotTop, plotBottom, plotRight, plotW, plotH } = this.getPlotArea(opts, data);
 
+    // Match the grouped chart: with multiple series, scale each series to its own
+    // maximum so a small-scale series (e.g. Age next to Salary) stays visible
+    // instead of collapsing to a sub-pixel sliver. Each series then occupies an
+    // equal band of the plot height. Falls back to true absolute stacking for a
+    // single series.
+    const nD = data.datasets.length;
+    const usePerSeries = nD > 1;
+    const seriesMaxes = data.datasets.map((ds) => this.niceMax(Math.max(...ds.data, 0)));
     const stackTotals = data.labels.map((_, gi) =>
       data.datasets.reduce((sum, ds) => sum + (ds.data[gi] ?? 0), 0),
     );
-    const rawMax = Math.max(...stackTotals, 0);
-    const maxVal = this.niceMax(rawMax);
+    const maxVal = this.niceMax(Math.max(...stackTotals, 0));
 
-    if (opts.showGrid) this.drawGridLines(plotLeft, plotTop, plotW, plotH, maxVal, opts);
-    else this.drawAxes(plotLeft, plotTop, plotRight, plotBottom, opts);
+    if (opts.showGrid) {
+      if (usePerSeries) this.drawGridLinesRelative(plotLeft, plotTop, plotW, plotH, opts);
+      else this.drawGridLines(plotLeft, plotTop, plotW, plotH, maxVal, opts);
+    } else {
+      this.drawAxes(plotLeft, plotTop, plotRight, plotBottom, opts);
+    }
 
     const nGroups = data.labels.length;
     const groupWidth = plotW / Math.max(nGroups, 1);
     const barW = groupWidth * opts.barWidth;
+    const band = plotH / Math.max(nD, 1);
     const labelStep = this.getLabelStep(nGroups, plotW, opts.fontSize);
     const labelAlpha = Math.min(1, progress * 2.5);
 
@@ -872,14 +893,16 @@ export class ChartRenderer {
       const barX = plotLeft + gi * groupWidth + (groupWidth - barW) / 2;
       let currentY = plotBottom;
 
-      for (let di = 0; di < data.datasets.length; di++) {
+      for (let di = 0; di < nD; di++) {
         const value = data.datasets[di].data[gi] ?? 0;
-        const segH = (value / maxVal) * plotH * progress;
+        const segH = (usePerSeries
+          ? (value / (seriesMaxes[di] || 1)) * band
+          : (value / maxVal) * plotH) * progress;
         const segY = currentY - segH;
 
         ctx.fillStyle = data.datasets[di].color ?? APEX_COLORS[di % APEX_COLORS.length];
         ctx.beginPath();
-        if (di === data.datasets.length - 1) {
+        if (di === nD - 1) {
           ctx.roundRect(barX, segY, Math.max(barW, 1), Math.max(segH, 0), [3, 3, 0, 0]);
         } else {
           ctx.rect(barX, segY, Math.max(barW, 1), Math.max(segH, 0));
@@ -908,6 +931,12 @@ export class ChartRenderer {
     if (opts.showGrid) this.drawGridLines(plotLeft, plotTop, plotW, plotH, 100, opts);
     else this.drawAxes(plotLeft, plotTop, plotRight, plotBottom, opts);
 
+    // Weight each series by its own maximum so a small-scale series keeps a
+    // visible share of the 100% bar instead of rounding to ~0%.
+    const nD = data.datasets.length;
+    const usePerSeries = nD > 1;
+    const seriesMaxes = data.datasets.map((ds) => this.niceMax(Math.max(...ds.data, 0)));
+
     const nGroups = data.labels.length;
     const groupWidth = plotW / Math.max(nGroups, 1);
     const barW = groupWidth * opts.barWidth;
@@ -915,18 +944,21 @@ export class ChartRenderer {
     const labelAlpha = Math.min(1, progress * 2.5);
 
     for (let gi = 0; gi < nGroups; gi++) {
-      const total = data.datasets.reduce((sum, ds) => sum + (ds.data[gi] ?? 0), 0) || 1;
+      const shares = data.datasets.map((ds, di) => {
+        const value = ds.data[gi] ?? 0;
+        return usePerSeries ? value / (seriesMaxes[di] || 1) : value;
+      });
+      const total = shares.reduce((sum, s) => sum + s, 0) || 1;
       const barX = plotLeft + gi * groupWidth + (groupWidth - barW) / 2;
       let currentY = plotBottom;
 
-      for (let di = 0; di < data.datasets.length; di++) {
-        const value = data.datasets[di].data[gi] ?? 0;
-        const segH = (value / total) * plotH * progress;
+      for (let di = 0; di < nD; di++) {
+        const segH = (shares[di] / total) * plotH * progress;
         const segY = currentY - segH;
 
         ctx.fillStyle = data.datasets[di].color ?? APEX_COLORS[di % APEX_COLORS.length];
         ctx.beginPath();
-        if (di === data.datasets.length - 1) {
+        if (di === nD - 1) {
           ctx.roundRect(barX, segY, Math.max(barW, 1), Math.max(segH, 0), [3, 3, 0, 0]);
         } else {
           ctx.rect(barX, segY, Math.max(barW, 1), Math.max(segH, 0));
@@ -951,11 +983,11 @@ export class ChartRenderer {
   private drawBarGrouped(data: ChartData, opts: Required<ChartRenderOptions>, progress: number): void {
     const { ctx } = this;
     const legendH = opts.showLegend && data.datasets.length > 1 ? 40 : 0;
-    const labelAreaW = 80;
+    const labelAreaW = opts.compact ? opts.padding : 80;
     const plotLeft = labelAreaW;
-    const plotTop = 10 + this.titleBandHeight(opts);
-    const plotRight = opts.width - 20;
-    const plotBottom = opts.height - legendH - 30;
+    const plotTop = (opts.compact ? opts.padding : 10) + this.titleBandHeight(opts);
+    const plotRight = opts.width - (opts.compact ? opts.padding : 20);
+    const plotBottom = opts.height - legendH - (opts.compact ? opts.padding : 30);
     const plotW = plotRight - plotLeft;
     const plotH = plotBottom - plotTop;
 
@@ -1024,14 +1056,17 @@ export class ChartRenderer {
   private drawBarStacked(data: ChartData, opts: Required<ChartRenderOptions>, progress: number): void {
     const { ctx } = this;
     const legendH = opts.showLegend && data.datasets.length > 1 ? 40 : 0;
-    const labelAreaW = 80;
+    const labelAreaW = opts.compact ? opts.padding : 80;
     const plotLeft = labelAreaW;
-    const plotTop = 10 + this.titleBandHeight(opts);
-    const plotRight = opts.width - 20;
-    const plotBottom = opts.height - legendH - 30;
+    const plotTop = (opts.compact ? opts.padding : 10) + this.titleBandHeight(opts);
+    const plotRight = opts.width - (opts.compact ? opts.padding : 20);
+    const plotBottom = opts.height - legendH - (opts.compact ? opts.padding : 30);
     const plotW = plotRight - plotLeft;
     const plotH = plotBottom - plotTop;
 
+    const nD = data.datasets.length;
+    const usePerSeries = nD > 1;
+    const seriesMaxes = data.datasets.map((ds) => this.niceMax(Math.max(...ds.data, 0)));
     const stackTotals = data.labels.map((_, gi) =>
       data.datasets.reduce((sum, ds) => sum + (ds.data[gi] ?? 0), 0),
     );
@@ -1049,7 +1084,9 @@ export class ChartRenderer {
         ctx.fillStyle = opts.textColor;
         ctx.font = `${opts.fontSize}px ${opts.fontFamily}`;
         ctx.textAlign = 'center';
-        ctx.fillText(this.formatNum((maxVal * i) / steps), x, plotBottom + 14);
+        // Per-series normalization uses a relative (0–100%) axis, like grouped.
+        const xLabel = usePerSeries ? `${Math.round((100 * i) / steps)}%` : this.formatNum((maxVal * i) / steps);
+        ctx.fillText(xLabel, x, plotBottom + 14);
       }
       ctx.setLineDash([]);
       ctx.strokeStyle = opts.gridColor; ctx.lineWidth = 1.5;
@@ -1062,17 +1099,20 @@ export class ChartRenderer {
     const nGroups = data.labels.length;
     const groupH = plotH / Math.max(nGroups, 1);
     const barH = groupH * opts.barWidth;
+    const band = plotW / Math.max(nD, 1);
     const labelStep = this.getLabelStep(nGroups, plotH, opts.fontSize);
 
     for (let gi = 0; gi < nGroups; gi++) {
       const barY = plotTop + gi * groupH + (groupH - barH) / 2;
       let currentX = plotLeft;
-      for (let di = 0; di < data.datasets.length; di++) {
+      for (let di = 0; di < nD; di++) {
         const value = data.datasets[di].data[gi] ?? 0;
-        const segW = (value / maxVal) * plotW * progress;
+        const segW = (usePerSeries
+          ? (value / (seriesMaxes[di] || 1)) * band
+          : (value / maxVal) * plotW) * progress;
         ctx.fillStyle = data.datasets[di].color ?? APEX_COLORS[di % APEX_COLORS.length];
         ctx.beginPath();
-        if (di === data.datasets.length - 1) {
+        if (di === nD - 1) {
           ctx.roundRect(currentX, barY, Math.max(segW, 0), Math.max(barH, 1), [0, 3, 3, 0]);
         } else {
           ctx.rect(currentX, barY, Math.max(segW, 0), Math.max(barH, 1));
@@ -1096,11 +1136,11 @@ export class ChartRenderer {
   private drawBar100Stacked(data: ChartData, opts: Required<ChartRenderOptions>, progress: number): void {
     const { ctx } = this;
     const legendH = opts.showLegend && data.datasets.length > 1 ? 40 : 0;
-    const labelAreaW = 80;
+    const labelAreaW = opts.compact ? opts.padding : 80;
     const plotLeft = labelAreaW;
-    const plotTop = 10 + this.titleBandHeight(opts);
-    const plotRight = opts.width - 20;
-    const plotBottom = opts.height - legendH - 30;
+    const plotTop = (opts.compact ? opts.padding : 10) + this.titleBandHeight(opts);
+    const plotRight = opts.width - (opts.compact ? opts.padding : 20);
+    const plotBottom = opts.height - legendH - (opts.compact ? opts.padding : 30);
     const plotW = plotRight - plotLeft;
     const plotH = plotBottom - plotTop;
     const labelAlpha = Math.min(1, progress * 2.5);
@@ -1130,13 +1170,22 @@ export class ChartRenderer {
     const barH = groupH * opts.barWidth;
     const labelStep = this.getLabelStep(nGroups, plotH, opts.fontSize);
 
+    // Weight each series by its own maximum so a small-scale series keeps a
+    // visible share of the 100% bar instead of rounding to ~0%.
+    const nD = data.datasets.length;
+    const usePerSeries = nD > 1;
+    const seriesMaxes = data.datasets.map((ds) => this.niceMax(Math.max(...ds.data, 0)));
+
     for (let gi = 0; gi < nGroups; gi++) {
-      const total = data.datasets.reduce((sum, ds) => sum + (ds.data[gi] ?? 0), 0) || 1;
+      const shares = data.datasets.map((ds, di) => {
+        const value = ds.data[gi] ?? 0;
+        return usePerSeries ? value / (seriesMaxes[di] || 1) : value;
+      });
+      const total = shares.reduce((sum, s) => sum + s, 0) || 1;
       const barY = plotTop + gi * groupH + (groupH - barH) / 2;
       let currentX = plotLeft;
-      for (let di = 0; di < data.datasets.length; di++) {
-        const value = data.datasets[di].data[gi] ?? 0;
-        const segW = (value / total) * plotW * progress;
+      for (let di = 0; di < nD; di++) {
+        const segW = (shares[di] / total) * plotW * progress;
         ctx.fillStyle = data.datasets[di].color ?? APEX_COLORS[di % APEX_COLORS.length];
         ctx.beginPath();
         if (di === data.datasets.length - 1) {
@@ -1180,7 +1229,7 @@ export class ChartRenderer {
       ctx.save();
       ctx.beginPath(); ctx.rect(plotLeft, plotTop, plotW, plotH + 1); ctx.clip();
       ctx.strokeStyle = ds.color ?? APEX_COLORS[0];
-      ctx.lineWidth = opts.lineWidth;
+      ctx.lineWidth = opts.strokeWidth > 0 ? opts.strokeWidth : opts.lineWidth;
       ctx.lineCap = 'round'; ctx.lineJoin = 'round';
       ctx.beginPath();
       for (let i = 0; i < Math.min(visibleCount, nPoints); i++) {
@@ -1239,8 +1288,8 @@ export class ChartRenderer {
       ctx.lineTo(getX(Math.min(visibleCount, nPoints) - 1), plotBottom);
       ctx.lineTo(getX(0), plotBottom);
       ctx.closePath();
-      ctx.fillStyle = color + '26'; ctx.fill();
-      ctx.strokeStyle = color; ctx.lineWidth = opts.lineWidth;
+      ctx.fillStyle = color + this.alphaHex(opts.fillOpacity > 0 ? opts.fillOpacity : 0.15); ctx.fill();
+      ctx.strokeStyle = color; ctx.lineWidth = opts.strokeWidth > 0 ? opts.strokeWidth : opts.lineWidth;
       ctx.lineCap = 'round'; ctx.lineJoin = 'round';
       ctx.beginPath();
       for (let i = 0; i < Math.min(visibleCount, nPoints); i++) {
@@ -1269,7 +1318,7 @@ export class ChartRenderer {
     const legendH = opts.showLegend ? 40 : 0;
     const cx = opts.width / 2;
     const cy = this.titleBandHeight(opts) + (opts.height - legendH - this.titleBandHeight(opts)) / 2;
-    const radius = Math.min(opts.width, opts.height - legendH - this.titleBandHeight(opts)) / 2 - 20;
+    const radius = Math.min(opts.width, opts.height - legendH - this.titleBandHeight(opts)) / 2 - (opts.compact ? opts.padding : 20);
     const innerRadius = isDoughnut ? radius * 0.5 : 0;
     const values = data.datasets[0]?.data ?? [];
     const total = values.reduce((a, b) => a + b, 0) || 1;
@@ -1365,7 +1414,7 @@ export class ChartRenderer {
     const legendH = opts.showLegend && data.datasets.length > 1 ? 40 : 0;
     const cx = opts.width / 2;
     const cy = this.titleBandHeight(opts) + (opts.height - legendH - this.titleBandHeight(opts)) / 2;
-    const radius = Math.min(opts.width, opts.height - legendH - this.titleBandHeight(opts)) / 2 - 30;
+    const radius = Math.min(opts.width, opts.height - legendH - this.titleBandHeight(opts)) / 2 - (opts.compact ? opts.padding : 30);
     const labels = data.labels;
     const nSpokes = labels.length;
     if (nSpokes < 3) return;
@@ -1425,12 +1474,12 @@ export class ChartRenderer {
     const maxVal = Math.max(...values, 0) || 1;
     const n = labels.length;
     const legendH = opts.showLegend && data.datasets.length > 1 ? 40 : 0;
-    const labelAreaW = 90;
+    const labelAreaW = opts.compact ? opts.padding : 90;
     const plotLeft = labelAreaW;
-    const plotRight = opts.width - 20;
+    const plotRight = opts.width - (opts.compact ? opts.padding : 20);
     const plotWidth = plotRight - plotLeft;
-    const plotTop = 10 + this.titleBandHeight(opts);
-    const plotBottom = opts.height - legendH - 10;
+    const plotTop = (opts.compact ? opts.padding : 10) + this.titleBandHeight(opts);
+    const plotBottom = opts.height - legendH - (opts.compact ? opts.padding : 10);
     const plotH = plotBottom - plotTop;
     const itemH = Math.max((plotH / Math.max(n, 1)) - 2, 1);
     const cx = plotLeft + plotWidth / 2;
@@ -1593,6 +1642,16 @@ export class ChartRenderer {
 
   private truncate(str: string, max: number): string {
     return str.length > max ? str.slice(0, max - 1) + '…' : str;
+  }
+
+  /**
+   * Converts a 0–1 opacity into a two-digit hex alpha suffix for `#rrggbb` +
+   * `aa` color strings. Clamped to the valid range so out-of-bounds model values
+   * never produce a malformed color.
+   */
+  private alphaHex(opacity: number): string {
+    const clamped = Math.max(0, Math.min(1, opacity));
+    return Math.round(clamped * 255).toString(16).padStart(2, '0');
   }
 
   private formatNum(n: number): string {

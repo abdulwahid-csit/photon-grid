@@ -174,7 +174,7 @@ export class AppComponent implements OnInit {
                     // needed just to bold a value. Building an HTMLElement
                     // directly (rather than an HTML string) sidesteps any
                     // injection concern for values.
-                    display: (params) => {
+                    display: (params: DisplayRendererParams) => {
                         const strong = document.createElement('strong');
                         strong.textContent = String(params.value ?? '');
                         return strong;

@@ -32,6 +32,8 @@ import { columnContextMenuCss } from './base/column-context-menu.css';
 import { masterDetailCss }      from './base/master-detail.css';
 import { photonAiCss }          from './base/photon-ai.css';
 import { tooltipCss }           from './base/tooltip.css';
+import { chartConfigCss }       from './base/chart-config.css';
+import { chartControlsCss }     from './base/chart-controls.css';
 
 const STYLE_ID = 'photon-grid-base-styles';
 
@@ -62,6 +64,8 @@ const baseCss = [
   masterDetailCss,
   photonAiCss,
   tooltipCss,
+  chartConfigCss,
+  chartControlsCss,
 ].join('');
 
 const css = [baseCss, themeQuartzCss, themeAlpineCss, themeBalhamCss, themeMaterialCss, themeDarkCss].join('\n');

@@ -1,6 +1,6 @@
 {
   "name": "photon-grid-react",
-  "version": "0.0.3",
+  "version": "0.1.0",
   "description": "A high-performance React data grid built on Photon Grid Core with virtualization, sorting, filtering, editing, grouping, and custom React renderers.",
   "type": "module",
   "keywords": [
@@ -48,15 +48,18 @@
   ],
   "scripts": {
     "dev": "vite",
+    "clean": "npx rimraf dist",
     "build": "tsc -b && vite build && npm run copy-files",
-    "copy-files": "copy package.json dist && copy README.md dist && copy LICENSE dist",
+    "copy-files": "node ../../scripts/copy-pkg-to-dist.mjs",
     "lint": "eslint .",
     "preview": "vite preview"
   },
   "dependencies": {
-    "photon-grid-core": "^0.0.3",
-    "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "photon-grid-core": "^0.1.0"
+  },
+  "peerDependencies": {
+    "react": ">=18",
+    "react-dom": ">=18"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -68,8 +71,11 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.3",
     "globals": "^17.7.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.62.0",
-    "vite": "^8.1.1"
+    "vite": "^8.1.1",
+    "vite-plugin-dts": "^4.5.4"
   }
 }

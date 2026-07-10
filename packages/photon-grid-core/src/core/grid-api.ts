@@ -6,6 +6,8 @@ import type { SortConfig, GridState, CellRange } from '../types/grid.types';
 import type { GridEventType } from '../types/event.types';
 import type { EventHandler } from '../event-bus/event-bus';
 import type { ChartConfig } from '../chart/chart-engine';
+import type { ChartModel } from '../chart/model/chart-model';
+import type { CreateRangeChartParams } from '../chart/range-chart-service';
 import type { ColumnGroupModel } from '../column-groups/column-group-model';
 import type { ColumnGroupSerialState, ColumnGroupSystemState, ColumnTreeNode } from '../column-groups/column-group.types';
 import { ColumnGroupStateManager } from '../column-groups/column-group-state-manager';
@@ -586,6 +588,44 @@ export class GridApi {
     return this.ctx.chartEngine.exportChartAsImage(chartId, format);
   }
 
+  // ──────────────────── Range Charts (configurable) ────────────────────
+
+  /**
+   * Creates an AG-Grid-style configurable range chart from a cell range and
+   * opens its floating panel.
+   *
+   * @param params - Range, chart type, and optional category/series roles.
+   * @returns The new chart id, or an empty string if the range has no numeric data.
+   */
+  createRangeChart(params: CreateRangeChartParams): string {
+    return this.ctx.rangeChartService?.createRangeChart(params) ?? '';
+  }
+
+  /** Serializable models for every live range chart (for save / restore). */
+  getChartModels(): ChartModel[] {
+    return this.ctx.rangeChartService?.getChartModels() ?? [];
+  }
+
+  /** Applies a full model to an existing chart (matched by `chartId`). */
+  updateChart(model: ChartModel): void {
+    this.ctx.rangeChartService?.updateChart(model);
+  }
+
+  /** Recreates a chart from a previously saved model, returning its id. */
+  restoreChart(model: ChartModel): string {
+    return this.ctx.rangeChartService?.restoreChart(model) ?? '';
+  }
+
+  /** A data-URL image of a range chart, or null if unknown. */
+  getChartImageDataURL(chartId: string, format: 'png' | 'jpeg' = 'png'): string | null {
+    return this.ctx.rangeChartService?.getChartImageDataURL(chartId, format) ?? null;
+  }
+
+  /** Triggers a browser download of a range chart. */
+  downloadChart(chartId: string, format: 'png' | 'jpeg' = 'png'): void {
+    this.ctx.rangeChartService?.downloadChart(chartId, format);
+  }
+
   // ──────────────────── State ────────────────────
 
   getGridState(): GridState {
@@ -599,6 +639,7 @@ export class GridApi {
       expandedGroups: Array.from(this.ctx.store.get('expandedGroupKeys')),
       expandedTreeNodeIds: Array.from(this.ctx.store.get('expandedTreeNodeIds')),
       selectedRowIds: Array.from(this.ctx.store.get('selectedRowIds')),
+      chartModels: this.ctx.rangeChartService?.getChartModels() ?? [],
     };
   }
 
@@ -612,6 +653,14 @@ export class GridApi {
       this.ctx.store.set('expandedTreeNodeIds', new Set(state.expandedTreeNodeIds));
     }
     this.refresh();
+    // Restore charts only when the key is present, so partial states leave
+    // existing charts untouched. Done after refresh() so linked charts build
+    // from the restored rows. Existing charts are cleared first to avoid
+    // duplicate ids.
+    if (state.chartModels) {
+      this.ctx.rangeChartService?.disposeAll();
+      for (const model of state.chartModels) this.ctx.rangeChartService?.restoreChart(model);
+    }
   }
 
   // ──────────────────── Events ────────────────────

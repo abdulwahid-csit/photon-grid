@@ -1,0 +1,21 @@
+{
+  "$schema": "https://unpkg.com/@changesets/config@3.0.0/schema.json",
+  "changelog": [
+    "@changesets/changelog-github",
+    { "repo": "abdulwahid-csit/photon-grid" }
+  ],
+  "commit": false,
+  "fixed": [
+    [
+      "photon-grid-core",
+      "photon-grid-react",
+      "photon-grid-angular",
+      "photon-grid-vue"
+    ]
+  ],
+  "linked": [],
+  "access": "public",
+  "baseBranch": "main",
+  "updateInternalDependencies": "patch",
+  "ignore": []
+}

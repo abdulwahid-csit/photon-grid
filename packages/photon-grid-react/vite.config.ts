@@ -1,9 +1,14 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import dts from 'vite-plugin-dts';
 import path from 'node:path';
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    // Emit TypeScript declarations (dist/index.d.ts) so consumers get types.
+    dts({ include: ['src'], tsconfigPath: './tsconfig.app.json' }),
+  ],
 
   build: {
     lib: {
@@ -17,6 +22,7 @@ export default defineConfig({
       external: [
         'react',
         'react-dom',
+        'react/jsx-runtime',
         'photon-grid-core'
       ],
 

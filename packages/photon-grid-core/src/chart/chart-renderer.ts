@@ -1,5 +1,7 @@
 import type { ChartData } from './chart-data-transformer';
 import type { ChartPanelType } from './chart-panel';
+import type { LegendPosition, TextAlign } from './model/chart-model';
+import { resolveChartTheme, type ResolvedChartTheme } from './chart-theme';
 
 export interface ChartRenderOptions {
   type: ChartPanelType | 'bar' | 'line' | 'pie' | 'doughnut';
@@ -14,10 +16,60 @@ export interface ChartRenderOptions {
   smooth?: boolean;
   fontFamily?: string;
   fontSize?: number;
+  /**
+   * Axis-label / body text color. Empty string means "resolve from the active
+   * theme token" — the renderer fills it in per render.
+   */
   textColor?: string;
+  /** Grid-line / axis-line color. Empty string means "resolve from theme". */
   gridColor?: string;
   backgroundColor?: string;
   animationDuration?: number;
+
+  // ── Titles ────────────────────────────────────────────────────────────────
+  /** Main chart title drawn above the plot. Empty string hides the band. */
+  title?: string;
+  titleColor?: string;
+  titleFontSize?: number;
+  titleAlign?: TextAlign;
+  /** Subtitle drawn beneath the title. Empty string hides it. */
+  subtitle?: string;
+  subtitleColor?: string;
+  subtitleFontSize?: number;
+  subtitleAlign?: TextAlign;
+
+  // ── Legend ──────────────────────────────────────────────────────────────
+  /** Placement of the legend relative to the plot. */
+  legendPosition?: LegendPosition;
+
+  // ── Axes ────────────────────────────────────────────────────────────────
+  /** Horizontal (category) axis title. Empty string hides it. */
+  xAxisTitle?: string;
+  /** Vertical (value) axis title. Empty string hides it. */
+  yAxisTitle?: string;
+  axisTitleColor?: string;
+  /** Overrides {@link textColor} for axis tick labels when non-empty. */
+  axisLabelColor?: string;
+  /** Overrides {@link gridColor} for axis lines when non-empty. */
+  axisLineColor?: string;
+  showXTicks?: boolean;
+  showYTicks?: boolean;
+  showXLabels?: boolean;
+  showYLabels?: boolean;
+
+  // ── Series ──────────────────────────────────────────────────────────────
+  /** Explicit color per series label; unmapped series use the theme palette. */
+  seriesColors?: Readonly<Record<string, string>>;
+  strokeWidth?: number;
+  /** 0–1 fill opacity for area / polar fills. */
+  fillOpacity?: number;
+
+  /**
+   * Compact preview mode: collapses every axis / label gutter to a uniform
+   * {@link ChartRenderOptions.padding} so the plot fills the canvas edge-to-edge.
+   * Used for the chart-type gallery thumbnails; has no effect on normal charts.
+   */
+  compact?: boolean;
 }
 
 const DEFAULTS: Required<ChartRenderOptions> = {
@@ -31,12 +83,38 @@ const DEFAULTS: Required<ChartRenderOptions> = {
   barWidth: 0.75,
   lineWidth: 2,
   smooth: false,
-  fontFamily: 'system-ui, sans-serif',
+  fontFamily: '',
   fontSize: 12,
-  textColor: '#374151',
-  gridColor: '#e5e7eb',
+  textColor: '',
+  gridColor: '',
   backgroundColor: 'transparent',
   animationDuration: 400,
+
+  title: '',
+  titleColor: '',
+  titleFontSize: 15,
+  titleAlign: 'left',
+  subtitle: '',
+  subtitleColor: '',
+  subtitleFontSize: 12,
+  subtitleAlign: 'left',
+
+  legendPosition: 'bottom',
+
+  xAxisTitle: '',
+  yAxisTitle: '',
+  axisTitleColor: '',
+  axisLabelColor: '',
+  axisLineColor: '',
+  showXTicks: true,
+  showYTicks: true,
+  showXLabels: true,
+  showYLabels: true,
+
+  seriesColors: {},
+  strokeWidth: 0,
+  fillOpacity: 0,
+  compact: false,
 };
 
 const APEX_COLORS = [
@@ -44,15 +122,30 @@ const APEX_COLORS = [
   '#3F51B5', '#03A9F4', '#4CAF50', '#F9CE1D', '#FF9800',
 ];
 
-function assignColors(data: ChartData): ChartData {
+/**
+ * Assigns a concrete color to every dataset. Precedence: an explicit override
+ * in `seriesColors` (keyed by the dataset label), then a color already on the
+ * dataset, then the theme `palette` cycled by index.
+ *
+ * @param data - Source chart data (datasets may lack colors).
+ * @param palette - Theme-resolved series palette.
+ * @param seriesColors - Per-label color overrides from the chart model.
+ */
+function assignColors(
+  data: ChartData,
+  palette: readonly string[],
+  seriesColors: Readonly<Record<string, string>>,
+): ChartData {
+  const pal = palette.length > 0 ? palette : APEX_COLORS;
   return {
     labels: data.labels,
     datasets: data.datasets.map((ds, i) => ({
       ...ds,
-      color: ds.color ?? APEX_COLORS[i % APEX_COLORS.length],
+      color: seriesColors[ds.label] ?? ds.color ?? pal[i % pal.length],
     })),
   };
 }
+
 
 export class ChartRenderer {
   private canvas: HTMLCanvasElement;
@@ -74,6 +167,13 @@ export class ChartRenderer {
   /** Active RAF IDs for per-series toggle animations, keyed by dataset index. */
   private seriesToggleRafs = new Map<number, number>();
 
+  /**
+   * Theme colors/palette resolved once per {@link render} / {@link toggleSeries}
+   * call and reused across every animation and hover frame — never re-resolved
+   * per frame (that would force layout via `getComputedStyle`).
+   */
+  private theme: ResolvedChartTheme | null = null;
+
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
     const ctx = canvas.getContext('2d');
@@ -82,12 +182,32 @@ export class ChartRenderer {
     this.attachEvents();
   }
 
+  /**
+   * Resolves theme tokens once and back-fills any color/font option the caller
+   * left blank (empty string) with the theme value. Explicit overrides win over
+   * theme defaults. Mutates `options` in place and caches the resolved theme.
+   */
+  private prepareOptions(options: Required<ChartRenderOptions>): void {
+    const theme = resolveChartTheme(this.canvas);
+    this.theme = theme;
+    if (!options.fontFamily) options.fontFamily = theme.fontFamily;
+    options.textColor = options.axisLabelColor || options.textColor || theme.textColor;
+    options.gridColor = options.axisLineColor || options.gridColor || theme.gridColor;
+  }
+
+  /** Theme palette color for a given series/slice index, cycling as needed. */
+  private paletteColor(i: number): string {
+    const pal = this.theme?.palette ?? APEX_COLORS;
+    return pal[i % pal.length];
+  }
+
   render(data: ChartData, opts: ChartRenderOptions = { type: 'column-grouped' }): void {
     const options = { ...DEFAULTS, ...opts };
     this.canvas.width = options.width;
     this.canvas.height = options.height;
 
-    const coloredData = assignColors(data);
+    this.prepareOptions(options);
+    const coloredData = assignColors(data, this.theme!.palette, options.seriesColors);
     this.lastData = coloredData;
     this.lastOptions = options;
     // Full re-render: reset every series to fully visible
@@ -131,7 +251,8 @@ export class ChartRenderer {
    */
   toggleSeries(index: number, toVisible: boolean, data: ChartData, opts: ChartRenderOptions = { type: 'column-grouped' }): void {
     const options = { ...DEFAULTS, ...opts };
-    const coloredData = assignColors(data);
+    this.prepareOptions(options);
+    const coloredData = assignColors(data, this.theme!.palette, options.seriesColors);
     this.lastData = coloredData;
     this.lastOptions = options;
 
@@ -318,7 +439,7 @@ export class ChartRenderer {
     const { ctx } = this;
     const legendH = opts.showLegend && data.datasets.length > 1 ? 40 : 0;
     const plotLeft = 80;
-    const plotTop = 10;
+    const plotTop = 10 + this.titleBandHeight(opts);
     const plotRight = opts.width - 20;
     const plotBottom = opts.height - legendH - 30;
     const plotH = plotBottom - plotTop;
@@ -494,12 +615,64 @@ export class ChartRenderer {
     this.rafId = requestAnimationFrame(tick);
   }
 
+  /**
+   * Vertical space (px) reserved at the top of the canvas for the title and
+   * subtitle bands. Returns 0 when neither is set so no space is wasted.
+   */
+  private titleBandHeight(opts: Required<ChartRenderOptions>): number {
+    let h = 0;
+    if (opts.title) h += opts.titleFontSize + 8;
+    if (opts.subtitle) h += opts.subtitleFontSize + 6;
+    return h > 0 ? h + 6 : 0;
+  }
+
+  /** Whether a shared series legend should be drawn. */
+  private legendActive(opts: Required<ChartRenderOptions>, data: ChartData): boolean {
+    return opts.showLegend && data.datasets.length > 1;
+  }
+
+  /**
+   * Whether the legend may be placed on a side (left/right). Only cartesian
+   * charts (which route layout through {@link getPlotArea}) reserve side space;
+   * pie/polar/funnel/bar keep the legend on the bottom to avoid overlap.
+   */
+  private supportsSideLegend(opts: Required<ChartRenderOptions>): boolean {
+    const type = opts.type as string;
+    return type.startsWith('column') || type === 'line' || type === 'area' || type === 'scatter';
+  }
+
+  /** Effective legend position, clamped to bottom for non-cartesian charts. */
+  private effectiveLegendPosition(opts: Required<ChartRenderOptions>): LegendPosition {
+    if (!this.supportsSideLegend(opts)) return 'bottom';
+    return opts.legendPosition;
+  }
+
+  private static readonly LEGEND_BAND = 40;
+  private static readonly LEGEND_SIDE = 120;
+
   private getPlotArea(opts: Required<ChartRenderOptions>, data: ChartData) {
-    const legendH = opts.showLegend && data.datasets.length > 1 ? 40 : 0;
-    const plotLeft = 65;
-    const plotTop = 20;
-    const plotRight = opts.width - 20;
-    const plotBottom = opts.height - legendH - 36;
+    const legendOn = this.legendActive(opts, data);
+    const pos = this.effectiveLegendPosition(opts);
+    const band = ChartRenderer.LEGEND_BAND;
+    const side = ChartRenderer.LEGEND_SIDE;
+
+    const titleH = this.titleBandHeight(opts);
+    const xTitleH = opts.xAxisTitle ? opts.fontSize + 10 : 0;
+    const yTitleW = opts.yAxisTitle ? opts.fontSize + 12 : 0;
+
+    // Compact previews use a uniform padding gutter so the plot fills the canvas.
+    let plotTop = opts.compact ? opts.padding + titleH : 20 + titleH;
+    let plotBottom = opts.compact ? opts.height - opts.padding : opts.height - 36 - xTitleH;
+    let plotLeft = opts.compact ? opts.padding : 65 + yTitleW;
+    let plotRight = opts.width - (opts.compact ? opts.padding : 20);
+
+    if (legendOn) {
+      if (pos === 'top') plotTop += band;
+      else if (pos === 'bottom') plotBottom -= band;
+      else if (pos === 'left') plotLeft += side;
+      else if (pos === 'right') plotRight -= side;
+    }
+
     return {
       plotLeft,
       plotTop,
@@ -507,7 +680,7 @@ export class ChartRenderer {
       plotBottom,
       plotW: plotRight - plotLeft,
       plotH: plotBottom - plotTop,
-      legendH,
+      legendH: legendOn && (pos === 'top' || pos === 'bottom') ? band : 0,
     };
   }
 
@@ -539,9 +712,80 @@ export class ChartRenderer {
       default:                  this.drawColumnGrouped(data, options, progress); break;
     }
 
-    if (options.showLegend && data.datasets.length > 1) {
+    if (this.supportsSideLegend(options)) {
+      this.drawAxisTitles(options);
+    }
+    this.drawTitleBlock(options);
+
+    if (this.legendActive(options, data)) {
       this.drawLegend(data, options);
     }
+  }
+
+  /**
+   * Draws the chart title and subtitle in the reserved top band, honoring the
+   * configured color (falling back to theme) and alignment. No-op when both are
+   * empty.
+   */
+  private drawTitleBlock(opts: Required<ChartRenderOptions>): void {
+    if (!opts.title && !opts.subtitle) return;
+    const { ctx } = this;
+    const theme = this.theme;
+    ctx.save();
+    ctx.textBaseline = 'alphabetic';
+    let y = 20;
+    if (opts.title) {
+      ctx.font = `600 ${opts.titleFontSize}px ${opts.fontFamily}`;
+      ctx.fillStyle = opts.titleColor || theme?.textColor || opts.textColor;
+      const x = this.alignedX(opts.titleAlign, opts.width);
+      ctx.textAlign = opts.titleAlign;
+      ctx.fillText(opts.title, x, y);
+      y += opts.titleFontSize + 4;
+    }
+    if (opts.subtitle) {
+      ctx.font = `${opts.subtitleFontSize}px ${opts.fontFamily}`;
+      ctx.fillStyle = opts.subtitleColor || theme?.mutedColor || opts.textColor;
+      const x = this.alignedX(opts.subtitleAlign, opts.width);
+      ctx.textAlign = opts.subtitleAlign;
+      ctx.fillText(opts.subtitle, x, y + opts.subtitleFontSize);
+    }
+    ctx.restore();
+  }
+
+  /** X coordinate for a given horizontal alignment across the canvas width. */
+  private alignedX(align: TextAlign, width: number): number {
+    if (align === 'center') return width / 2;
+    if (align === 'right') return width - 20;
+    return 20;
+  }
+
+  /**
+   * Draws the x- and y-axis titles (cartesian charts only). The y-axis title is
+   * rotated −90° and centered along the left margin; the x-axis title sits below
+   * the category labels.
+   */
+  private drawAxisTitles(opts: Required<ChartRenderOptions>): void {
+    if (!opts.xAxisTitle && !opts.yAxisTitle) return;
+    const { ctx } = this;
+    const color = opts.axisTitleColor || this.theme?.textColor || opts.textColor;
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.font = `600 ${opts.fontSize}px ${opts.fontFamily}`;
+    if (opts.xAxisTitle) {
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText(opts.xAxisTitle, opts.width / 2, opts.height - 4);
+    }
+    if (opts.yAxisTitle) {
+      ctx.save();
+      ctx.translate(14, opts.height / 2);
+      ctx.rotate(-Math.PI / 2);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillText(opts.yAxisTitle, 0, 0);
+      ctx.restore();
+    }
+    ctx.restore();
   }
 
   // ── Column Grouped ──────────────────────────────────────────────────────────
@@ -618,18 +862,30 @@ export class ChartRenderer {
     const { ctx } = this;
     const { plotLeft, plotTop, plotBottom, plotRight, plotW, plotH } = this.getPlotArea(opts, data);
 
+    // Match the grouped chart: with multiple series, scale each series to its own
+    // maximum so a small-scale series (e.g. Age next to Salary) stays visible
+    // instead of collapsing to a sub-pixel sliver. Each series then occupies an
+    // equal band of the plot height. Falls back to true absolute stacking for a
+    // single series.
+    const nD = data.datasets.length;
+    const usePerSeries = nD > 1;
+    const seriesMaxes = data.datasets.map((ds) => this.niceMax(Math.max(...ds.data, 0)));
     const stackTotals = data.labels.map((_, gi) =>
       data.datasets.reduce((sum, ds) => sum + (ds.data[gi] ?? 0), 0),
     );
-    const rawMax = Math.max(...stackTotals, 0);
-    const maxVal = this.niceMax(rawMax);
+    const maxVal = this.niceMax(Math.max(...stackTotals, 0));
 
-    if (opts.showGrid) this.drawGridLines(plotLeft, plotTop, plotW, plotH, maxVal, opts);
-    else this.drawAxes(plotLeft, plotTop, plotRight, plotBottom, opts);
+    if (opts.showGrid) {
+      if (usePerSeries) this.drawGridLinesRelative(plotLeft, plotTop, plotW, plotH, opts);
+      else this.drawGridLines(plotLeft, plotTop, plotW, plotH, maxVal, opts);
+    } else {
+      this.drawAxes(plotLeft, plotTop, plotRight, plotBottom, opts);
+    }
 
     const nGroups = data.labels.length;
     const groupWidth = plotW / Math.max(nGroups, 1);
     const barW = groupWidth * opts.barWidth;
+    const band = plotH / Math.max(nD, 1);
     const labelStep = this.getLabelStep(nGroups, plotW, opts.fontSize);
     const labelAlpha = Math.min(1, progress * 2.5);
 
@@ -637,14 +893,16 @@ export class ChartRenderer {
       const barX = plotLeft + gi * groupWidth + (groupWidth - barW) / 2;
       let currentY = plotBottom;
 
-      for (let di = 0; di < data.datasets.length; di++) {
+      for (let di = 0; di < nD; di++) {
         const value = data.datasets[di].data[gi] ?? 0;
-        const segH = (value / maxVal) * plotH * progress;
+        const segH = (usePerSeries
+          ? (value / (seriesMaxes[di] || 1)) * band
+          : (value / maxVal) * plotH) * progress;
         const segY = currentY - segH;
 
         ctx.fillStyle = data.datasets[di].color ?? APEX_COLORS[di % APEX_COLORS.length];
         ctx.beginPath();
-        if (di === data.datasets.length - 1) {
+        if (di === nD - 1) {
           ctx.roundRect(barX, segY, Math.max(barW, 1), Math.max(segH, 0), [3, 3, 0, 0]);
         } else {
           ctx.rect(barX, segY, Math.max(barW, 1), Math.max(segH, 0));
@@ -673,6 +931,12 @@ export class ChartRenderer {
     if (opts.showGrid) this.drawGridLines(plotLeft, plotTop, plotW, plotH, 100, opts);
     else this.drawAxes(plotLeft, plotTop, plotRight, plotBottom, opts);
 
+    // Weight each series by its own maximum so a small-scale series keeps a
+    // visible share of the 100% bar instead of rounding to ~0%.
+    const nD = data.datasets.length;
+    const usePerSeries = nD > 1;
+    const seriesMaxes = data.datasets.map((ds) => this.niceMax(Math.max(...ds.data, 0)));
+
     const nGroups = data.labels.length;
     const groupWidth = plotW / Math.max(nGroups, 1);
     const barW = groupWidth * opts.barWidth;
@@ -680,18 +944,21 @@ export class ChartRenderer {
     const labelAlpha = Math.min(1, progress * 2.5);
 
     for (let gi = 0; gi < nGroups; gi++) {
-      const total = data.datasets.reduce((sum, ds) => sum + (ds.data[gi] ?? 0), 0) || 1;
+      const shares = data.datasets.map((ds, di) => {
+        const value = ds.data[gi] ?? 0;
+        return usePerSeries ? value / (seriesMaxes[di] || 1) : value;
+      });
+      const total = shares.reduce((sum, s) => sum + s, 0) || 1;
       const barX = plotLeft + gi * groupWidth + (groupWidth - barW) / 2;
       let currentY = plotBottom;
 
-      for (let di = 0; di < data.datasets.length; di++) {
-        const value = data.datasets[di].data[gi] ?? 0;
-        const segH = (value / total) * plotH * progress;
+      for (let di = 0; di < nD; di++) {
+        const segH = (shares[di] / total) * plotH * progress;
         const segY = currentY - segH;
 
         ctx.fillStyle = data.datasets[di].color ?? APEX_COLORS[di % APEX_COLORS.length];
         ctx.beginPath();
-        if (di === data.datasets.length - 1) {
+        if (di === nD - 1) {
           ctx.roundRect(barX, segY, Math.max(barW, 1), Math.max(segH, 0), [3, 3, 0, 0]);
         } else {
           ctx.rect(barX, segY, Math.max(barW, 1), Math.max(segH, 0));
@@ -716,11 +983,11 @@ export class ChartRenderer {
   private drawBarGrouped(data: ChartData, opts: Required<ChartRenderOptions>, progress: number): void {
     const { ctx } = this;
     const legendH = opts.showLegend && data.datasets.length > 1 ? 40 : 0;
-    const labelAreaW = 80;
+    const labelAreaW = opts.compact ? opts.padding : 80;
     const plotLeft = labelAreaW;
-    const plotTop = 10;
-    const plotRight = opts.width - 20;
-    const plotBottom = opts.height - legendH - 30;
+    const plotTop = (opts.compact ? opts.padding : 10) + this.titleBandHeight(opts);
+    const plotRight = opts.width - (opts.compact ? opts.padding : 20);
+    const plotBottom = opts.height - legendH - (opts.compact ? opts.padding : 30);
     const plotW = plotRight - plotLeft;
     const plotH = plotBottom - plotTop;
 
@@ -789,14 +1056,17 @@ export class ChartRenderer {
   private drawBarStacked(data: ChartData, opts: Required<ChartRenderOptions>, progress: number): void {
     const { ctx } = this;
     const legendH = opts.showLegend && data.datasets.length > 1 ? 40 : 0;
-    const labelAreaW = 80;
+    const labelAreaW = opts.compact ? opts.padding : 80;
     const plotLeft = labelAreaW;
-    const plotTop = 10;
-    const plotRight = opts.width - 20;
-    const plotBottom = opts.height - legendH - 30;
+    const plotTop = (opts.compact ? opts.padding : 10) + this.titleBandHeight(opts);
+    const plotRight = opts.width - (opts.compact ? opts.padding : 20);
+    const plotBottom = opts.height - legendH - (opts.compact ? opts.padding : 30);
     const plotW = plotRight - plotLeft;
     const plotH = plotBottom - plotTop;
 
+    const nD = data.datasets.length;
+    const usePerSeries = nD > 1;
+    const seriesMaxes = data.datasets.map((ds) => this.niceMax(Math.max(...ds.data, 0)));
     const stackTotals = data.labels.map((_, gi) =>
       data.datasets.reduce((sum, ds) => sum + (ds.data[gi] ?? 0), 0),
     );
@@ -814,7 +1084,9 @@ export class ChartRenderer {
         ctx.fillStyle = opts.textColor;
         ctx.font = `${opts.fontSize}px ${opts.fontFamily}`;
         ctx.textAlign = 'center';
-        ctx.fillText(this.formatNum((maxVal * i) / steps), x, plotBottom + 14);
+        // Per-series normalization uses a relative (0–100%) axis, like grouped.
+        const xLabel = usePerSeries ? `${Math.round((100 * i) / steps)}%` : this.formatNum((maxVal * i) / steps);
+        ctx.fillText(xLabel, x, plotBottom + 14);
       }
       ctx.setLineDash([]);
       ctx.strokeStyle = opts.gridColor; ctx.lineWidth = 1.5;
@@ -827,17 +1099,20 @@ export class ChartRenderer {
     const nGroups = data.labels.length;
     const groupH = plotH / Math.max(nGroups, 1);
     const barH = groupH * opts.barWidth;
+    const band = plotW / Math.max(nD, 1);
     const labelStep = this.getLabelStep(nGroups, plotH, opts.fontSize);
 
     for (let gi = 0; gi < nGroups; gi++) {
       const barY = plotTop + gi * groupH + (groupH - barH) / 2;
       let currentX = plotLeft;
-      for (let di = 0; di < data.datasets.length; di++) {
+      for (let di = 0; di < nD; di++) {
         const value = data.datasets[di].data[gi] ?? 0;
-        const segW = (value / maxVal) * plotW * progress;
+        const segW = (usePerSeries
+          ? (value / (seriesMaxes[di] || 1)) * band
+          : (value / maxVal) * plotW) * progress;
         ctx.fillStyle = data.datasets[di].color ?? APEX_COLORS[di % APEX_COLORS.length];
         ctx.beginPath();
-        if (di === data.datasets.length - 1) {
+        if (di === nD - 1) {
           ctx.roundRect(currentX, barY, Math.max(segW, 0), Math.max(barH, 1), [0, 3, 3, 0]);
         } else {
           ctx.rect(currentX, barY, Math.max(segW, 0), Math.max(barH, 1));
@@ -861,11 +1136,11 @@ export class ChartRenderer {
   private drawBar100Stacked(data: ChartData, opts: Required<ChartRenderOptions>, progress: number): void {
     const { ctx } = this;
     const legendH = opts.showLegend && data.datasets.length > 1 ? 40 : 0;
-    const labelAreaW = 80;
+    const labelAreaW = opts.compact ? opts.padding : 80;
     const plotLeft = labelAreaW;
-    const plotTop = 10;
-    const plotRight = opts.width - 20;
-    const plotBottom = opts.height - legendH - 30;
+    const plotTop = (opts.compact ? opts.padding : 10) + this.titleBandHeight(opts);
+    const plotRight = opts.width - (opts.compact ? opts.padding : 20);
+    const plotBottom = opts.height - legendH - (opts.compact ? opts.padding : 30);
     const plotW = plotRight - plotLeft;
     const plotH = plotBottom - plotTop;
     const labelAlpha = Math.min(1, progress * 2.5);
@@ -895,13 +1170,22 @@ export class ChartRenderer {
     const barH = groupH * opts.barWidth;
     const labelStep = this.getLabelStep(nGroups, plotH, opts.fontSize);
 
+    // Weight each series by its own maximum so a small-scale series keeps a
+    // visible share of the 100% bar instead of rounding to ~0%.
+    const nD = data.datasets.length;
+    const usePerSeries = nD > 1;
+    const seriesMaxes = data.datasets.map((ds) => this.niceMax(Math.max(...ds.data, 0)));
+
     for (let gi = 0; gi < nGroups; gi++) {
-      const total = data.datasets.reduce((sum, ds) => sum + (ds.data[gi] ?? 0), 0) || 1;
+      const shares = data.datasets.map((ds, di) => {
+        const value = ds.data[gi] ?? 0;
+        return usePerSeries ? value / (seriesMaxes[di] || 1) : value;
+      });
+      const total = shares.reduce((sum, s) => sum + s, 0) || 1;
       const barY = plotTop + gi * groupH + (groupH - barH) / 2;
       let currentX = plotLeft;
-      for (let di = 0; di < data.datasets.length; di++) {
-        const value = data.datasets[di].data[gi] ?? 0;
-        const segW = (value / total) * plotW * progress;
+      for (let di = 0; di < nD; di++) {
+        const segW = (shares[di] / total) * plotW * progress;
         ctx.fillStyle = data.datasets[di].color ?? APEX_COLORS[di % APEX_COLORS.length];
         ctx.beginPath();
         if (di === data.datasets.length - 1) {
@@ -945,7 +1229,7 @@ export class ChartRenderer {
       ctx.save();
       ctx.beginPath(); ctx.rect(plotLeft, plotTop, plotW, plotH + 1); ctx.clip();
       ctx.strokeStyle = ds.color ?? APEX_COLORS[0];
-      ctx.lineWidth = opts.lineWidth;
+      ctx.lineWidth = opts.strokeWidth > 0 ? opts.strokeWidth : opts.lineWidth;
       ctx.lineCap = 'round'; ctx.lineJoin = 'round';
       ctx.beginPath();
       for (let i = 0; i < Math.min(visibleCount, nPoints); i++) {
@@ -1004,8 +1288,8 @@ export class ChartRenderer {
       ctx.lineTo(getX(Math.min(visibleCount, nPoints) - 1), plotBottom);
       ctx.lineTo(getX(0), plotBottom);
       ctx.closePath();
-      ctx.fillStyle = color + '26'; ctx.fill();
-      ctx.strokeStyle = color; ctx.lineWidth = opts.lineWidth;
+      ctx.fillStyle = color + this.alphaHex(opts.fillOpacity > 0 ? opts.fillOpacity : 0.15); ctx.fill();
+      ctx.strokeStyle = color; ctx.lineWidth = opts.strokeWidth > 0 ? opts.strokeWidth : opts.lineWidth;
       ctx.lineCap = 'round'; ctx.lineJoin = 'round';
       ctx.beginPath();
       for (let i = 0; i < Math.min(visibleCount, nPoints); i++) {
@@ -1033,8 +1317,8 @@ export class ChartRenderer {
     const { ctx } = this;
     const legendH = opts.showLegend ? 40 : 0;
     const cx = opts.width / 2;
-    const cy = (opts.height - legendH) / 2;
-    const radius = Math.min(opts.width, opts.height - legendH) / 2 - 20;
+    const cy = this.titleBandHeight(opts) + (opts.height - legendH - this.titleBandHeight(opts)) / 2;
+    const radius = Math.min(opts.width, opts.height - legendH - this.titleBandHeight(opts)) / 2 - (opts.compact ? opts.padding : 20);
     const innerRadius = isDoughnut ? radius * 0.5 : 0;
     const values = data.datasets[0]?.data ?? [];
     const total = values.reduce((a, b) => a + b, 0) || 1;
@@ -1042,7 +1326,7 @@ export class ChartRenderer {
     let startAngle = -Math.PI / 2;
     for (let i = 0; i < values.length; i++) {
       const sliceAngle = (values[i] / total) * Math.PI * 2 * progress;
-      const color = APEX_COLORS[i % APEX_COLORS.length];
+      const color = this.paletteColor(i);
       ctx.beginPath();
       ctx.moveTo(cx, cy);
       ctx.arc(cx, cy, radius, startAngle, startAngle + sliceAngle);
@@ -1129,8 +1413,8 @@ export class ChartRenderer {
     const { ctx } = this;
     const legendH = opts.showLegend && data.datasets.length > 1 ? 40 : 0;
     const cx = opts.width / 2;
-    const cy = (opts.height - legendH) / 2;
-    const radius = Math.min(opts.width, opts.height - legendH) / 2 - 30;
+    const cy = this.titleBandHeight(opts) + (opts.height - legendH - this.titleBandHeight(opts)) / 2;
+    const radius = Math.min(opts.width, opts.height - legendH - this.titleBandHeight(opts)) / 2 - (opts.compact ? opts.padding : 30);
     const labels = data.labels;
     const nSpokes = labels.length;
     if (nSpokes < 3) return;
@@ -1190,12 +1474,12 @@ export class ChartRenderer {
     const maxVal = Math.max(...values, 0) || 1;
     const n = labels.length;
     const legendH = opts.showLegend && data.datasets.length > 1 ? 40 : 0;
-    const labelAreaW = 90;
+    const labelAreaW = opts.compact ? opts.padding : 90;
     const plotLeft = labelAreaW;
-    const plotRight = opts.width - 20;
+    const plotRight = opts.width - (opts.compact ? opts.padding : 20);
     const plotWidth = plotRight - plotLeft;
-    const plotTop = 10;
-    const plotBottom = opts.height - legendH - 10;
+    const plotTop = (opts.compact ? opts.padding : 10) + this.titleBandHeight(opts);
+    const plotBottom = opts.height - legendH - (opts.compact ? opts.padding : 10);
     const plotH = plotBottom - plotTop;
     const itemH = Math.max((plotH / Math.max(n, 1)) - 2, 1);
     const cx = plotLeft + plotWidth / 2;
@@ -1206,7 +1490,7 @@ export class ChartRenderer {
       const barW = pct * plotWidth * progress;
       const barX = cx - barW / 2;
       const barY = plotTop + i * (itemH + 2);
-      const color = APEX_COLORS[i % APEX_COLORS.length];
+      const color = this.paletteColor(i);
       ctx.fillStyle = color;
       ctx.beginPath(); ctx.roundRect(barX, barY, Math.max(barW, 0), itemH, 3); ctx.fill();
       ctx.globalAlpha = labelAlpha;
@@ -1232,10 +1516,12 @@ export class ChartRenderer {
     for (let i = 0; i <= steps; i++) {
       const y = top + height - (i / steps) * height;
       ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(left + width, y); ctx.stroke();
-      ctx.fillStyle = opts.textColor;
-      ctx.font = `${opts.fontSize}px ${opts.fontFamily}`;
-      ctx.textAlign = 'right';
-      ctx.fillText(this.formatNum((maxVal * i) / steps), left - 6, y + 4);
+      if (opts.showYLabels) {
+        ctx.fillStyle = opts.textColor;
+        ctx.font = `${opts.fontSize}px ${opts.fontFamily}`;
+        ctx.textAlign = 'right';
+        ctx.fillText(this.formatNum((maxVal * i) / steps), left - 6, y + 4);
+      }
     }
     ctx.setLineDash([]);
     ctx.strokeStyle = opts.gridColor; ctx.lineWidth = 1.5;
@@ -1255,10 +1541,12 @@ export class ChartRenderer {
     for (let i = 0; i <= steps; i++) {
       const y = top + height - (i / steps) * height;
       ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(left + width, y); ctx.stroke();
-      ctx.fillStyle = opts.textColor;
-      ctx.font = `${opts.fontSize}px ${opts.fontFamily}`;
-      ctx.textAlign = 'right';
-      ctx.fillText(`${Math.round((100 * i) / steps)}%`, left - 6, y + 4);
+      if (opts.showYLabels) {
+        ctx.fillStyle = opts.textColor;
+        ctx.font = `${opts.fontSize}px ${opts.fontFamily}`;
+        ctx.textAlign = 'right';
+        ctx.fillText(`${Math.round((100 * i) / steps)}%`, left - 6, y + 4);
+      }
     }
     ctx.setLineDash([]);
     ctx.strokeStyle = opts.gridColor; ctx.lineWidth = 1.5;
@@ -1269,16 +1557,53 @@ export class ChartRenderer {
   // ── Legend ──────────────────────────────────────────────────────────────────
 
   private drawLegend(data: ChartData, opts: Required<ChartRenderOptions>): void {
+    const position = this.effectiveLegendPosition(opts);
+    if (position === 'left' || position === 'right') {
+      this.drawLegendVertical(data, opts, position);
+    } else {
+      this.drawLegendHorizontal(data, opts, position);
+    }
+  }
+
+  /** Horizontal legend row along the top or bottom edge. */
+  private drawLegendHorizontal(
+    data: ChartData,
+    opts: Required<ChartRenderOptions>,
+    position: 'top' | 'bottom',
+  ): void {
     const { ctx } = this;
-    const y = opts.height - 20;
+    const y = position === 'top' ? this.titleBandHeight(opts) + 22 : opts.height - 16;
     const totalItems = data.datasets.length;
     const itemWidth = opts.width / totalItems;
     ctx.font = `${opts.fontSize}px ${opts.fontFamily}`;
     ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
     for (let i = 0; i < totalItems; i++) {
       const x = i * itemWidth + (itemWidth - 80) / 2;
-      const color = data.datasets[i].color ?? APEX_COLORS[i % APEX_COLORS.length];
-      ctx.fillStyle = color;
+      ctx.fillStyle = data.datasets[i].color ?? this.paletteColor(i);
+      ctx.beginPath(); ctx.roundRect(x, y - 5, 12, 10, 2); ctx.fill();
+      ctx.fillStyle = opts.textColor;
+      ctx.fillText(this.truncate(data.datasets[i].label, 14), x + 16, y);
+    }
+    ctx.textBaseline = 'alphabetic';
+  }
+
+  /** Vertical legend stack along the left or right edge (cartesian charts only). */
+  private drawLegendVertical(
+    data: ChartData,
+    opts: Required<ChartRenderOptions>,
+    position: 'left' | 'right',
+  ): void {
+    const { ctx } = this;
+    const rowH = opts.fontSize + 10;
+    const totalItems = data.datasets.length;
+    const blockH = totalItems * rowH;
+    const startY = Math.max(this.titleBandHeight(opts) + 24, (opts.height - blockH) / 2);
+    const x = position === 'left' ? 12 : opts.width - ChartRenderer.LEGEND_SIDE + 12;
+    ctx.font = `${opts.fontSize}px ${opts.fontFamily}`;
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    for (let i = 0; i < totalItems; i++) {
+      const y = startY + i * rowH + rowH / 2;
+      ctx.fillStyle = data.datasets[i].color ?? this.paletteColor(i);
       ctx.beginPath(); ctx.roundRect(x, y - 5, 12, 10, 2); ctx.fill();
       ctx.fillStyle = opts.textColor;
       ctx.fillText(this.truncate(data.datasets[i].label, 14), x + 16, y);
@@ -1317,6 +1642,16 @@ export class ChartRenderer {
 
   private truncate(str: string, max: number): string {
     return str.length > max ? str.slice(0, max - 1) + '…' : str;
+  }
+
+  /**
+   * Converts a 0–1 opacity into a two-digit hex alpha suffix for `#rrggbb` +
+   * `aa` color strings. Clamped to the valid range so out-of-bounds model values
+   * never produce a malformed color.
+   */
+  private alphaHex(opacity: number): string {
+    const clamped = Math.max(0, Math.min(1, opacity));
+    return Math.round(clamped * 255).toString(16).padStart(2, '0');
   }
 
   private formatNum(n: number): string {

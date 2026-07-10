@@ -129,6 +129,9 @@ export class AppComponent implements OnInit {
         rowShading: false,
         showGroupingBar: true,
         selection: { mode: 'multiple' },
+        photonAI: {
+            enabled: true
+        }
     };
 
     ngOnInit(): void {

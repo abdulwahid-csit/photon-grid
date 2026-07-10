@@ -1,5 +1,14 @@
 # photon-grid-vue
 
+## 1.0.1
+
+### Patch Changes
+
+- [#14](https://github.com/abdulwahid-csit/photon-grid/pull/14) [`f3975ca`](https://github.com/abdulwahid-csit/photon-grid/commit/f3975ca184c45df3d761e2ba4a322e935da5ff4a) Thanks [@abdulwahid-csit](https://github.com/abdulwahid-csit)! - Improve rendering performance and fix various bugs.
+
+- Updated dependencies [[`f3975ca`](https://github.com/abdulwahid-csit/photon-grid/commit/f3975ca184c45df3d761e2ba4a322e935da5ff4a)]:
+  - photon-grid-core@1.0.1
+
 ## 1.0.0
 
 ### Minor Changes

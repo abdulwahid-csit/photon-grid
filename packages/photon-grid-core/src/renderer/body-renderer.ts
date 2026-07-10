@@ -903,7 +903,7 @@ export class BodyRenderer {
       const globalColIndex = Number(cellEl.getAttribute('data-col-index'));
       this.eventBus.emit(GridEventType.CELL_CONTEXT_MENU, {
         row,
-        rowIndex: row.rowIndex,
+        rowIndex: row.rowIndex, 
         colIndex: globalColIndex,
         x: e.clientX,
         y: e.clientY,

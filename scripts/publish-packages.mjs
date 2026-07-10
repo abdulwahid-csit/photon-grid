@@ -54,7 +54,16 @@ for (const pkg of PACKAGES) {
   }
 
   console.log(`↑ publishing ${name}@${version} from ${distDir}`);
-  execSync('npm publish --access public', { cwd: distDir, stdio: 'inherit' });
+  try {
+  execSync('npm publish --access public', {
+    cwd: distDir,
+    stdio: 'inherit',
+  });
+} catch (err) {
+  console.error(`Failed publishing ${name}@${version}`);
+  console.error(err);
+  process.exit(1);
+}
 
   // Contract with changesets/action: this exact line drives GitHub Release + tag creation.
   console.log(`New tag: ${name}@${version}`);

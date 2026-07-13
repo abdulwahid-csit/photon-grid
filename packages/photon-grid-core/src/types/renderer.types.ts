@@ -160,7 +160,7 @@ export interface ColumnRendererMap {
   option?: (params: OptionRendererParams) => RendererOutput;
   filter?: (params: FilterRendererParams) => HTMLElement;
   tooltip?: (params: TooltipRendererParams) => RendererOutput;
-  group?: (params: GroupRendererParams) => RendererOutput;
+  group?: (params: GroupRendererParams) => RendererOutput; 
   header?: (params: HeaderRendererParams) => RendererOutput;
   summary?: (params: SummaryRendererParams) => RendererOutput;
 }

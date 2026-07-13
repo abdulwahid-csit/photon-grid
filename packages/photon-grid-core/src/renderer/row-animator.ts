@@ -22,9 +22,9 @@ export type RowAnimationType = 'sort' | 'filter' | 'detail';
 /** How far (px) a newly-appearing row slides up during its entrance fade. */
 const FILTER_ENTER_OFFSET_PX = 8;
 
-const SORT_DURATION_MS   = 280;
-const FILTER_DURATION_MS = 200;
-const DETAIL_DURATION_MS = 320;
+const SORT_DURATION_MS   = 400;
+const FILTER_DURATION_MS = 400;
+const DETAIL_DURATION_MS = 400;
 
 /**
  * Smooth ease-in-out curve (Material Design "standard").

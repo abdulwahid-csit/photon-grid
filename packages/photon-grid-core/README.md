@@ -1,7 +1,7 @@
 # Photon Grid Core
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/YOUR_GITHUB_USERNAME/photon-grid/main/assets/logo.png" alt="Photon Grid" width="180"/>
+  <img src="https://raw.githubusercontent.com/abdulwahid-csit/photon-grid/main/assets/logo.svg" alt="Photon Grid" width="180"/>
 </p>
 
 <p align="center">

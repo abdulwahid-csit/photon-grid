@@ -1,0 +1,46 @@
+<svg width="180" height="180" viewBox="0 0 180 180" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Photon Grid logo">
+  <defs>
+    <linearGradient id="pg-bg" x1="0" y1="0" x2="180" y2="180" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4F46E5"/>
+      <stop offset="1" stop-color="#0EA5E9"/>
+    </linearGradient>
+    <linearGradient id="pg-photon" x1="40" y1="150" x2="150" y2="30" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#22D3EE"/>
+      <stop offset="0.5" stop-color="#A78BFA"/>
+      <stop offset="1" stop-color="#F0ABFC"/>
+    </linearGradient>
+    <filter id="pg-glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="4" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Badge -->
+  <rect x="6" y="6" width="168" height="168" rx="38" fill="url(#pg-bg)"/>
+
+  <!-- Grid lines -->
+  <g stroke="#FFFFFF" stroke-opacity="0.20" stroke-width="3" stroke-linecap="round">
+    <line x1="40" y1="46" x2="140" y2="46"/>
+    <line x1="40" y1="76" x2="140" y2="76"/>
+    <line x1="40" y1="106" x2="140" y2="106"/>
+    <line x1="40" y1="136" x2="140" y2="136"/>
+    <line x1="66" y1="40" x2="66" y2="140"/>
+    <line x1="90" y1="40" x2="90" y2="140"/>
+    <line x1="114" y1="40" x2="114" y2="140"/>
+  </g>
+
+  <!-- Header row highlight -->
+  <rect x="38" y="38" width="104" height="16" rx="6" fill="#FFFFFF" fill-opacity="0.28"/>
+
+  <!-- Photon streak cutting diagonally through the grid -->
+  <path d="M44 148 L96 96 L84 96 L136 32"
+        stroke="url(#pg-photon)" stroke-width="9"
+        stroke-linecap="round" stroke-linejoin="round"
+        fill="none" filter="url(#pg-glow)"/>
+
+  <!-- Photon spark -->
+  <circle cx="136" cy="32" r="8" fill="#F0ABFC" filter="url(#pg-glow)"/>
+</svg>

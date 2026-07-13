@@ -1,19 +1,15 @@
 {
   "name": "photon-grid-core",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Professional zero-dependency TypeScript data grid with enterprise-grade features.",
   "author": "Abdul Wahid",
   "license": "MIT",
   "access": "public",
-
   "type": "module",
-
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
-
   "browser": "./dist/index.js",
-
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -23,41 +19,28 @@
     "./styles/*": "./styles/*",
     "./package.json": "./package.json"
   },
-
   "files": [
     "dist",
     "styles",
     "README.md",
     "LICENSE"
   ],
-
   "sideEffects": [
     "*.css",
     "styles/*.css"
   ],
-
   "scripts": {
     "clean": "npx rimraf dist",
-
     "build": "tsc && node scripts/make-dist-pkg.mjs",
-
     "build:watch": "tsc --project tsconfig.json --watch",
-
     "typecheck": "tsc --noEmit",
-
     "demo": "esbuild demo/demo.ts --bundle --outfile=demo/demo.bundle.js --format=iife --global-name=PhotonGridDemo --target=es2020 --platform=browser --sourcemap",
-
     "demo:inventory": "esbuild demo/inventory-demo.ts --bundle --outfile=demo/inventory-demo.bundle.js --format=iife --global-name=PhotonGridInventoryDemo --target=es2020 --platform=browser --sourcemap",
-
     "demo:tree": "esbuild demo/tree-data-demo.ts --bundle --outfile=demo/tree-data-demo.bundle.js --format=iife --global-name=PhotonGridTreeDemo --target=es2020 --platform=browser --sourcemap",
-
     "prepare": "npm run build",
-
     "prepublishOnly": "npm run build",
-
     "pack:check": "npm pack --dry-run"
   },
-
   "keywords": [
     "grid",
     "data-grid",
@@ -75,26 +58,20 @@
     "performance",
     "zero-dependency"
   ],
-
   "repository": {
     "type": "git",
     "url": "git+https://github.com/abdulwahid-csit/photon-grid.git"
   },
-
   "homepage": "https://github.com/abdulwahid-csit/photon-grid#readme",
-
   "bugs": {
     "url": "https://github.com/abdulwahid-csit/photon-grid/issues"
   },
-
   "engines": {
     "node": ">=18"
   },
-
   "publishConfig": {
     "access": "public"
   },
-
   "devDependencies": {
     "esbuild": "^0.28.1",
     "rimraf": "^6.0.1",

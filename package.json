@@ -11,6 +11,12 @@
     "node": ">=20"
   },
   "scripts": {
+    
+    "install:all": "npm install --workspaces --include-workspace-root",
+    "install:examples": "npm --prefix examples/angular install && npm --prefix examples/react install && npm --prefix examples/vue install",
+    "setup": "npm install --workspaces --include-workspace-root && npm run install:examples",
+
+
     "watch:core": "npm --prefix packages/photon-grid-core run build:watch",
     "watch:angular": "npm --prefix packages/photon-grid-angular run build:watch",
     "watch:react": "npm --prefix packages/photon-grid-react run dev",

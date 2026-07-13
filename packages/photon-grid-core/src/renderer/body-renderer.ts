@@ -442,11 +442,11 @@ export class BodyRenderer {
     }
 
     if (panel === 'left') {
-      if (options.showCheckboxes) {
-        el.appendChild(this.cellRenderer.renderCheckboxCell(row, row.rowIndex));
-      }
       if (options.showSerialNumber) {
         el.appendChild(this.cellRenderer.renderSerialNumberCell(row.rowIndex, displayIndex + 1));
+      }
+      if (options.showCheckboxes) {
+        el.appendChild(this.cellRenderer.renderCheckboxCell(row, row.rowIndex));
       }
     }
 

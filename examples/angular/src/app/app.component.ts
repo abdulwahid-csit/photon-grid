@@ -236,16 +236,16 @@ onGridReady(api: GridApi): void {
 //   api.toggleDarkMode();
 setTimeout(() => {
     // api.scrollToRow(20);
-    const cellRange: CellRange = {
-        startRowIndex: 2, 
-        endRowIndex: 4,
-        startColIndex: 2,
-        endColIndex: 4
+    // const cellRange: CellRange = {
+    //     startRowIndex: 2, 
+    //     endRowIndex: 4,
+    //     startColIndex: 2,
+    //     endColIndex: 4
 
-    }
-    api.setCellRange(cellRange);
-    api.setColumnPin('fullName', 'left');
-    api.setColumnPin('department', 'right');
+    // }
+    // api.setCellRange(cellRange);
+    // api.setColumnPin('fullName', 'left');
+    // api.setColumnPin('department', 'right');
 }, 100);
 }
 

@@ -55,6 +55,7 @@ export class AppComponent implements OnInit {
     Japan: 'jp',
 };
 
+
     generateData(count: number): Record<string, unknown>[] {
         const firstNames = [
             'Alice', 'Brian', 'Carla', 'David', 'Ella', 'Frank', 'Grace', 'Henry',
@@ -124,8 +125,8 @@ export class AppComponent implements OnInit {
     /** Remaining grid configuration bound to the grid's `options` input. */
     readonly options: Partial<GridOptions> = {
         theme: 'light',
-        showCheckboxes: false,
-        showSerialNumber: false,
+        showCheckboxes: true,
+        showSerialNumber: true,
         rowShading: false,
         showGroupingBar: true,
         pagination: { enabled: true, pageSize: 20, },

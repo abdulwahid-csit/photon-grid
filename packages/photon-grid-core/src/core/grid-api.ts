@@ -781,7 +781,7 @@ export class GridApi {
    *
    * @param txn - The batch of row mutations to apply.
    * @returns The nodes that were added or updated (removed nodes are detached).
-   */
+   */ 
   applyTransaction(txn: RowTransaction): RowNode[] {
     const result = this.ctx.rowModel.applyTransaction(txn);
     this.refresh();

@@ -171,6 +171,25 @@ export const cellsCss = `/* ─────────────────�
   background: rgba(74, 222, 128, 0.5);
 }
 
+/* ─── Programmatic cell flash (GridApi.flashCells) ─── */
+/*
+ * A neutral highlight pulse used to draw attention to cells that changed via
+ * the public API (e.g. after a data refresh). Uses ::before like the other
+ * flashes so it never conflicts with the selection border drawn on ::after.
+ */
+.pg-cell--flash::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+  background: rgba(59, 130, 246, 0.40);
+  animation: pg-fill-flash-overlay 0.75s ease-out forwards;
+}
+.pg-grid[data-theme="dark"] .pg-cell--flash::before {
+  background: rgba(96, 165, 250, 0.45);
+}
+
 /* ─── Fill handle ─── */
 /*
  * The fill handle is a small drag target at the bottom-right corner of the

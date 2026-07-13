@@ -81,6 +81,16 @@ export class UndoRedoEngine {
     return this.redoStack.length > 0;
   }
 
+  /** Number of actions currently on the undo stack. */
+  getUndoSize(): number {
+    return this.undoStack.length;
+  }
+
+  /** Number of actions currently on the redo stack. */
+  getRedoSize(): number {
+    return this.redoStack.length;
+  }
+
   /**
    * Records a new action onto the undo stack.
    *

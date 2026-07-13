@@ -1,5 +1,6 @@
 import type { RowNode, RowNodeType } from '../types/row.types';
 import { detailNodeId } from '../types/row.types';
+import type { RowTransaction, RowTransactionResult } from '../types/grid.types';
 import type { GridStore } from './grid-store';
 import type { EventBus } from '../event-bus/event-bus';
 import { GridEventType } from '../types/event.types';
@@ -144,6 +145,71 @@ export class RowModel {
 
   getRawData(): Record<string, unknown>[] {
     return this.rawData;
+  }
+
+  /**
+   * Applies an add / update / remove {@link RowTransaction} against `allRows`
+   * in a single pass, re-lays-out the surviving rows, and returns the exact
+   * nodes affected. Unlike {@link setRowData}, undo history is preserved — a
+   * transaction is a surgical delta, not a full data swap.
+   *
+   * Semantics:
+   * - **remove** first (by `nodeId`), so an updated-then-removed row nets out.
+   * - **update** merges each object's fields into the matching node's `data`
+   *   (matched by `nodeId`, i.e. the row's id field). Objects with no matching
+   *   node are ignored.
+   * - **add** appends freshly built nodes; their `selected` flag is seeded from
+   *   the current selection set, exactly like {@link setRowData}.
+   *
+   * The caller is responsible for invoking the render pipeline afterward — the
+   * model only mutates the data store, never the DOM.
+   *
+   * @param txn - The batch of mutations to apply.
+   * @returns The `{ add, update, remove }` nodes that were actually affected.
+   */
+  applyTransaction(txn: RowTransaction): RowTransactionResult {
+    const rows = this.store.get('allRows');
+    const byId = new Map(rows.map((r) => [r.nodeId, r]));
+
+    const removed: RowNode[] = [];
+    if (txn.remove?.length) {
+      for (const id of txn.remove) {
+        const node = byId.get(id);
+        if (node) {
+          removed.push(node);
+          byId.delete(id);
+        }
+      }
+    }
+
+    const updated: RowNode[] = [];
+    if (txn.update?.length) {
+      for (const item of txn.update) {
+        const id = item[this.idField] as string | undefined;
+        const node = id !== undefined ? byId.get(id) : undefined;
+        if (node) {
+          node.data = { ...node.data, ...item };
+          updated.push(node);
+        }
+      }
+    }
+
+    // Rebuild the row list: survivors in original order, then appended adds.
+    let next = removed.length > 0 ? rows.filter((r) => byId.has(r.nodeId)) : rows.slice();
+
+    const added: RowNode[] = [];
+    if (txn.add?.length) {
+      const addedNodes = this.buildRowNodes(txn.add);
+      added.push(...addedNodes);
+      next = next.concat(addedNodes);
+    }
+
+    this.layoutNodes(next);
+    this.rawData = next.map((n) => n.data);
+    this.store.set('allRows', next);
+    this.store.set('totalRowCount', next.length);
+
+    return { add: added, update: updated, remove: removed };
   }
 
   private buildRowNodes(

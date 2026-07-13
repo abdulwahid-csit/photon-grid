@@ -558,7 +558,7 @@ export class GridRenderer {
   }
 
   scrollToRow(rowIndex: number): void {
-    const rows = this.store.get('visibleRows');
+    const rows = this.store.get('allRows');
     this.scrollController.scrollToRow(rowIndex, rows);
   }
 
@@ -650,6 +650,75 @@ export class GridRenderer {
       if (cellEl) return cellEl.getBoundingClientRect();
     }
     return null;
+  }
+
+  /**
+   * Scrolls the body vertically so the row at `rowIndex` (index into
+   * `visibleRows`) sits at the requested position. With no `position`, performs
+   * the minimal scroll needed to bring the row fully into view (no-op if it
+   * already is). The horizontal axis is left untouched — see
+   * {@link ensureColumnVisible}.
+   *
+   * @param rowIndex - Index into the current `visibleRows`.
+   * @param position - `'top' | 'middle' | 'bottom'`, or omit for minimal scroll.
+   */
+  ensureRowVisible(rowIndex: number, position?: 'top' | 'middle' | 'bottom'): void {
+    const rows = this.store.get('visibleRows') as RowNode[];
+    const row = rows[rowIndex];
+    if (!row) return;
+
+    const rowH = row.height ?? (this.options.rowHeight ?? 48);
+    const scrollTop = this.scrollController.getScrollTop();
+    const vpH = this.scrollController.getViewportHeight();
+
+    let targetY: number;
+    switch (position) {
+      case 'top':
+        targetY = row.top;
+        break;
+      case 'bottom':
+        targetY = row.top + rowH - vpH;
+        break;
+      case 'middle':
+        targetY = row.top - (vpH - rowH) / 2;
+        break;
+      default:
+        if (row.top < scrollTop) targetY = row.top;
+        else if (row.top + rowH > scrollTop + vpH) targetY = row.top + rowH - vpH;
+        else return; // already fully visible
+    }
+
+    this.scrollController.scrollToY(Math.max(0, targetY));
+  }
+
+  /**
+   * Scrolls the body horizontally so the center column `colId` is fully
+   * visible. Pinned columns are always on-screen, so this is a no-op for them.
+   *
+   * @param colId - Id of the column to reveal.
+   */
+  ensureColumnVisible(colId: string): void {
+    const allCols = (this.store.get('columns') as ColumnDef[]).filter((c) => c.visible !== false);
+    const col = allCols.find((c) => c.colId === colId);
+    if (!col || col.pinned === 'left' || col.pinned === 'right') return;
+
+    const centerCols = allCols.filter((c) => c.pinned !== 'left' && c.pinned !== 'right');
+    const centerIdx = centerCols.findIndex((c) => c.colId === colId);
+    if (centerIdx < 0) return;
+
+    const groupedIds = this.store.get('groupedColumnIds') as string[];
+    const groupOffset = groupedIds.length > 0 ? AUTO_GROUP_COL_WIDTH : 0;
+    const colX = groupOffset + this.colStyles.getTotalWidth(centerCols.slice(0, centerIdx).map((c) => c.colId));
+    const colW = this.colStyles.getWidth(colId);
+
+    const scrollLeft = this.scrollController.getScrollLeft();
+    const vpW = this.scrollController.getCenterViewportWidth();
+
+    if (colX < scrollLeft) {
+      this.scrollController.scrollToX(colX);
+    } else if (colX + colW > scrollLeft + vpW) {
+      this.scrollController.scrollToX(colX + colW - vpW);
+    }
   }
 
   enterFullScreen(): void {
@@ -1165,10 +1234,23 @@ export class GridRenderer {
       // A live column-width drag never touches the `columns` store reference
       // (ColumnModel.setColumnWidth only fires on mouseup) — `colsChanged`
       // stays false for the whole gesture, so the block above never runs.
-      // Recompute the center width straight from already-known column widths
-      // (no DOM measurement needed) so the horizontal scrollbar's spacer —
-      // and thus its visible track/thumb size — tracks the resize in real
+      // Recompute the panel widths straight from the already-known column
+      // widths (no DOM measurement needed) so the pinned-left/right container
+      // widths AND the horizontal scrollbar spacer track the resize in real
       // time instead of jumping only once the mouse is released.
+      //
+      // Mirrors the `--pg-left/right-panel-width` computation in the
+      // colsChanged branch above so a left/right pinned column resize keeps its
+      // panel exactly as wide as its columns at every frame of the drag.
+      const showCb = this.options.showCheckboxes ? CHECKBOX_COL_WIDTH : 0;
+      const showSn = this.options.showSerialNumber ? SERIAL_COL_WIDTH : 0;
+      const leftPinnedWidth   = this.colStyles.getTotalWidth(leftCols.map((c) => c.colId));
+      const rightContentWidth = this.colStyles.getTotalWidth(rightCols.map((c) => c.colId));
+      const hasLeft  = showCb > 0 || showSn > 0 || leftCols.length > 0;
+      const hasRight = rightCols.length > 0;
+      w.style.setProperty('--pg-left-panel-width',  hasLeft  ? `${showCb + showSn + leftPinnedWidth}px` : '0px');
+      w.style.setProperty('--pg-right-panel-width', hasRight ? `${rightContentWidth + 2}px`             : '0px');
+
       const centerColIds = centerCols.map((c) => c.colId);
       const liveCenterW = this.colStyles.getTotalWidth(centerColIds) + (hasGroupedColumns ? AUTO_GROUP_COL_WIDTH : 0);
       this._cachedCenterW = liveCenterW;

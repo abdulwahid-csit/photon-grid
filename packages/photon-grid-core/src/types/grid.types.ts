@@ -1,4 +1,5 @@
 import type { ColumnDef, ColumnState } from './column.types';
+import type { RowNode } from './row.types';
 import type { FilterModel, QuickFilterConfig } from './filter.types';
 import type { BuiltInThemeName } from './theme.types';
 import type { MasterDetailConfig } from './master-detail.types';
@@ -296,6 +297,66 @@ export interface GridState {
    * older saved states — and grids without charts — remain valid.
    */
   chartModels?: ChartModel[];
+}
+
+/**
+ * A batch of row mutations applied in a single pipeline pass — the input to
+ * {@link GridApi.applyTransaction} and {@link GridApi.applyTransactionAsync}.
+ *
+ * `add` and `update` carry raw row-data objects; `remove` carries `nodeId`s.
+ * An update object is matched to an existing row by its `nodeId` (the value of
+ * the row's id field when one was supplied at `setData` time), so updates only
+ * apply to rows that carry a stable identifier.
+ */
+export interface RowTransaction {
+  /** New rows to append to the data set. */
+  add?: Record<string, unknown>[];
+  /** Existing rows to shallow-merge, matched by `nodeId`. */
+  update?: Record<string, unknown>[];
+  /** `nodeId`s of rows to remove. */
+  remove?: string[];
+}
+
+/**
+ * The set of {@link RowNode}s actually affected by a {@link RowTransaction},
+ * returned by the row model so callers can react to precise changes.
+ */
+export interface RowTransactionResult {
+  /** Newly created nodes, in the order supplied. */
+  add: RowNode[];
+  /** Nodes whose `data` was merged. */
+  update: RowNode[];
+  /** Nodes that were removed. */
+  remove: RowNode[];
+}
+
+/**
+ * Where a row should sit in the viewport after a scroll-into-view request.
+ * `undefined` performs the minimal scroll needed to reveal the row.
+ */
+export type RowVerticalScrollPosition = 'top' | 'middle' | 'bottom';
+
+/** Parameters for {@link GridApi.refreshCells}. */
+export interface RefreshCellsParams {
+  /** Rows to repaint. Omit (or pass empty) to repaint every rendered row. */
+  rowNodes?: RowNode[];
+  /**
+   * Restrict the repaint to these column ids. Reserved for future per-cell
+   * granularity; the current renderer repaints whole rows, so this is advisory.
+   */
+  colIds?: string[];
+  /** Force a full render-cache clear instead of an incremental row eviction. */
+  force?: boolean;
+}
+
+/** Parameters for {@link GridApi.flashCells}. */
+export interface FlashCellsParams {
+  /** Rows to flash. Omit to flash all currently displayed rows. */
+  rowNodes?: RowNode[];
+  /** Restrict the flash to these column ids. Omit to flash the whole row. */
+  colIds?: string[];
+  /** How long the flash highlight persists, in milliseconds. Defaults to `700`. */
+  flashDelay?: number;
 }
 
 export interface GridDimensions {

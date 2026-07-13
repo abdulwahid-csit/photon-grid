@@ -6,6 +6,13 @@ import { GridEventType } from '../types/event.types';
 export class ColumnModel {
   private columns: ColumnDef[] = [];
 
+  /**
+   * Snapshot of the column state captured at the last {@link initColumns} call,
+   * so {@link resetColumnState} can restore the original widths, visibility,
+   * pin positions, sort, and order after the user has rearranged the grid.
+   */
+  private initialColumnStates: ColumnState[] = [];
+
   constructor(
     private store: GridStore,
     private eventBus: EventBus,
@@ -15,6 +22,8 @@ export class ColumnModel {
     this.columns = defs.map((col, i) => this.normalizeColumn(col, i));
     this.rebuildPinnedSections();
     this.store.set('columns', this.columns);
+    // Capture the pristine layout so it can be restored via resetColumnState().
+    this.initialColumnStates = this.getColumnStates();
     this.emitStatesChanged();
   }
 
@@ -158,6 +167,80 @@ export class ColumnModel {
     containerEl.removeChild(measurer);
     this.setColumnWidth(colId, maxWidth, true);
     this.eventBus.emit(GridEventType.COLUMN_AUTOSIZE, { colId, newWidth: maxWidth });
+  }
+
+  /**
+   * Reorders a block of columns so they sit consecutively starting at
+   * `toIndex` within the visible-column order, preserving their relative order.
+   * Hidden columns keep their positions. The batch equivalent of
+   * {@link moveColumn} (which moves a single column by index).
+   *
+   * @param colIds  - Ids of the columns to move, in the order they should end up.
+   * @param toIndex - Target insertion index in the remaining visible columns.
+   */
+  moveColumns(colIds: string[], toIndex: number): void {
+    const visibleCols = this.getVisibleColumns();
+    const movingSet = new Set(colIds);
+    // Collect movers in the requested order (skip unknown/hidden ids).
+    const moving = colIds
+      .map((id) => visibleCols.find((c) => c.colId === id))
+      .filter((c): c is ColumnDef => !!c);
+    if (moving.length === 0) return;
+
+    const remaining = visibleCols.filter((c) => !movingSet.has(c.colId));
+    const clampedTo = Math.max(0, Math.min(toIndex, remaining.length));
+    const reordered = [...remaining.slice(0, clampedTo), ...moving, ...remaining.slice(clampedTo)];
+
+    this.columns = this.syncColumnOrder(reordered);
+    this.rebuildPinnedSections();
+    this.store.set('columns', [...this.columns]);
+    this.emitStatesChanged();
+  }
+
+  /**
+   * Distributes `availableWidth` proportionally across all visible columns so
+   * they exactly fill the given width, clamping each to its `minWidth`/`maxWidth`.
+   * Any rounding remainder is absorbed by the last column (also clamped).
+   *
+   * @param availableWidth - Target total width, in pixels (typically the grid
+   *                         viewport width). No-op when non-positive.
+   */
+  sizeColumnsToFit(availableWidth: number): void {
+    const cols = this.getVisibleColumns();
+    if (cols.length === 0 || availableWidth <= 0) return;
+
+    const totalWidth = cols.reduce((sum, c) => sum + (c.width ?? 150), 0) || 1;
+
+    let allocated = 0;
+    for (const col of cols) {
+      const min = col.minWidth ?? 40;
+      const max = col.maxWidth ?? Infinity;
+      const proportional = Math.round(((col.width ?? 150) / totalWidth) * availableWidth);
+      col.width = Math.min(max, Math.max(min, proportional));
+      allocated += col.width;
+    }
+
+    // Absorb any rounding/clamping drift into the last column.
+    const diff = availableWidth - allocated;
+    if (diff !== 0) {
+      const last = cols[cols.length - 1];
+      const min = last.minWidth ?? 40;
+      const max = last.maxWidth ?? Infinity;
+      last.width = Math.min(max, Math.max(min, (last.width ?? 150) + diff));
+    }
+
+    this.store.set('columns', [...this.columns]);
+    this.emitStatesChanged();
+  }
+
+  /**
+   * Restores every column's width, visibility, pin position, sort, and order to
+   * the snapshot captured at the last {@link initColumns} call — the counterpart
+   * to a user having resized/hidden/reordered columns.
+   */
+  resetColumnState(): void {
+    if (this.initialColumnStates.length === 0) return;
+    this.applyColumnStates(this.initialColumnStates);
   }
 
   applyColumnStates(states: ColumnState[]): void {

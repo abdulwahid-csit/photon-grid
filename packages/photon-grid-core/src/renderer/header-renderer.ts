@@ -686,6 +686,10 @@ export class HeaderRenderer {
     const align = col.textAlign ?? (col.type === 'number' || col.type === 'currency' ? 'right' : 'left');
     if (align !== 'left') th.classList.add(`pg-th--align-${align}`);
     if (align === 'right') th.classList.add('pg-th--reverse');
+    // Marks a right-pinned header so its resize handle can move to the inner
+    // (left) edge — the only edge free to move when the right edge is anchored
+    // to the grid border. See `.pg-th--pinned-right .pg-th__resize-handle`.
+    if (col.pinned === 'right') th.classList.add('pg-th--pinned-right');
 
     const headerFn = resolveColumnRenderer(col, 'header');
     if (headerFn) {
@@ -1405,19 +1409,26 @@ export class HeaderRenderer {
   private startResize(e: MouseEvent, col: ColumnDef, thEl: HTMLElement): void {
     const startX = e.clientX;
     const startWidth = this.colStyles.getWidth(col.colId);
+    // Right-pinned columns anchor their right edge to the grid border, so their
+    // resize handle sits on the *left* (inner) edge — the only edge free to move.
+    // Dragging that edge left must therefore widen the column, so the pointer
+    // delta is inverted for them (matching AG Grid). Left/center columns keep
+    // their right-edge handle: dragging right widens.
+    const dir = col.pinned === 'right' ? -1 : 1;
+    const minWidth = col.minWidth ?? 60;
     thEl.classList.add('pg-th--resizing');
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
     this._isResizingColumn = true;
     const onMove = (ev: MouseEvent) => {
-      this.colStyles.setWidth(col.colId, Math.max(col.minWidth ?? 60, startWidth + (ev.clientX - startX)));
+      this.colStyles.setWidth(col.colId, Math.max(minWidth, startWidth + (ev.clientX - startX) * dir));
       this.onResizeCb?.();
     };
     const onUp = (ev: MouseEvent) => {
       // Clear the flag BEFORE setColumnWidth fires an event so the final
       // post-resize render calls renderRows normally and the body is correct.
       this._isResizingColumn = false;
-      const newWidth = Math.max(col.minWidth ?? 60, startWidth + (ev.clientX - startX));
+      const newWidth = Math.max(minWidth, startWidth + (ev.clientX - startX) * dir);
       this.colStyles.setWidth(col.colId, newWidth);
       this.columnModel.setColumnWidth(col.colId, newWidth, true);
       thEl.classList.remove('pg-th--resizing');

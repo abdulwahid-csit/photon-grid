@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, OnInit, TemplateRef, ViewChild } fr
 
 import { PhotonGridComponent } from 'photon-grid-angular';
 import type { ColumnDef, RendererContext } from 'photon-grid-angular';
-import type { DisplayRendererParams, GridApi, GridOptions } from 'photon-grid-core';
+import type { CellRange, DisplayRendererParams, GridApi, GridOptions } from 'photon-grid-core';
 import type { RowClickPayload, RowSelectedEvent } from 'photon-grid-core';
 
 import { EmployeeCellComponent } from './employee-cell.component';
@@ -136,14 +136,117 @@ export class AppComponent implements OnInit {
     };
 
     ngOnInit(): void {
-        this.data = this.generateData(10000);
+        this.data = this.generateData(100000);
         this.columns = this.buildColumns();
     }
 
-    onGridReady(api: GridApi): void {
-        // The GridApi is available here for imperative calls (sort, filter, export…).
-        console.log('[photon-grid] ready — visible rows:', api.getVisibleRows().length);
+onGridReady(api: GridApi): void {
+//   console.log('[photon-grid] ready — visible rows:', api.getVisibleRows().length);
+
+//   // Create overlay
+//   const overlay = document.createElement('div');
+//   overlay.style.position = 'fixed';
+//   overlay.style.inset = '0';
+//   overlay.style.display = 'flex';
+//   overlay.style.alignItems = 'center';
+//   overlay.style.justifyContent = 'center';
+//   overlay.style.background = 'rgba(0,0,0,0.25)';
+//   overlay.style.backdropFilter = 'blur(4px)';
+//   overlay.style.zIndex = '9999';
+
+//   // Chart container
+//   const chartContainer = document.createElement('div');
+//   chartContainer.style.width = '760px';
+//   chartContainer.style.height = '520px';
+//   chartContainer.style.background = '#ffffff';
+//   chartContainer.style.borderRadius = '14px';
+//   chartContainer.style.boxShadow =
+//     '0 20px 60px rgba(0,0,0,.25)';
+//   chartContainer.style.padding = '24px';
+//   chartContainer.style.position = 'relative';
+
+//   // Close button
+//   const close = document.createElement('button');
+//   close.innerHTML = '✕';
+//   close.style.position = 'absolute';
+//   close.style.top = '12px';
+//   close.style.right = '12px';
+//   close.style.width = '32px';
+//   close.style.height = '32px';
+//   close.style.border = 'none';
+//   close.style.borderRadius = '50%';
+//   close.style.cursor = 'pointer';
+//   close.style.fontSize = '16px';
+//   close.onclick = () => overlay.remove();
+
+//   chartContainer.appendChild(close);
+//   overlay.appendChild(chartContainer);
+//   document.body.appendChild(overlay);
+
+//   api.createChart(chartContainer, {
+//     chartId: 'salary-department',
+//     type: 'bar',
+
+//     labelColId: 'department',
+//     valueColIds: ['salary', 'age'],
+
+//     title: 'Department Salary Analysis',
+
+//     width: 700,
+//     height: 450,
+
+//     transformOptions: {
+//       aggregation: 'avg',
+//       sortByValue: true
+//     },
+
+//     renderOptions: {
+//       padding: 40,
+
+//       showLegend: true,
+//       showGrid: true,
+//       showValues: true,
+
+//       smooth: true,
+
+//       animationDuration: 700,
+
+//       title: 'Average Salary by Department',
+//       subtitle: 'Employee salary comparison',
+
+//       xAxisTitle: 'Department',
+//       yAxisTitle: 'Average Salary',
+
+//       titleAlign: 'center',
+//       subtitleAlign: 'center',
+
+//       legendPosition: 'bottom',
+
+//       fontFamily: 'Inter, sans-serif',
+//       fontSize: 13,
+//       titleFontSize: 22,
+//       subtitleFontSize: 13,
+
+//       strokeWidth: 3,
+//       fillOpacity: 0.85
+//     }
+//   });
+//   api.enterFullScreen();
+//   api.toggleDarkMode();
+setTimeout(() => {
+    // api.scrollToRow(20);
+    const cellRange: CellRange = {
+        startRowIndex: 2, 
+        endRowIndex: 4,
+        startColIndex: 2,
+        endColIndex: 4
+
     }
+    api.setCellRange(cellRange);
+    api.setColumnPin('fullName', 'left');
+    api.setColumnPin('department', 'right');
+}, 100);
+}
 
     onRowClicked(event: RowClickPayload): void {
         console.log('[photon-grid] row clicked:', event);
@@ -187,9 +290,9 @@ export class AppComponent implements OnInit {
             },
             { colId: 'department', field: 'department', header: 'Department', type: 'string', width: 160, groupable: true },
             { colId: 'jobTitle', field: 'jobTitle', header: 'Job Title', type: 'string', width: 180, groupable: true },
-            { colId: 'salary', field: 'salary', header: 'Salary', type: 'currency', width: 140 },
-            { colId: 'age', field: 'age', header: 'Age', type: 'number', width: 90 },
-            { colId: 'experience', field: 'experience', header: 'Experience', type: 'number', width: 120 },
+            { colId: 'salary', field: 'salary',  aggFunc: 'max', header: 'Salary', type: 'currency', width: 140 },
+            { colId: 'age', field: 'age', header: 'Age', aggFunc: 'avg', type: 'number', width: 90 },
+            { colId: 'experience', field: 'experience', header: 'Experience', aggFunc: 'avg', type: 'number', width: 120 },
             {
                 colId: 'country',
                 field: 'country',

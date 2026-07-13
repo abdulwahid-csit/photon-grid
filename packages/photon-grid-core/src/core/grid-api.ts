@@ -3,6 +3,12 @@ import type { ColumnDef, ColumnState, ColumnPinPosition } from '../types/column.
 import type { RowNode } from '../types/row.types';
 import type { FilterModel, ColumnFilter } from '../types/filter.types';
 import type { SortConfig, GridState, CellRange } from '../types/grid.types';
+import type {
+  RowTransaction,
+  RowVerticalScrollPosition,
+  RefreshCellsParams,
+  FlashCellsParams,
+} from '../types/grid.types';
 import type { GridEventType } from '../types/event.types';
 import type { EventHandler } from '../event-bus/event-bus';
 import type { ChartConfig } from '../chart/chart-engine';
@@ -16,6 +22,11 @@ import type { PhotonCommandResult } from '../photon-ai/photon-ai.types';
 export class GridApi {
   private _columnGroupModel: ColumnGroupModel | null = null;
   private _groupStateManager: ColumnGroupStateManager | null = null;
+
+  /** Buffered transactions awaiting the next animation-frame flush (see {@link applyTransactionAsync}). */
+  private _pendingTransactions: RowTransaction[] = [];
+  /** Handle for the pending `requestAnimationFrame` flush, or `null` when none is scheduled. */
+  private _txnFlushHandle: number | null = null;
 
   constructor(private ctx: GridContext) {
     // Wire the filter panel so the renderer can read/write filter state and
@@ -694,6 +705,10 @@ export class GridApi {
   }
 
   destroy(): void {
+    if (this._txnFlushHandle !== null) {
+      cancelAnimationFrame(this._txnFlushHandle);
+      this._txnFlushHandle = null;
+    }
     this.ctx.renderer.destroy();
     this.ctx.chartEngine.destroyAll();
     this.ctx.cellSelectionEngine.detach();
@@ -733,5 +748,338 @@ export class GridApi {
       this.ctx.treeDataService.annotateSubtreeExtents(rows);
     }
     this.ctx.store.set('visibleRows', rows);
+  }
+
+
+  undo(): void {
+    this.ctx.undoRedoEngine.undo();
+    this.refresh();
+  }
+
+  redo(): void {
+    this.ctx.undoRedoEngine.redo();
+    this.refresh();
+  }
+
+  getUndoSize(): number {
+    return this.ctx.undoRedoEngine.getUndoSize();
+  }
+
+  getRedoSize(): number {
+    return this.ctx.undoRedoEngine.getRedoSize();
+  }
+
+  // ──────────────────── Transactions ────────────────────
+
+  /**
+   * Applies an add / update / remove {@link RowTransaction} as a surgical delta
+   * against the current data set, then runs the render pipeline once. Unlike
+   * {@link setData}, undo history is preserved.
+   *
+   * Updates are matched to existing rows by `nodeId` (the row's id field), so an
+   * update object must carry that identifier to take effect.
+   *
+   * @param txn - The batch of row mutations to apply.
+   * @returns The nodes that were added or updated (removed nodes are detached).
+   */
+  applyTransaction(txn: RowTransaction): RowNode[] {
+    const result = this.ctx.rowModel.applyTransaction(txn);
+    this.refresh();
+    return [...result.add, ...result.update];
+  }
+
+  /**
+   * Queues a {@link RowTransaction} and flushes all queued transactions together
+   * on the next animation frame, coalescing many rapid mutations into a single
+   * pipeline run and render — ideal for high-frequency streaming updates.
+   *
+   * @param txn - The batch of row mutations to enqueue.
+   */
+  applyTransactionAsync(txn: RowTransaction): void {
+    this._pendingTransactions.push(txn);
+    if (this._txnFlushHandle !== null) return;
+
+    this._txnFlushHandle = requestAnimationFrame(() => {
+      this._txnFlushHandle = null;
+      const merged = this.mergeTransactions(this._pendingTransactions);
+      this._pendingTransactions = [];
+      this.ctx.rowModel.applyTransaction(merged);
+      this.refresh();
+    });
+  }
+
+  /** Concatenates several transactions into one, preserving operation order. */
+  private mergeTransactions(txns: RowTransaction[]): RowTransaction {
+    const add: Record<string, unknown>[] = [];
+    const update: Record<string, unknown>[] = [];
+    const remove: string[] = [];
+    for (const txn of txns) {
+      if (txn.add) add.push(...txn.add);
+      if (txn.update) update.push(...txn.update);
+      if (txn.remove) remove.push(...txn.remove);
+    }
+    return { add, update, remove };
+  }
+
+  // ──────────────────── Node Iteration ────────────────────
+
+  /** Invokes `callback` for every row node in the underlying data set (unfiltered, unsorted). */
+  forEachNode(callback: (row: RowNode, index: number) => void): void {
+    const rows = this.getAllRows();
+    for (let i = 0; i < rows.length; i++) callback(rows[i], i);
+  }
+
+  /** Invokes `callback` for every row that passes the current filter model, in data order. */
+  forEachNodeAfterFilter(callback: (row: RowNode, index: number) => void): void {
+    const columns = this.ctx.columnModel.getAllColumns();
+    const filtered = this.ctx.filterEngine.applyFilters(this.getAllRows(), columns);
+    for (let i = 0; i < filtered.length; i++) callback(filtered[i], i);
+  }
+
+  /** Invokes `callback` for every row after the current filter and sort are applied (before grouping/pagination). */
+  forEachNodeAfterFilterAndSort(callback: (row: RowNode, index: number) => void): void {
+    const columns = this.ctx.columnModel.getAllColumns();
+    let rows = this.ctx.filterEngine.applyFilters(this.getAllRows(), columns);
+    rows = this.ctx.sortEngine.applySorting(rows, columns);
+    for (let i = 0; i < rows.length; i++) callback(rows[i], i);
+  }
+
+  /** The number of rows currently displayed (post filter/sort/group/pagination). */
+  getDisplayedRowCount(): number {
+    return this.getVisibleRows().length;
+  }
+
+  // ──────────────────── Cell Refresh & Flash ────────────────────
+
+  /**
+   * Repaints displayed rows from the data model — use after mutating row data
+   * in place, where the `visibleRows` reference is unchanged but cell content
+   * must be rebuilt.
+   *
+   * `colIds` is advisory (the renderer repaints whole rows). Passing `force`, or
+   * omitting `rowNodes`, clears the entire render cache.
+   *
+   * @param params - Which rows to repaint and whether to force a full clear.
+   */
+  refreshCells(params: RefreshCellsParams = {}): void {
+    const { rowNodes, force } = params;
+    if (force || !rowNodes || rowNodes.length === 0) {
+      this.ctx.renderer.invalidateBodyRows();
+      return;
+    }
+    this.ctx.renderer.invalidateBodyRowsByIds(new Set(rowNodes.map((r) => r.nodeId)));
+  }
+
+  /**
+   * Briefly flashes a highlight over the given cells to draw the user's eye to a
+   * change. A purely visual effect — it never mutates data.
+   *
+   * @param params - Rows/columns to flash and how long the highlight lasts.
+   */
+  flashCells(params: FlashCellsParams = {}): void {
+    const { rowNodes, colIds, flashDelay = 700 } = params;
+    const nodes = rowNodes ?? this.getVisibleRows();
+    if (nodes.length === 0) return;
+
+    const idSet = new Set(nodes.map((n) => n.nodeId));
+    const colSet = colIds && colIds.length > 0 ? new Set(colIds) : null;
+    const cells: HTMLElement[] = [];
+
+    // Query by attribute presence and match ids in JS to avoid selector-injection
+    // issues with data-derived node ids that may contain quotes or brackets.
+    for (const rowEl of this.ctx.containerEl.querySelectorAll<HTMLElement>('[data-node-id]')) {
+      if (!idSet.has(rowEl.getAttribute('data-node-id') ?? '')) continue;
+      for (const cell of rowEl.querySelectorAll<HTMLElement>('[data-col-id]')) {
+        const cid = cell.getAttribute('data-col-id');
+        if (colSet && (!cid || !colSet.has(cid))) continue;
+        cells.push(cell);
+      }
+    }
+
+    for (const el of cells) {
+      el.classList.remove('pg-cell--flash');
+      void el.offsetWidth; // force reflow so the animation restarts if re-triggered
+      el.classList.add('pg-cell--flash');
+    }
+    if (cells.length > 0) {
+      setTimeout(() => {
+        for (const el of cells) el.classList.remove('pg-cell--flash');
+      }, flashDelay);
+    }
+  }
+
+  // ──────────────────── Column Sizing & Layout ────────────────────
+
+  /**
+   * Resizes all visible columns to exactly fill the available width, clamped to
+   * each column's min/max. Defaults to the grid container's current width.
+   *
+   * @param containerWidth - Target width in pixels; defaults to the container width.
+   */
+  sizeColumnsToFit(containerWidth?: number): void {
+    const width = containerWidth ?? this.ctx.containerEl.clientWidth;
+    this.ctx.columnModel.sizeColumnsToFit(width);
+    this.refresh();
+  }
+
+  /** Restores columns (width, visibility, pin, sort, order) to their initial state. */
+  resetColumnState(): void {
+    this.ctx.columnModel.resetColumnState();
+    this.refresh();
+  }
+
+  /**
+   * Shows or hides several columns in one call.
+   *
+   * @param colIds  - Ids of the columns to update.
+   * @param visible - `true` to show, `false` to hide.
+   */
+  setColumnsVisible(colIds: string[], visible: boolean): void {
+    for (const colId of colIds) this.ctx.columnModel.setColumnVisible(colId, visible);
+    this.refresh();
+  }
+
+  /**
+   * Moves a block of columns so they sit consecutively at `toIndex` within the
+   * visible-column order. The batch counterpart to {@link moveColumn}.
+   *
+   * @param colIds  - Ids of the columns to move, in target order.
+   * @param toIndex - Insertion index among the remaining visible columns.
+   */
+  moveColumns(colIds: string[], toIndex: number): void {
+    this.ctx.columnModel.moveColumns(colIds, toIndex);
+    this.refresh();
+  }
+
+  // ──────────────────── Multi-Sort ────────────────────
+
+  /**
+   * Applies a multi-column sort, replacing any existing sort configuration.
+   *
+   * @param configs - Ordered sort descriptors (primary → secondary → …).
+   */
+  multiSort(configs: SortConfig[]): void {
+    this.ctx.sortEngine.multiSort(configs);
+    this.refresh();
+  }
+
+  // ──────────────────── Focused Cell ────────────────────
+
+  /**
+   * Focuses (and starts a single-cell selection at) the cell at `rowIndex` in
+   * the given column, scrolling it into view. A no-op if the column is hidden
+   * or unknown.
+   *
+   * @param rowIndex - Index into the current `visibleRows`.
+   * @param colId    - Id of the target column.
+   */
+  setFocusedCell(rowIndex: number, colId: string): void {
+    const colIndex = this.ctx.columnModel.getVisibleColumns().findIndex((c) => c.colId === colId);
+    if (colIndex < 0) return;
+    this.ctx.cellSelectionEngine.startSelection(rowIndex, colIndex);
+  }
+
+  /** The currently focused cell as `{ rowIndex, colId }`, or `null` when none is focused. */
+  getFocusedCell(): { rowIndex: number; colId: string } | null {
+    const active = this.ctx.store.get('activeCell');
+    if (!active) return null;
+    const col = this.ctx.columnModel.getVisibleColumns()[active.colIndex];
+    if (!col) return null;
+    return { rowIndex: active.rowIndex, colId: col.colId };
+  }
+
+  // ──────────────────── Ensure Visible ────────────────────
+
+  /**
+   * Scrolls the row with `nodeId` into view. A no-op if the row is not currently
+   * displayed (e.g. filtered out or on another page).
+   *
+   * @param nodeId   - The row's node id.
+   * @param position - Where to place the row; omit for the minimal scroll.
+   */
+  ensureNodeVisible(nodeId: string, position?: RowVerticalScrollPosition): void {
+    const rowIndex = this.getVisibleRows().findIndex((r) => r.nodeId === nodeId);
+    if (rowIndex < 0) return;
+    this.ctx.renderer.ensureRowVisible(rowIndex, position);
+  }
+
+  /** Scrolls the given center column horizontally into view (pinned columns are always visible). */
+  ensureColumnVisible(colId: string): void {
+    this.ctx.renderer.ensureColumnVisible(colId);
+  }
+
+  // ──────────────────── Filter State ────────────────────
+
+  /** Whether any column filter or the quick filter is currently active. */
+  isAnyFilterActive(): boolean {
+    return this.ctx.filterEngine.hasActiveFilters();
+  }
+
+  /** Whether the given column has an active filter. */
+  isColumnFilterActive(colId: string): boolean {
+    return this.ctx.filterEngine.isColumnFiltered(colId);
+  }
+
+  // ──────────────────── Batch Selection ────────────────────
+
+  /** Selects several rows in one operation (single `ROW_SELECTED` emission). */
+  selectRows(nodeIds: string[]): void {
+    this.ctx.rowSelectionEngine.selectRows(nodeIds, this.getVisibleRows());
+  }
+
+  /** Deselects several rows in one operation (single `ROW_DESELECTED` emission). */
+  deselectRows(nodeIds: string[]): void {
+    this.ctx.rowSelectionEngine.deselectRows(nodeIds, this.getVisibleRows());
+  }
+
+  /**
+   * Selects every data row for which `predicate` returns `true`. The predicate
+   * is evaluated against all rows, so rows outside the current page/filter can
+   * still be selected.
+   *
+   * @param predicate - Returns `true` for rows that should be selected.
+   */
+  selectRowsByFilter(predicate: (row: RowNode) => boolean): void {
+    const nodeIds = this.getAllRows()
+      .filter((r) => r.type === 'data' && predicate(r))
+      .map((r) => r.nodeId);
+    this.ctx.rowSelectionEngine.selectRows(nodeIds, this.getVisibleRows());
+  }
+
+  // ──────────────────── Row Grouping ────────────────────
+
+  /**
+   * Sets the exact set (and order) of row-group columns, replacing any existing
+   * grouping.
+   *
+   * @param colIds - Column ids to group by, outermost first. Empty clears grouping.
+   */
+  setRowGroupColumns(colIds: string[]): void {
+    this.ctx.groupingEngine.reorderGroupColumns(colIds);
+    this.refresh();
+  }
+
+  /** Whether the group with the given key is currently expanded. */
+  isGroupExpanded(groupKey: string): boolean {
+    return this.ctx.groupingEngine.isGroupExpanded(groupKey);
+  }
+
+  // ──────────────────── Grid State Reset ────────────────────
+
+  /**
+   * Resets the grid to its initial state: clears sort, filters, grouping, row
+   * and cell selection, returns to the first page, and restores the original
+   * column layout. Row data itself is left untouched.
+   */
+  resetGridState(): void {
+    this.ctx.sortEngine.clearSort();
+    this.ctx.columnModel.clearAllSort();
+    this.ctx.filterEngine.clearAllFilters();
+    this.ctx.groupingEngine.clearGrouping();
+    this.ctx.rowSelectionEngine.deselectAll(this.getVisibleRows());
+    this.ctx.cellSelectionEngine.clearSelection();
+    this.ctx.paginationEngine.goToPage(1);
+    this.ctx.columnModel.resetColumnState();
+    this.refresh();
   }
 }

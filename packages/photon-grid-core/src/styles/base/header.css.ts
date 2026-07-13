@@ -164,6 +164,12 @@ export const headerCss = `/* ─────────────────
     background: #d6d6d6;
     width: 2px;
 }
+/* Right-pinned columns anchor their right edge to the grid border, so the
+   resize handle lives on the inner (left) edge — the edge free to move. */
+.pg-th--pinned-right .pg-th__resize-handle {
+  right: auto;
+  left: -1px;
+}
 .pg-th__resize-handle:hover,
 .pg-th.pg-resizing .pg-th__resize-handle,
 .pg-th--resizing .pg-th__resize-handle {

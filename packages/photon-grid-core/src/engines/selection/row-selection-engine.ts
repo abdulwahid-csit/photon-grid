@@ -91,6 +91,32 @@ export class RowSelectionEngine {
     });
   }
 
+  /**
+   * Deselects several rows in one operation, emitting a single
+   * `ROW_DESELECTED` event rather than one per id. Mirrors {@link selectRows}.
+   * Honors `suppressRowDeselection`.
+   *
+   * @param nodeIds - Node ids to remove from the selection.
+   * @param rows    - The current row set used to recompute selection flags/state.
+   */
+  deselectRows(nodeIds: string[], rows: RowNode[]): void {
+    if (this.config.suppressRowDeselection) return;
+
+    const selectedIds = new Set(this.store.get('selectedRowIds'));
+    for (const id of nodeIds) selectedIds.delete(id);
+
+    this.applySelectionToRows(rows, selectedIds);
+    this.store.set('selectedRowIds', selectedIds);
+    this.updateSelectionState(rows, selectedIds);
+
+    const selectedRows = rows.filter((r) => selectedIds.has(r.nodeId));
+    this.eventBus.emit(GridEventType.ROW_DESELECTED, {
+      rows: selectedRows,
+      selectedCount: selectedIds.size,
+      isAllSelected: false,
+    });
+  }
+
   selectAll(rows: RowNode[]): void {
     if (this.config.mode !== 'multiple') return;
     const dataRows = rows.filter((r) => r.type === 'data');

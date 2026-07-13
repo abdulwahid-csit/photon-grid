@@ -13,7 +13,7 @@
   "peerDependencies": {
     "@angular/common": "^18.2.0",
     "@angular/core": "^18.2.0",
-    "photon-grid-core": "^2.0.0"
+    "photon-grid-core": "^1.0.2"
   },
   "dependencies": {
     "tslib": "^2.3.0"

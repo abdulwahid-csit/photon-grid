@@ -1,75 +1,195 @@
-# React + TypeScript + Vite
+# Photon Grid for React
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+<p align="center">
+  <img src="https://raw.githubusercontent.com/abdulwahid-csit/photon-grid/main/assets/logo.svg" alt="Photon Grid — React Data Grid" width="180"/>
+</p>
 
-Currently, two official plugins are available:
+<p align="center">
+    <strong>A high-performance, enterprise-grade React data grid built on the zero-dependency Photon Grid engine.</strong>
+</p>
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+<p align="center">
 
-## React Compiler
+![npm](https://img.shields.io/npm/v/photon-grid-react)
+![license](https://img.shields.io/npm/l/photon-grid-react)
+![typescript](https://img.shields.io/badge/TypeScript-5.x-blue)
+![react](https://img.shields.io/badge/React-18%2B-61dafb)
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+</p>
 
-## Expanding the ESLint configuration
+---
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## Overview
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+**Photon Grid for React** (`photon-grid-react`) is the official React wrapper for [Photon Grid Core](https://www.npmjs.com/package/photon-grid-core) — an extremely fast, framework-agnostic TypeScript data grid.
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+It exposes a single `<PhotonGrid />` component that binds React props and callbacks to the core engine, giving you virtual scrolling, sorting, filtering, grouping, editing, and custom React cell renderers with **zero framework lock-in**.
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+A modern, lightweight alternative to AG Grid, react-data-grid, TanStack Table, and Handsontable for React applications.
 
+---
+
+## Features
+
+- Single declarative React component (`<PhotonGrid />`)
+- Custom React component cell renderers
+- Fully typed props and event callbacks
+- Zero runtime dependencies in the core engine
+- Virtual scrolling and virtual columns
+- Millions of rows support
+- Column pinning, resizing, moving, and auto-size
+- Cell selection and range selection
+- Clipboard support (copy / paste)
+- Keyboard and mouse navigation
+- Tree data and row grouping
+- Sorting and multi-column sorting
+- Filtering and quick filtering
+- Custom cell and header renderers
+- Context menu and custom context menus
+- Pagination, status bar, and tool panels
+- Theme support (light, dark, custom)
+- Event-driven, API-driven architecture
+- High-FPS, memory-efficient rendering
+
+---
+
+## Installation
+
+```bash
+npm install photon-grid-react photon-grid-core
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+or
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+```bash
+yarn add photon-grid-react photon-grid-core
 ```
+
+or
+
+```bash
+pnpm add photon-grid-react photon-grid-core
+```
+
+`react`, `react-dom` (>= 18) are peer dependencies. `photon-grid-core` is a dependency and is installed automatically.
+
+---
+
+## Basic Usage
+
+```tsx
+import { PhotonGrid } from 'photon-grid-react';
+import type { PhotonGridColumnDef } from 'photon-grid-react';
+import type { GridApi } from 'photon-grid-core';
+
+const columns: PhotonGridColumnDef[] = [
+  { colId: 'name', field: 'name', header: 'Name', type: 'string' },
+  { colId: 'age', field: 'age', header: 'Age', type: 'number' },
+];
+
+const rows = [
+  { name: 'Ada', age: 36 },
+  { name: 'Alan', age: 41 },
+];
+
+export function App() {
+  const onReady = (api: GridApi) => {
+    console.log('visible rows:', api.getVisibleRows().length);
+  };
+
+  return (
+    <PhotonGrid
+      columns={columns}
+      dataSet={rows}
+      options={{ theme: 'light' }}
+      onGridReady={onReady}
+      onRowClicked={(e) => console.log(e)}
+    />
+  );
+}
+```
+
+> **Styling** is injected automatically by the core engine — no CSS import is required.
+
+---
+
+## Props
+
+| Prop      | Type                        | Description                                             |
+| --------- | --------------------------- | ------------------------------------------------------ |
+| `columns` | `PhotonGridColumnDef[]`     | Column definitions. Renderer slots accept React components in addition to plain functions. |
+| `dataSet` | `Record<string, unknown>[]` | Row data.                                              |
+| `options` | `Partial<GridOptions>`      | Theme, selection, editing, pagination, and feature flags. |
+
+### Event callbacks
+
+`onGridReady`, `onDataChanged`, `onRowClicked`, `onRowDoubleClicked`, `onRowSelected`,
+`onCellClicked`, `onCellDoubleClicked`, `onCellValueChanged`, `onCellSelectionChanged`,
+`onColumnResized`, `onColumnMoved`, `onSortChanged`, `onFilterChanged`, `onPageChanged`,
+`onColumnsStateChanged`, `onThemeChanged`, `onExportComplete`.
+
+`onGridReady` receives the `GridApi`, giving you full programmatic control over the grid.
+
+---
+
+## Why Photon Grid?
+
+- Declarative, idiomatic React API
+- Fast, virtualized rendering for millions of rows
+- Framework-independent core — share grid logic across React, Angular, and Vue
+- Modular, extensible, plugin-friendly architecture
+- Enterprise capabilities with a simple, predictable API
+- Fully typed with built-in declaration files
+
+---
+
+## Browser Support
+
+Supports all modern browsers: Chrome, Edge, Firefox, and Safari.
+
+---
+
+## TypeScript
+
+`photon-grid-react` is written in TypeScript and ships with built-in declaration files. No additional typings are required.
+
+---
+
+## Ecosystem
+
+| Package | Description |
+| ------- | ----------- |
+| [`photon-grid-core`](https://www.npmjs.com/package/photon-grid-core) | Framework-agnostic engine |
+| [`photon-grid-react`](https://www.npmjs.com/package/photon-grid-react) | React wrapper (this package) |
+| [`photon-grid-angular`](https://www.npmjs.com/package/photon-grid-angular) | Angular wrapper |
+| [`photon-grid-vue`](https://www.npmjs.com/package/photon-grid-vue) | Vue 3 wrapper |
+
+---
+
+## Contributing
+
+Contributions are welcome. Please submit issues, feature requests, or pull requests through GitHub.
+
+---
+
+## License
+
+MIT License
+
+---
+
+## Author
+
+**Abdul Wahid**
+
+---
+
+## Links
+
+- **GitHub** — https://github.com/abdulwahid-csit/photon-grid
+- **Issues** — https://github.com/abdulwahid-csit/photon-grid/issues
+- **NPM** — https://www.npmjs.com/package/photon-grid-react
+
+---
+
+⭐ If you find Photon Grid useful, consider starring the repository.

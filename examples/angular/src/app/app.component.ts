@@ -128,6 +128,7 @@ export class AppComponent implements OnInit {
         showSerialNumber: false,
         rowShading: false,
         showGroupingBar: true,
+        pagination: { enabled: true, pageSize: 20, },
         selection: { mode: 'multiple' },
         photonAI: {
             enabled: true
@@ -135,7 +136,7 @@ export class AppComponent implements OnInit {
     };
 
     ngOnInit(): void {
-        this.data = this.generateData(100);
+        this.data = this.generateData(10000);
         this.columns = this.buildColumns();
     }
 
@@ -212,4 +213,7 @@ export class AppComponent implements OnInit {
             { colId: 'rating', field: 'rating', header: 'Rating', type: 'number', width: 100 },
         ];
     }
+
+
+   
 }

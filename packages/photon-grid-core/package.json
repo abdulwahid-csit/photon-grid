@@ -1,6 +1,6 @@
 {
   "name": "photon-grid-core",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Professional zero-dependency TypeScript data grid with enterprise-grade features.",
   "author": "Abdul Wahid",
   "license": "MIT",
@@ -31,7 +31,8 @@
   ],
   "scripts": {
     "clean": "npx rimraf dist",
-    "build": "tsc && node scripts/make-dist-pkg.mjs",
+    "build": "tsc && npm run build:cdn && node scripts/make-dist-pkg.mjs",
+    "build:cdn": "esbuild src/index.ts --bundle --minify --platform=browser --format=iife --global-name=PhotonGrid --outfile=dist/photon-grid.min.js",
     "build:watch": "tsc --project tsconfig.json --watch",
     "typecheck": "tsc --noEmit",
     "demo": "esbuild demo/demo.ts --bundle --outfile=demo/demo.bundle.js --format=iife --global-name=PhotonGridDemo --target=es2020 --platform=browser --sourcemap",
@@ -39,7 +40,10 @@
     "demo:tree": "esbuild demo/tree-data-demo.ts --bundle --outfile=demo/tree-data-demo.bundle.js --format=iife --global-name=PhotonGridTreeDemo --target=es2020 --platform=browser --sourcemap",
     "prepare": "npm run build",
     "prepublishOnly": "npm run build",
-    "pack:check": "npm pack --dry-run"
+    "pack:check": "npm pack --dry-run",
+    "browser": "./dist/photon-grid.min.js",
+    "unpkg": "./dist/photon-grid.min.js",
+    "jsdelivr": "./dist/photon-grid.min.js"
   },
   "keywords": [
     "grid",

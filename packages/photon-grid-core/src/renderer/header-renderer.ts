@@ -1409,6 +1409,11 @@ export class HeaderRenderer {
   private startResize(e: MouseEvent, col: ColumnDef, thEl: HTMLElement): void {
     const startX = e.clientX;
     const startWidth = this.colStyles.getWidth(col.colId);
+    // Lock every flex column to its current pixel width up front, so dragging
+    // this one resizes only it — the others keep their widths (and the total
+    // may overflow into a horizontal scrollbar) instead of flex redistributing
+    // the container and collapsing them to minWidth.
+    this.colStyles.freezeFlexWidths();
     // Right-pinned columns anchor their right edge to the grid border, so their
     // resize handle sits on the *left* (inner) edge — the only edge free to move.
     // Dragging that edge left must therefore widen the column, so the pointer

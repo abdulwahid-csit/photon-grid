@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "photon-grid": "file:../..",
     "vue": "^3.5.39"
   },
   "devDependencies": {

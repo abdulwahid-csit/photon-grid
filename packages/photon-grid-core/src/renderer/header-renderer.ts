@@ -611,8 +611,8 @@ export class HeaderRenderer {
     const row = createDiv('pg-header-row');
     row.setAttribute('role', 'row');
     if (isLeft) {
-      if (options.showCheckboxes) row.appendChild(this.buildCheckboxHeaderCell());
       if (options.showSerialNumber) row.appendChild(this.buildSerialHeaderCell());
+      if (options.showCheckboxes) row.appendChild(this.buildCheckboxHeaderCell());
     }
     for (let i = 0; i < columns.length; i++) row.appendChild(this.buildHeaderCell(columns[i], i, columns, options, row));
     return row;

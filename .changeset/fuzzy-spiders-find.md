@@ -1,8 +1,8 @@
 ---
-"photon-grid-angular": minor
-"photon-grid-react": minor
-"photon-grid-core": minor
-"photon-grid-vue": minor
+"photon-grid-angular": patches
+"photon-grid-react": patches
+"photon-grid-core": patches
+"photon-grid-vue": patches
 ---
 
 Added CDN To The Core

@@ -1,8 +1,8 @@
 ---
-"photon-grid-angular": major
-"photon-grid-react": major
-"photon-grid-core": major
-"photon-grid-vue": major
+"photon-grid-angular": patches
+"photon-grid-react": patches
+"photon-grid-core": patches
+"photon-grid-vue": patches
 ---
 
 Update ToCDM

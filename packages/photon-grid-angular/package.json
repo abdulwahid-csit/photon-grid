@@ -1,6 +1,6 @@
 {
   "name": "photon-grid-angular",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Angular wrapper for Photon Grid — an enterprise-grade, framework-agnostic TypeScript data grid.",
   "author": "Abdul Wahid",
   "license": "MIT",

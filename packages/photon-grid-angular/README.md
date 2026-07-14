@@ -243,7 +243,10 @@ MIT License
 
 - **GitHub** — https://github.com/abdulwahid-csit/photon-grid
 - **Issues** — https://github.com/abdulwahid-csit/photon-grid/issues
-- **NPM** — https://www.npmjs.com/package/photon-grid-angular
+- **NPM Angular** — https://www.npmjs.com/package/photon-grid-angular
+- **NPM React** — https://www.npmjs.com/package/photon-grid-react
+- **NPM Vue** — https://www.npmjs.com/package/photon-grid-vue
+- **NPM Core** — https://www.npmjs.com/package/photon-grid-core
 
 ---
 

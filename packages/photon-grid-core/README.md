@@ -1,7 +1,7 @@
 # Photon Grid Core
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/abdulwahid-csit/photon-grid/main/assets/logo.svg" alt="Photon Grid" width="180"/>
+  <img src="https://github.com/abdulwahid-csit/photon-grid/blob/main/assets/logo.svg" alt="Photon Grid" width="180"/>
 </p>
 
 <p align="center">
@@ -269,11 +269,11 @@ MIT License
 
 GitHub
 
-https://github.com/YOUR_GITHUB_USERNAME/photon-grid
+https://github.com/abdulwahid-csit/photon-grid
 
 Issues
 
-https://github.com/YOUR_GITHUB_USERNAME/photon-grid/issues
+https://github.com/abdulwahid-csit/photon-grid/issues
 
 NPM
 

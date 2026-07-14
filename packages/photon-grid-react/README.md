@@ -157,12 +157,12 @@ Supports all modern browsers: Chrome, Edge, Firefox, and Safari.
 
 ## Ecosystem
 
-| Package | Description |
-| ------- | ----------- |
-| [`photon-grid-core`](https://www.npmjs.com/package/photon-grid-core) | Framework-agnostic engine |
-| [`photon-grid-react`](https://www.npmjs.com/package/photon-grid-react) | React wrapper (this package) |
-| [`photon-grid-angular`](https://www.npmjs.com/package/photon-grid-angular) | Angular wrapper |
-| [`photon-grid-vue`](https://www.npmjs.com/package/photon-grid-vue) | Vue 3 wrapper |
+| Package | Description | NPM |
+| ------- | ----------- | --- |
+| [`photon-grid-core`](https://www.npmjs.com/package/photon-grid-core) | Framework-agnostic engine | https://www.npmjs.com/package/photon-grid-core |
+| [`photon-grid-react`](https://www.npmjs.com/package/photon-grid-react) | React wrapper (this package) | https://www.npmjs.com/package/photon-grid-react |
+| [`photon-grid-angular`](https://www.npmjs.com/package/photon-grid-angular) | Angular wrapper | https://www.npmjs.com/package/photon-grid-angular | 
+| [`photon-grid-vue`](https://www.npmjs.com/package/photon-grid-vue) | Vue 3 wrapper | https://www.npmjs.com/package/photon-grid-vue |
 
 ---
 
@@ -188,7 +188,10 @@ MIT License
 
 - **GitHub** — https://github.com/abdulwahid-csit/photon-grid
 - **Issues** — https://github.com/abdulwahid-csit/photon-grid/issues
-- **NPM** — https://www.npmjs.com/package/photon-grid-react
+- **NPM React** — https://www.npmjs.com/package/photon-grid-react
+- **NPM Angular** — https://www.npmjs.com/package/photon-grid-angular
+- **NPM Vue** — https://www.npmjs.com/package/photon-grid-vue
+- **NPM Core** — https://www.npmjs.com/package/photon-grid-core
 
 ---
 

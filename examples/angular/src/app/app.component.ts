@@ -125,11 +125,13 @@ export class AppComponent implements OnInit {
     /** Remaining grid configuration bound to the grid's `options` input. */
     readonly options: Partial<GridOptions> = {
         theme: 'light',
-        showCheckboxes: true,
+        showCheckboxes: false,
         showSerialNumber: true,
         rowShading: false,
         showGroupingBar: true,
+        rowHeight: 42,
         pagination: { enabled: true, pageSize: 20, },
+        headerRowHeight: 48,
         selection: { mode: 'multiple' },
         photonAI: {
             enabled: true
@@ -259,62 +261,62 @@ setTimeout(() => {
 
     private buildColumns(): ColumnDef[] {
         return [
-            {
-                colId: 'fullName',
-                field: 'fullName',
-                header: 'Full Name',
-                type: 'string',
-                width: 220,
-                renderer: {
-                    // Component-based renderer: avatar + name + gray job title.
-                    display: EmployeeCellComponent,
-                },
-                rowDrag: true,
-            },
-            {
-                colId: 'email',
-                field: 'email',
-                header: 'Email',
-                type: 'string', 
-                width: 240,
-                renderer: {
-                    // Plain-function renderer: no Angular component/template
-                    // needed just to bold a value. Building an HTMLElement
-                    // directly (rather than an HTML string) sidesteps any
-                    // injection concern for values.
-                    display: (params: DisplayRendererParams) => {
-                        const strong = document.createElement('strong');
-                        strong.textContent = String(params.value ?? '');
-                        return strong;
-                    },
-                },
-            },
-            { colId: 'department', field: 'department', header: 'Department', type: 'string', width: 160, groupable: true },
-            { colId: 'jobTitle', field: 'jobTitle', header: 'Job Title', type: 'string', width: 180, groupable: true },
-            { colId: 'salary', field: 'salary',  aggFunc: 'max', header: 'Salary', type: 'currency', width: 140 },
-            { colId: 'age', field: 'age', header: 'Age', aggFunc: 'avg', type: 'number', width: 90 },
-            { colId: 'experience', field: 'experience', header: 'Experience', aggFunc: 'avg', type: 'number', width: 120 },
-            {
-                colId: 'country',
-                field: 'country',
-                header: 'Country',
-                type: 'dropdown',
-                editable: true,
-                width: 160,
-                groupable: true,
-                renderer: {
-                    // Template-based renderer: flag + country name.
-                    display: this.countryTpl,
-                    option: this.countryTpl,
-                },
+            // {
+            //     colId: 'fullName',
+            //     field: 'fullName',
+            //     header: 'Full Name',
+            //     type: 'string',
+            //     width: 220,
+            //     renderer: {
+            //         // Component-based renderer: avatar + name + gray job title.
+            //         display: EmployeeCellComponent,
+            //     },
+            //     rowDrag: true,
+            // },
+            // {
+            //     colId: 'email',
+            //     field: 'email',
+            //     header: 'Email',
+            //     type: 'string', 
+            //     width: 240,
+            //     renderer: {
+            //         // Plain-function renderer: no Angular component/template
+            //         // needed just to bold a value. Building an HTMLElement
+            //         // directly (rather than an HTML string) sidesteps any
+            //         // injection concern for values.
+            //         display: (params: DisplayRendererParams) => {
+            //             const strong = document.createElement('strong');
+            //             strong.textContent = String(params.value ?? '');
+            //             return strong;
+            //         },
+            //     },
+            // },
+            // { colId: 'department', field: 'department', header: 'Department', type: 'string', width: 160, groupable: true },
+            // { colId: 'jobTitle', field: 'jobTitle', header: 'Job Title', type: 'string', width: 180, groupable: true },
+            // { colId: 'salary', field: 'salary',  aggFunc: 'max', header: 'Salary', type: 'currency', width: 140 },
+            // { colId: 'age', field: 'age', header: 'Age', aggFunc: 'avg', type: 'number', width: 90 },
+            // { colId: 'experience', field: 'experience', header: 'Experience', aggFunc: 'avg', type: 'number', width: 120 },
+            // {
+            //     colId: 'country',
+            //     field: 'country',
+            //     header: 'Country',
+            //     type: 'dropdown',
+            //     editable: true,
+            //     width: 160,
+            //     groupable: true,
+            //     renderer: {
+            //         // Template-based renderer: flag + country name.
+            //         display: this.countryTpl,
+            //         option: this.countryTpl,
+            //     },
 
-                enumOptions: Object.keys(this.COUNTRY_FLAGS),
-            },
-            { colId: 'city', field: 'city', header: 'City', type: 'string', width: 150, groupable: true },
-            { colId: 'phone', field: 'phone', header: 'Phone', type: 'string', width: 170 },
-            { colId: 'joinDate', field: 'joinDate', header: 'Join Date', type: 'date', width: 140 },
-            { colId: 'active', field: 'active', header: 'Active', type: 'boolean', width: 100 },
-            { colId: 'rating', field: 'rating', header: 'Rating', type: 'number', width: 100 },
+            //     enumOptions: Object.keys(this.COUNTRY_FLAGS),
+            // },
+            // { colId: 'city', field: 'city', header: 'City', type: 'string', width: 150, groupable: true },
+            { colId: 'phone', field: 'phone', header: 'Phone', type: 'string', width: 170, flex: 1 },
+            { colId: 'joinDate', field: 'joinDate', header: 'Join Date', type: 'date', width: 140, flex: 1},
+            { colId: 'active', field: 'active', header: 'Active', type: 'boolean', width: 100, flex: 1 },
+            { colId: 'rating', field: 'rating', header: 'Rating', type: 'number', width: 100, flex: 1 },
         ];
     }
 

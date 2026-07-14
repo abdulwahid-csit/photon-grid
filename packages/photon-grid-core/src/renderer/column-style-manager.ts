@@ -98,6 +98,25 @@ export class ColumnStyleManager {
     this.flush();
   }
 
+  /**
+   * Converts every currently-flex column into a fixed column pinned at its
+   * present resolved width. Called when a manual column resize begins so the
+   * drag changes only the dragged column: without this, `resolveFlex` would
+   * redistribute the container width on the next render and shrink the other
+   * flex columns (down to `minWidth`) to compensate for the one that grew.
+   * A manual resize therefore overrides flex, and total width can now exceed
+   * the viewport (a horizontal scrollbar appears) instead of columns collapsing.
+   */
+  freezeFlexWidths(): void {
+    if (this.flexCols.size === 0) return;
+    for (const [colId, fc] of this.flexCols) {
+      const resolved = this.widths.get(colId) ?? fc.minWidth;
+      this.userResizedWidths.set(colId, resolved);
+    }
+    this.flexCols.clear();
+    this.flush();
+  }
+
   getWidth(colId: string): number {
     return this.widths.get(colId) ?? 150;
   }

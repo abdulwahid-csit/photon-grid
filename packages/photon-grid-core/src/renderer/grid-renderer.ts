@@ -1164,6 +1164,26 @@ export class GridRenderer {
       w.style.setProperty('--pg-left-panel-width',  hasLeft  ? `${showCb + showSn + leftPinnedWidth}px` : '0px');
       w.style.setProperty('--pg-right-panel-width', hasRight ? `${rightContentWidth + 2}px`                 : '0px');
 
+      // Show/hide left/right panels BEFORE the flex measurement below. A panel
+      // toggling from display:none to visible (e.g. the first time a column is
+      // pinned to that side) changes the center panel's width; doing it after
+      // the clientWidth read would resolve flex against the stale, pre-pin
+      // center width, leaving the center columns mis-sized until the next
+      // column change happens to re-measure. Setting display first means the
+      // forced reflow from reading clientWidth sees the correct layout.
+      if (this.leftBodyPanelEl) {
+        this.leftBodyPanelEl.style.setProperty('display', hasLeft ? '' : 'none');
+        if (this.leftHeaderPanelEl?.parentElement) {
+          this.leftHeaderPanelEl.parentElement.style.setProperty('display', hasLeft ? '' : 'none');
+        }
+      }
+      if (this.rightBodyPanelEl) {
+        this.rightBodyPanelEl.style.setProperty('display', hasRight ? '' : 'none');
+        if (this.rightHeaderPanelEl?.parentElement) {
+          this.rightHeaderPanelEl.parentElement.style.setProperty('display', hasRight ? '' : 'none');
+        }
+      }
+
       // Resolve flex columns — clientWidth read forces a layout reflow;
       // done here so it only happens when column definitions change.
       const centerColIds = centerCols.map((c) => c.colId);
@@ -1178,20 +1198,6 @@ export class GridRenderer {
       const centerContentWidth = this.colStyles.getTotalWidth(centerColIds)
         + (hasGroupedColumns ? AUTO_GROUP_COL_WIDTH : 0);
       this._cachedCenterW = centerContentWidth;
-
-      // Show/hide left/right panels
-      if (this.leftBodyPanelEl) {
-        this.leftBodyPanelEl.style.setProperty('display', hasLeft ? '' : 'none');
-        if (this.leftHeaderPanelEl?.parentElement) {
-          this.leftHeaderPanelEl.parentElement.style.setProperty('display', hasLeft ? '' : 'none');
-        }
-      }
-      if (this.rightBodyPanelEl) {
-        this.rightBodyPanelEl.style.setProperty('display', hasRight ? '' : 'none');
-        if (this.rightHeaderPanelEl?.parentElement) {
-          this.rightHeaderPanelEl.parentElement.style.setProperty('display', hasRight ? '' : 'none');
-        }
-      }
 
       w.style.setProperty('--pg-center-content-width', `${centerContentWidth}px`);
     } else if (this.colStyles.hasFlex(centerCols.map((c) => c.colId))) {

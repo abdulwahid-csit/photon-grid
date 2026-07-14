@@ -1,4 +1,6 @@
 export { GridCore } from './core/grid-core';
+export { createGrid, renderGrid } from './core/create-grid';
+export type { GridContainer } from './core/create-grid';
 export { injectBaseStyles, removeBaseStyles } from './styles/base-styles';
 export { GridApi } from './core/grid-api';
 export { GridStore } from './core/grid-store';

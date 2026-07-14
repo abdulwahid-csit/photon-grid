@@ -105,6 +105,17 @@ export class BodyRenderer {
   /** `nodeId`s of the rows currently parked in the sticky containers — a single Master/Detail master row, or a stack of Tree Data ancestor rows. */
   private stuckNodeIds = new Set<string>();
 
+  // ── Pointer-tracked row hover ─────────────────────────────────────────────
+  /** Panels participating in hover, cached from `setPanels` for class updates. */
+  private hoverPanels: HTMLElement[] = [];
+  /** `nodeId` of the row currently showing `pg-row--hover`, or `null`. */
+  private hoveredNodeId: string | null = null;
+  /** Last known pointer viewport coordinates, used to re-hit-test on scroll. */
+  private pointerX = 0;
+  private pointerY = 0;
+  /** `true` while the pointer is over the body — gates scroll-driven hover sync. */
+  private pointerInside = false;
+
   constructor(
     private store: GridStore,
     private eventBus: EventBus,
@@ -121,28 +132,68 @@ export class BodyRenderer {
     this.centerContent = centerContent;
     this.rightContent = rightContent;
 
-    // Delegated hover sync: works even after center panels are rebuilt on col range change.
-    // mouseover/mouseout bubble; we track nodeId to avoid spurious remove when moving between children.
+    // Delegated hover sync. `mousemove` records the pointer and hovers the row
+    // under it; `refreshHoverAtPointer` (called from renderRows) re-hits the
+    // same point after every scroll frame so the hover follows the row that
+    // moves under a stationary cursor — the browser's own :hover does not
+    // re-evaluate on scroll, and virtualization recycles row DOM besides.
     const panels = [leftContent, centerContent, rightContent].filter((p): p is HTMLElement => p !== null);
+    this.hoverPanels = panels;
     const getNodeId = (el: EventTarget | null): string | null =>
       el instanceof HTMLElement ? el.closest<HTMLElement>('[data-node-id]')?.getAttribute('data-node-id') ?? null : null;
 
     for (const panel of panels) {
-      panel.addEventListener('mouseover', (e) => {
-        const nodeId = getNodeId(e.target);
-        if (!nodeId) return;
-        for (const p of panels) {
-          p.querySelectorAll<HTMLElement>(`[data-node-id="${nodeId}"]`).forEach((r) => r.classList.add('pg-row--hover'));
-        }
+      panel.addEventListener('mousemove', (e) => {
+        this.pointerX = e.clientX;
+        this.pointerY = e.clientY;
+        this.pointerInside = true;
+        this.setHoveredRow(getNodeId(e.target));
       });
-      panel.addEventListener('mouseout', (e: MouseEvent) => {
-        const nodeId = getNodeId(e.target);
-        if (!nodeId || nodeId === getNodeId(e.relatedTarget)) return;
-        for (const p of panels) {
-          p.querySelectorAll<HTMLElement>(`[data-node-id="${nodeId}"]`).forEach((r) => r.classList.remove('pg-row--hover'));
-        }
+      panel.addEventListener('mouseleave', (e: MouseEvent) => {
+        // Moving between sibling panels (left↔center↔right) fires mouseleave on
+        // one and mouseenter on the next — ignore that so hover doesn't flicker.
+        const rt = e.relatedTarget;
+        if (rt instanceof Node && panels.some((p) => p.contains(rt))) return;
+        this.pointerInside = false;
+        this.setHoveredRow(null);
       });
     }
+  }
+
+  /**
+   * Sets (or clears) the hovered row by `nodeId`, moving the `pg-row--hover`
+   * class across all panels in one pass. No-op when the target is unchanged, so
+   * it is cheap to call every scroll frame.
+   */
+  private setHoveredRow(nodeId: string | null): void {
+    if (nodeId === this.hoveredNodeId) return;
+    if (this.hoveredNodeId) {
+      for (const p of this.hoverPanels) {
+        p.querySelectorAll<HTMLElement>(`[data-node-id="${this.hoveredNodeId}"]`).forEach((r) => r.classList.remove('pg-row--hover'));
+      }
+    }
+    this.hoveredNodeId = nodeId;
+    if (nodeId) {
+      for (const p of this.hoverPanels) {
+        p.querySelectorAll<HTMLElement>(`[data-node-id="${nodeId}"]`).forEach((r) => r.classList.add('pg-row--hover'));
+      }
+    }
+  }
+
+  /**
+   * Re-evaluates which row sits under the last-known pointer position and
+   * updates the hover accordingly. Called after each `renderRows` so that while
+   * the body scrolls under a stationary cursor (wheel/momentum), the row now
+   * beneath the pointer becomes the hovered one. Cheap when idle: a single
+   * `elementFromPoint` only while the pointer is inside the body.
+   */
+  refreshHoverAtPointer(): void {
+    if (!this.pointerInside) return;
+    const el = document.elementFromPoint(this.pointerX, this.pointerY);
+    const nodeId = el instanceof HTMLElement
+      ? el.closest<HTMLElement>('[data-node-id]')?.getAttribute('data-node-id') ?? null
+      : null;
+    this.setHoveredRow(nodeId);
   }
 
   /** Wires the per-panel sticky-row overlay containers. Called once from `GridRenderer` when `masterDetail.enabled`. */
@@ -292,6 +343,11 @@ export class BodyRenderer {
     if (this.leftContent) this.leftContent.appendChild(leftFrag);
     this.centerContent?.appendChild(centerFrag);
     if (this.rightContent) this.rightContent.appendChild(rightFrag);
+
+    // Rows just moved under the (possibly stationary) pointer — re-hit-test so
+    // the hovered row tracks the scroll instead of sticking to a scrolled-away
+    // (or recycled) node. No-op unless the pointer is inside the body.
+    this.refreshHoverAtPointer();
   }
 
   updateRowSelection(nodeId: string, selected: boolean): void {

@@ -1,8 +1,8 @@
 ---
-"photon-grid-angular": patches
-"photon-grid-react": patches
-"photon-grid-core": patches
-"photon-grid-vue": patches
+"photon-grid-angular": patch
+"photon-grid-react": patch
+"photon-grid-core": patch
+"photon-grid-vue": patch
 ---
 
 Added CDN To The Core

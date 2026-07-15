@@ -47,6 +47,7 @@ export { IconRenderer } from './icons/icon-renderer';
 export { coreIcons } from './icons/icon-sets/core-icons';
 
 export { GridRenderer } from './renderer/grid-renderer';
+export { ColumnChooser } from './renderer/column-chooser';
 export { HeaderRenderer } from './renderer/header-renderer';
 export { BodyRenderer } from './renderer/body-renderer';
 export { FooterRenderer } from './renderer/footer-renderer';
@@ -78,7 +79,7 @@ export type { PhotonCommand, PhotonCommandResult, ResolvedEntities, IntentDefini
 export type { PhotonAIConfig } from './types/photon-ai.types';
 
 export type { GridOptions, GridState, GridDimensions, SortConfig, PaginationConfig, SelectionConfig, EditingConfig, CellRange, ColumnGroupConfig } from './types/grid.types';
-export type { ColumnDef, ColumnState, ColumnGroup, ColumnDropdownOption, ColumnDataType, ColumnPinPosition, AggFunc } from './types/column.types';
+export type { ColumnDef, ColumnDefInput, Column, ColumnState, ColumnGroup, ColumnDropdownOption, ColumnDataType, ColumnPinPosition, AggFunc } from './types/column.types';
 export { RendererSlot } from './types/renderer.types';
 export type {
   RendererOutput,

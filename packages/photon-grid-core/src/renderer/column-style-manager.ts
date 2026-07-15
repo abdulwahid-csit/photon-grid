@@ -99,6 +99,35 @@ export class ColumnStyleManager {
   }
 
   /**
+   * Batch counterpart to {@link setWidth}: applies several column widths as
+   * user-fixed values and rewrites the `<style>` tag once. Use for Auto Size
+   * All / Fit to Grid so N columns cost a single flush instead of N.
+   *
+   * @param entries - `[colId, width]` pairs to apply.
+   */
+  setWidths(entries: ReadonlyArray<readonly [string, number]>): void {
+    if (entries.length === 0) return;
+    for (const [colId, width] of entries) {
+      this.userResizedWidths.set(colId, width);
+      this.flexCols.delete(colId);
+      this.widths.set(colId, width);
+    }
+    this.flush();
+  }
+
+  /**
+   * Drops the user-fixed width override for a column so the next
+   * `initFromColumns` re-derives its width from the `ColumnDef` (flex or fixed).
+   * The counterpart to {@link setWidth}, used by "Reset Width". No flush here —
+   * the resulting re-render re-initialises and flushes.
+   *
+   * @param colId - Column whose manual width should be forgotten.
+   */
+  clearUserWidth(colId: string): void {
+    this.userResizedWidths.delete(colId);
+  }
+
+  /**
    * Converts every currently-flex column into a fixed column pinned at its
    * present resolved width. Called when a manual column resize begins so the
    * drag changes only the dragged column: without this, `resolveFlex` would

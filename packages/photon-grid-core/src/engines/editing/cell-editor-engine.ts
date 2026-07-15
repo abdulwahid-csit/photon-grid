@@ -45,7 +45,7 @@ export class CellEditorEngine {
 
   startEditing(rowNode: RowNode, colDef: ColumnDef, cellEl: HTMLElement): boolean {
     if (this.config.mode === 'none') return false;
-    if (!colDef.editable) return false;
+    if (!colDef.editable || colDef.locked) return false;
     if (this.activeSession) this.stopEditing(true);
 
     const originalValue = rowNode.data[colDef.field];

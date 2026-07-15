@@ -1,4 +1,4 @@
-import type { ColumnDef } from '../types/column.types';
+import type { ColumnDef, AggFunc } from '../types/column.types';
 import type { GridStore } from '../core/grid-store';
 import type { EventBus } from '../event-bus/event-bus';
 import type { IconRenderer } from '../icons/icon-renderer';
@@ -120,11 +120,21 @@ export class HeaderRenderer {
   /** Callback wired by GridRenderer to open a filter panel for a column. */
   private openFilterPanelFn: ((colDef: ColumnDef, anchorEl: HTMLElement) => void) | null = null;
 
+  /** Callback wired by GridRenderer to open the Column Chooser dialog. */
+  private openColumnChooserFn: (() => void) | null = null;
+
+  /** Callback wired by GridRenderer to re-run the data pipeline (e.g. after an aggregate change). */
+  private columnDataRefreshFn: (() => void) | null = null;
+
   /** Read by grid-renderer's columns-store watcher to skip header destroy during drag */
   get isDraggingCol(): boolean { return this.isDragging; }
 
   /** True while the user holds the resize handle and is actively moving the mouse. */
   private _isResizingColumn = false;
+
+  /** Column id and timestamp of the last resize-handle press, for double-click (auto-size) detection. */
+  private lastResizeDownColId = '';
+  private lastResizeDownAt = 0;
 
   /**
    * `true` between the resize-handle `mousedown` and the corresponding `mouseup`.
@@ -147,11 +157,11 @@ export class HeaderRenderer {
       (action, colId) => this.onAction(action, colId),
     );
     this.columnMenu.setMenuCallbacks({
-      onAutoSize:         (colId) => this.onAction('autosize', colId),
-      onAutoSizeAll:      ()      => this.onAction('autosize-all', ''),
-      onFitToGrid:        ()      => this.onAction('fit-to-grid', ''),
-      onResetWidth:       (colId) => this.onAction('reset-width', colId),
-      onOpenColumnChooser: ()     => this.onAction('column-chooser', ''),
+      onAutoSize:         (colId) => { this.autoSizeColumns([colId]); this.onAction('autosize', colId); },
+      onAutoSizeAll:      ()      => { this.autoSizeColumns(this.columnModel.getVisibleColumns().map((c) => c.colId)); this.onAction('autosize-all', ''); },
+      onFitToGrid:        ()      => { this.fitColumnsToGrid(); this.onAction('fit-to-grid', ''); },
+      onResetWidth:       (colId) => { this.resetColumnWidth(colId); this.onAction('reset-width', colId); },
+      onOpenColumnChooser: ()     => { this.openColumnChooserFn?.(); this.onAction('column-chooser', ''); },
       onOpenAdvancedFilter: (colDef, anchorEl) => {
         this.openFilterPanelFn?.(colDef, anchorEl);
         this.onAction('advanced-filter', colDef.colId);
@@ -163,12 +173,26 @@ export class HeaderRenderer {
       },
       onCopyColumn:  (colDef) => this.onAction('copy-column',  colDef.colId),
       onCopyValues:  (colDef) => this.onAction('copy-values',  colDef.colId),
-      onRename:      (colDef) => this.onAction('rename',       colDef.colId),
-      onDuplicate:   (colDef) => this.onAction('duplicate',    colDef.colId),
-      onFreezePosition: (colDef) => this.onAction('freeze',    colDef.colId),
-      onLockColumn:  (colDef) => this.onAction('lock',         colDef.colId),
-      onResetColumn: (colDef) => this.onAction('reset-column', colDef.colId),
-      onAggregate:   (colDef, func) => this.onAction(`aggregate-${func}`, colDef.colId),
+      onRename:      (colDef) => { this.startHeaderRename(colDef.colId); this.onAction('rename', colDef.colId); },
+      onDuplicate:   (colDef) => { this.columnModel.duplicateColumn(colDef.colId); this.onAction('duplicate', colDef.colId); },
+      onFreezePosition: (colDef) => { this.columnModel.toggleColumnFrozen(colDef.colId); this.onAction('freeze', colDef.colId); },
+      onLockColumn:  (colDef) => { this.columnModel.toggleColumnLocked(colDef.colId); this.onAction('lock', colDef.colId); },
+      onResetColumn: (colDef) => { this.colStyles.clearUserWidth(colDef.colId); this.columnModel.resetColumn(colDef.colId); this.onAction('reset-column', colDef.colId); },
+      onAggregate:   (colDef, func) => {
+        // Toggle: re-selecting the current function clears it.
+        const f = func as AggFunc;
+        const current = this.columnModel.getColumn(colDef.colId)?.aggFunc;
+        this.columnModel.setColumnAggFunc(colDef.colId, current === f ? null : f);
+        // aggFunc only affects the *grouped* aggregation display, so a data
+        // pipeline refresh is only needed when grouping is active. When it isn't,
+        // the change has no visible effect yet (it applies the next time rows are
+        // grouped) — so we skip refresh() to avoid rebuilding unrelated live
+        // views such as linked range charts, which watch `visibleRows`.
+        if ((this.store.get('groupedColumnIds') as string[]).length > 0) {
+          this.columnDataRefreshFn?.();
+        }
+        this.onAction(`aggregate-${func}`, colDef.colId);
+      },
       onMoveLeft: (colId) => {
         const cols = columnModel.getVisibleColumns();
         const idx  = cols.findIndex((c) => c.colId === colId);
@@ -192,6 +216,15 @@ export class HeaderRenderer {
     });
     this.boundMouseMove = this.onGlobalMouseMove.bind(this);
     this.boundMouseUp = this.onGlobalMouseUp.bind(this);
+
+    // Keep the sort arrows in sync in place. Sorting no longer rebuilds the
+    // header (that teardown fought the row animation), so the indicator is
+    // updated directly here — covering both header clicks and programmatic
+    // sorts. `colId === ''` (clear-all) clears every arrow.
+    this.eventBus.on(GridEventType.COLUMN_SORTED, (payload: unknown) => {
+      const p = payload as { colId: string; order: 'asc' | 'desc' | null };
+      this.updateSortIndicator(p.colId, p.order);
+    });
   }
 
   setScrollCallback(fn: (dx: number) => void, canScrollX?: (dir: 1 | -1) => boolean): void {
@@ -211,6 +244,27 @@ export class HeaderRenderer {
    */
   setOpenFilterPanelCallback(fn: (colDef: ColumnDef, anchorEl: HTMLElement) => void): void {
     this.openFilterPanelFn = fn;
+  }
+
+  /**
+   * Registers the callback that opens the Column Chooser dialog, invoked from
+   * the column menu's and group menu's "Column Chooser…" items.
+   *
+   * @param fn - Opens the chooser (owned by `GridRenderer`).
+   */
+  setColumnChooserCallback(fn: () => void): void {
+    this.openColumnChooserFn = fn;
+  }
+
+  /**
+   * Registers a callback that re-runs the grid's data pipeline (filter → sort →
+   * group → aggregate). Invoked after a column aggregate function changes so
+   * group aggregations recompute immediately when grouping is active.
+   *
+   * @param fn - Runs the pipeline + render (typically `GridApi.refresh`).
+   */
+  setColumnDataRefreshCallback(fn: () => void): void {
+    this.columnDataRefreshFn = fn;
   }
 
   /**
@@ -240,7 +294,7 @@ export class HeaderRenderer {
     this.displayGroupEngine = engine;
     this.groupContextMenu = new GroupContextMenu(engine, this.iconRenderer);
     this.groupContextMenu.setCallbacks({
-      onOpenColumnChooser: () => this.onAction('column-chooser', ''),
+      onOpenColumnChooser: () => { this.openColumnChooserFn?.(); this.onAction('column-chooser', ''); },
       onAction: (action, groupId) => this.onAction(action, groupId),
     });
   }
@@ -461,12 +515,17 @@ export class HeaderRenderer {
     for (const row of rows) {
       for (const cell of Array.from(row.querySelectorAll<HTMLElement>('.pg-th[data-col-id]'))) {
         const isTarget = cell.getAttribute('data-col-id') === colId;
+        const wasSorted = cell.classList.contains('pg-th--sorted');
         toggleClass(cell, 'pg-th--sort-asc', isTarget && order === 'asc');
         toggleClass(cell, 'pg-th--sort-desc', isTarget && order === 'desc');
         toggleClass(cell, 'pg-th--sorted', isTarget && order !== null);
+        const iconEl = cell.querySelector<HTMLElement>('.pg-th__sort-icon');
+        if (!iconEl) continue;
         if (isTarget) {
-          const iconEl = cell.querySelector<HTMLElement>('.pg-th__sort-icon');
-          if (iconEl) this.iconRenderer.updateIcon(iconEl, order === 'asc' ? 'sortAsc' : order === 'desc' ? 'sortDesc' : 'sortNone');
+          this.iconRenderer.updateIcon(iconEl, order === 'asc' ? 'sortAsc' : order === 'desc' ? 'sortDesc' : 'sortNone');
+        } else if (wasSorted) {
+          // A different column just became the sort target — clear this one's arrow.
+          this.iconRenderer.updateIcon(iconEl, 'sortNone');
         }
       }
     }
@@ -746,7 +805,25 @@ export class HeaderRenderer {
     if (col.resizable !== false) {
       const resizeHandle = createDiv('pg-th__resize-handle');
       // resizeHandle.innerHTML = '|';
-      resizeHandle.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation(); this.startResize(e, col, th); });
+      resizeHandle.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        // Double-press on the same handle → auto-size the column (AG Grid
+        // convention). Detected by timing rather than the native `dblclick`
+        // event: the first press's mouseup can rebuild the header
+        // (COLUMNS_STATE_CHANGED) and replace this element, so a native dblclick
+        // would never fire on the original node. Keying on colId survives that.
+        if (this.lastResizeDownColId === col.colId && e.timeStamp - this.lastResizeDownAt < 350) {
+          this.lastResizeDownColId = '';
+          this.lastResizeDownAt = 0;
+          this.autoSizeColumns([col.colId]);
+          this.onAction('autosize', col.colId);
+          return;
+        }
+        this.lastResizeDownColId = col.colId;
+        this.lastResizeDownAt = e.timeStamp;
+        this.startResize(e, col, th);
+      });
       th.appendChild(resizeHandle);
     }
 
@@ -1409,11 +1486,6 @@ export class HeaderRenderer {
   private startResize(e: MouseEvent, col: ColumnDef, thEl: HTMLElement): void {
     const startX = e.clientX;
     const startWidth = this.colStyles.getWidth(col.colId);
-    // Lock every flex column to its current pixel width up front, so dragging
-    // this one resizes only it — the others keep their widths (and the total
-    // may overflow into a horizontal scrollbar) instead of flex redistributing
-    // the container and collapsing them to minWidth.
-    this.colStyles.freezeFlexWidths();
     // Right-pinned columns anchor their right edge to the grid border, so their
     // resize handle sits on the *left* (inner) edge — the only edge free to move.
     // Dragging that edge left must therefore widen the column, so the pointer
@@ -1421,11 +1493,28 @@ export class HeaderRenderer {
     // their right-edge handle: dragging right widens.
     const dir = col.pinned === 'right' ? -1 : 1;
     const minWidth = col.minWidth ?? 60;
-    thEl.classList.add('pg-th--resizing');
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
     this._isResizingColumn = true;
+
+    // Only treat this as a resize once the pointer actually moves past a small
+    // threshold. A bare click (e.g. the first press of a double-click) must not
+    // resize, rebuild the header, or freeze flex columns — otherwise the handle
+    // element is replaced mid-gesture and the double-click auto-size is lost.
+    let moved = false;
+
     const onMove = (ev: MouseEvent) => {
+      if (!moved) {
+        if (Math.abs(ev.clientX - startX) <= 2) return;
+        moved = true;
+        thEl.classList.add('pg-th--resizing');
+        // Lock every flex column to its current pixel width so dragging this one
+        // resizes only it — the others keep their widths (the total may overflow
+        // into a horizontal scrollbar) instead of flex redistributing and
+        // collapsing them to minWidth. Done here (not on mousedown) so a plain
+        // click never silently converts flex columns to fixed.
+        this.colStyles.freezeFlexWidths();
+      }
       this.colStyles.setWidth(col.colId, Math.max(minWidth, startWidth + (ev.clientX - startX) * dir));
       this.onResizeCb?.();
     };
@@ -1433,14 +1522,15 @@ export class HeaderRenderer {
       // Clear the flag BEFORE setColumnWidth fires an event so the final
       // post-resize render calls renderRows normally and the body is correct.
       this._isResizingColumn = false;
-      const newWidth = Math.max(minWidth, startWidth + (ev.clientX - startX) * dir);
-      this.colStyles.setWidth(col.colId, newWidth);
-      this.columnModel.setColumnWidth(col.colId, newWidth, true);
       thEl.classList.remove('pg-th--resizing');
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
+      if (!moved) return; // no drag occurred — leave widths untouched
+      const newWidth = Math.max(minWidth, startWidth + (ev.clientX - startX) * dir);
+      this.colStyles.setWidth(col.colId, newWidth);
+      this.columnModel.setColumnWidth(col.colId, newWidth, true);
     };
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
@@ -1467,6 +1557,173 @@ export class HeaderRenderer {
     const left  = cols[newIdx - 1];
     const right = cols[newIdx + 1];
     return !(left && siblings.has(left.colId)) && !(right && siblings.has(right.colId));
+  }
+
+  // ──────────────────── Column menu: resize operations ────────────────────
+
+  /** Resolves the owning `.pg-grid` element from any live header row, or `null`. */
+  private getGridEl(): HTMLElement | null {
+    return (this.centerHeaderRowEl ?? this.leftHeaderRowEl ?? this.rightHeaderRowEl)
+      ?.closest<HTMLElement>('.pg-grid') ?? null;
+  }
+
+  /**
+   * Starts an inline rename of a column: replaces the header label with a text
+   * input, committing on Enter/blur and cancelling on Escape. Committing calls
+   * {@link ColumnModel.setColumnHeader}, which rebuilds the header with the new
+   * text. A no-op when the header cell can't be found.
+   */
+  private startHeaderRename(colId: string): void {
+    const gridEl = this.getGridEl();
+    const th = gridEl?.querySelector<HTMLElement>(`.pg-th[data-col-id="${colId}"]`);
+    const label = th?.querySelector<HTMLElement>('.pg-th__label');
+    const col = this.columnModel.getColumn(colId);
+    if (!th || !label || !col) return;
+
+    const input = document.createElement('input');
+    input.className = 'pg-th__rename-input';
+    input.type = 'text';
+    input.value = col.header;
+    input.setAttribute('aria-label', 'Rename column');
+
+    let done = false;
+    const commit = (): void => {
+      if (done) return;
+      done = true;
+      const value = input.value.trim();
+      if (value && value !== col.header) {
+        this.columnModel.setColumnHeader(colId, value); // triggers header rebuild
+      } else {
+        input.replaceWith(label); // unchanged → restore original label
+      }
+    };
+    const cancel = (): void => {
+      if (done) return;
+      done = true;
+      input.replaceWith(label);
+    };
+
+    input.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') { e.preventDefault(); commit(); }
+      else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+    });
+    input.addEventListener('blur', commit);
+    // Don't let the input's own clicks reach the header's sort/drag handlers.
+    input.addEventListener('mousedown', (e) => e.stopPropagation());
+    input.addEventListener('click', (e) => e.stopPropagation());
+
+    label.replaceWith(input);
+    input.focus();
+    input.select();
+  }
+
+  /**
+   * Measures the pixel width needed to show a column's header plus every
+   * currently-rendered cell without truncation, clamped to the column's
+   * min/max. Only virtualized (on-screen) rows are measured, so the cost scales
+   * with the viewport, not the dataset. Uses one reused off-screen `<span>` so
+   * cell fonts/metrics match the grid.
+   */
+  private measureColumnContentWidth(gridEl: HTMLElement, col: ColumnDef): number {
+    const measurer = gridEl.ownerDocument.createElement('span');
+    measurer.style.cssText =
+      'position:absolute;top:-9999px;left:-9999px;visibility:hidden;white-space:nowrap;pointer-events:none;padding:0 12px;';
+    gridEl.appendChild(measurer);
+
+    measurer.textContent = col.header ?? '';
+    let maxWidth = measurer.offsetWidth + 24; // header text + sort/menu affordance headroom
+
+    const cells = gridEl.querySelectorAll<HTMLElement>(`.pg-cell[data-col-id="${col.colId}"]`);
+    for (let i = 0; i < cells.length; i++) {
+      measurer.textContent = cells[i].textContent ?? '';
+      const w = measurer.offsetWidth + 24;
+      if (w > maxWidth) maxWidth = w;
+    }
+
+    measurer.remove();
+    const min = col.minWidth ?? 40;
+    const max = col.maxWidth ?? Infinity;
+    return Math.round(Math.min(max, Math.max(min, maxWidth)));
+  }
+
+  /**
+   * Auto-sizes the given columns to their content width. Measures each, then
+   * commits all widths in a single style flush + single render (via the batch
+   * setters), so "Auto Size All" stays cheap. A no-op if the grid DOM or the
+   * columns cannot be resolved.
+   */
+  private autoSizeColumns(colIds: string[]): void {
+    const gridEl = this.getGridEl();
+    if (!gridEl) return;
+
+    const entries: Array<[string, number]> = [];
+    for (const colId of colIds) {
+      const col = this.columnModel.getColumn(colId);
+      if (!col) continue;
+      entries.push([colId, this.measureColumnContentWidth(gridEl, col)]);
+    }
+    if (entries.length === 0) return;
+
+    // Style manager first (immediate CSS width + marks fixed so flex can't
+    // override), then the model (persisted state + one COLUMNS_STATE_CHANGED
+    // that drives the re-render and scrollbar/content-width recompute).
+    this.colStyles.setWidths(entries);
+    this.columnModel.setColumnWidths(entries);
+  }
+
+  /**
+   * Distributes the center viewport width across the visible unpinned columns
+   * so they exactly fill the grid with no horizontal scroll (proportional to
+   * current widths, clamped to each column's min/max). Pinned columns keep
+   * their widths. A no-op when the center viewport can't be measured.
+   */
+  private fitColumnsToGrid(): void {
+    const gridEl = this.getGridEl();
+    if (!gridEl) return;
+    const centerBody = gridEl.querySelector<HTMLElement>('.pg-panel--center .pg-panel__body');
+    const available = centerBody?.clientWidth ?? 0;
+    if (available <= 0) return;
+
+    const centerCols = this.columnModel
+      .getVisibleColumns()
+      .filter((c) => c.pinned !== 'left' && c.pinned !== 'right');
+    if (centerCols.length === 0) return;
+
+    const totalCurrent = centerCols.reduce((sum, c) => sum + this.colStyles.getWidth(c.colId), 0) || 1;
+
+    const entries: Array<[string, number]> = [];
+    let allocated = 0;
+    for (const c of centerCols) {
+      const min = c.minWidth ?? 40;
+      const max = c.maxWidth ?? Infinity;
+      const w = Math.min(max, Math.max(min, Math.round((this.colStyles.getWidth(c.colId) / totalCurrent) * available)));
+      entries.push([c.colId, w]);
+      allocated += w;
+    }
+
+    // Absorb rounding/clamping drift into the last column so the total is exact.
+    const diff = available - allocated;
+    if (diff !== 0) {
+      const lastCol = centerCols[centerCols.length - 1];
+      const min = lastCol.minWidth ?? 40;
+      const max = lastCol.maxWidth ?? Infinity;
+      const last = entries[entries.length - 1];
+      entries[entries.length - 1] = [last[0], Math.min(max, Math.max(min, last[1] + diff))];
+    }
+
+    this.colStyles.setWidths(entries);
+    this.columnModel.setColumnWidths(entries);
+  }
+
+  /**
+   * Resets a column's width to its original definition. Clears the user-fixed
+   * override in the style manager (so a `flex` column resumes flexing) and
+   * restores the model's width, which re-renders via `COLUMNS_STATE_CHANGED`.
+   */
+  private resetColumnWidth(colId: string): void {
+    this.colStyles.clearUserWidth(colId);
+    this.columnModel.resetColumnWidth(colId);
   }
 
   private onAction(action: string, colId: string): void {

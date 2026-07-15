@@ -142,6 +142,8 @@ interface MenuLeafItem {
   readonly icon:      string;
   /** When `true` the item receives the `--active` style (e.g. current sort dir). */
   readonly active?:   boolean;
+  /** When `true` a trailing check mark is shown at the item's right edge (e.g. the selected aggregate). */
+  readonly checked?:  boolean;
   /** When `true` the item is visible but non-interactive. */
   readonly disabled?: boolean;
   readonly action: () => void;
@@ -386,6 +388,14 @@ export class ColumnMenu {
 
     el.appendChild(this.createIcon(item.icon));
     el.appendChild(this.createLabel(item.label));
+
+    // Trailing check mark for a "currently selected" leaf (e.g. the chosen
+    // aggregate function). Pushed to the right edge via CSS (margin-left:auto).
+    if (item.checked) {
+      const check = createDiv('pg-col-ctx-menu__item-check');
+      check.innerHTML = this.iconRenderer.renderToString('check', 14);
+      el.appendChild(check);
+    }
 
     if (!item.disabled) {
       el.addEventListener('click', (e) => {
@@ -822,27 +832,30 @@ export class ColumnMenu {
       });
     }
 
-    items.push({
-      kind:  'parent',
-      label: 'Aggregate',
-      icon:  'sigma',
-      children: [
-        AggregateFunction.SUM,
-        AggregateFunction.AVG,
-        AggregateFunction.MIN,
-        AggregateFunction.MAX,
-        AggregateFunction.COUNT,
-      ].map((func): MenuLeafItem => ({
-        kind:   'leaf',
-        label:  func.charAt(0).toUpperCase() + func.slice(1),
-        icon:   'sigma',
-        active: colDef.aggFunc === func,
-        action: () => {
-          this.menuCallbacks.onAggregate?.(colDef, func);
-          this.onAction(`aggregate-${func}`, colDef.colId);
-        },
-      })),
-    });
+    // Aggregate applies only to numeric columns — hide it entirely for others.
+    if (colDef.type === 'number' || colDef.type === 'currency') {
+      items.push({
+        kind:  'parent',
+        label: 'Aggregate',
+        icon:  'sigma',
+        children: [
+          AggregateFunction.SUM,
+          AggregateFunction.AVG,
+          AggregateFunction.MIN,
+          AggregateFunction.MAX,
+          AggregateFunction.COUNT,
+        ].map((func): MenuLeafItem => ({
+          kind:    'leaf',
+          label:   func.charAt(0).toUpperCase() + func.slice(1),
+          icon:    'sigma',
+          checked: colDef.aggFunc === func,
+          action: () => {
+            this.menuCallbacks.onAggregate?.(colDef, func);
+            this.onAction(`aggregate-${func}`, colDef.colId);
+          },
+        })),
+      });
+    }
 
     return { key: ColumnMenuSection.DATA, items };
   }
@@ -926,6 +939,7 @@ export class ColumnMenu {
               kind:   'leaf',
               label:  'Freeze Position',
               icon:   'pin',
+              checked: colDef.draggable === false,
               action: () => {
                 this.menuCallbacks.onFreezePosition?.(colDef);
                 this.onAction('freeze', colDef.colId);
@@ -935,6 +949,7 @@ export class ColumnMenu {
               kind:   'leaf',
               label:  'Lock Column',
               icon:   'lock',
+              checked: colDef.locked === true,
               action: () => {
                 this.menuCallbacks.onLockColumn?.(colDef);
                 this.onAction('lock', colDef.colId);

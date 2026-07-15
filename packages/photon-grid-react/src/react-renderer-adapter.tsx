@@ -2,7 +2,7 @@ import { createElement, type ComponentType, type JSX } from 'react';
 import { createPortal } from 'react-dom';
 import { createRoot, type Root } from 'react-dom/client';
 
-import type { ColumnDef, RendererOutput } from 'photon-grid-core';
+import type { ColumnDef, ColumnDefInput, RendererOutput } from 'photon-grid-core';
 
 export interface ReactRendererSpec {
   kind: 'component';
@@ -12,7 +12,14 @@ export interface ReactRendererSpec {
 
 type RendererSlotValue = ((params: unknown) => RendererOutput) | ReactRendererSpec | ComponentType<Record<string, unknown>> | undefined;
 
-type PhotonGridColumnDef = Omit<ColumnDef, 'renderer'> & {
+/**
+ * React column definition. Built on the core's {@link ColumnDefInput}, so it
+ * inherits the same relaxed contract: **only `field` is required**; `colId`,
+ * `header` and `type` are optional and defaulted by the core (auto `colId`,
+ * header from the field in Title Case, `type` defaulting to `'string'`). The
+ * `renderer` slots additionally accept React components/specs.
+ */
+type PhotonGridColumnDef = Omit<ColumnDefInput, 'renderer'> & {
   renderer?: {
     display?: RendererSlotValue;
     editor?: RendererSlotValue;

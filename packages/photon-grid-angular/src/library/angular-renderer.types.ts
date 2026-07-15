@@ -1,7 +1,7 @@
 import type { TemplateRef, Type } from '@angular/core';
 
 import type {
-    ColumnDef as coreColumnDef,
+    ColumnDefInput as CoreColumnDefInput,
     DisplayRendererParams,
     EditorRendererParams,
     FilterRendererParams,
@@ -77,11 +77,15 @@ export interface ColumnRendererMap {
 }
 
 /**
- * Drop-in replacement for `ColumnDef`: identical shape, except `renderer`
- * (and `renderer` on any nested `children`) accepts the declarative
+ * Drop-in replacement for the core column definition, built on the core's
+ * {@link CoreColumnDefInput} so it mirrors the same relaxed contract: **only
+ * `field` is required**; `colId`, `header` and `type` are optional and filled
+ * in by the core (auto `colId`, header defaulting to the field in Title Case,
+ * `type` defaulting to `'string'`). This wrapper additionally lets `renderer`
+ * (and `renderer` on any nested `children`) accept the declarative
  * component/template specs above in addition to plain functions.
  */
-export type ColumnDef = Omit<coreColumnDef, 'renderer' | 'children'> & {
+export type ColumnDef = Omit<CoreColumnDefInput, 'renderer' | 'children'> & {
     renderer?: ColumnRendererMap;
     children?: ColumnDef[];
 };

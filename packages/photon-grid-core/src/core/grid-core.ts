@@ -10,7 +10,7 @@ import { resolveColumnRenderer } from '../renderer/renderer-resolver';
 import { CustomDropdownEditor } from '../engines/editing/custom-dropdown-editor';
 import { EventBus } from '../event-bus/event-bus';
 import { GridStore } from './grid-store';
-import { ColumnModel } from './column-model';
+import { ColumnModel, normalizeColumnTree } from './column-model';
 import { RowModel } from './row-model';
 import { SortEngine } from '../engines/sort/sort-engine';
 import { FilterEngine } from '../engines/filter/filter-engine';
@@ -69,6 +69,14 @@ export class GridCore {
   /** Set in `initialize` when `photonAI.enabled` — needs the live `GridApi`, so it cannot be built in `buildContext`. */
   private photonAIService: PhotonAIService | null = null;
 
+  /**
+   * The author-supplied columns fully normalized to `ColumnDef` (colId / header
+   * / type defaults applied to leaves and groups). Computed once in
+   * `buildContext` and reused by `initialize`, so the group tree and the flat
+   * leaf list share the same generated colIds.
+   */
+  private normalizedColumns: ColumnDef[] = [];
+
   constructor(containerEl: HTMLElement, options: GridOptions) {
     this.ctx = this.buildContext(containerEl, options);
     this.api = new GridApi(this.ctx);
@@ -117,11 +125,18 @@ export class GridCore {
     );
 
     // ── Column-group wiring ────────────────────────────────────────────────
+    // Author-supplied columns are ColumnDefInput (only `field` required); fully
+    // normalize the tree once (filling colId/header/type on leaves AND groups)
+    // so the group engine and leaf model both work with complete ColumnDefs and
+    // share the same generated colIds.
+    const normalizedColumns: ColumnDef[] = options.columns ? normalizeColumnTree(options.columns) : [];
+    this.normalizedColumns = normalizedColumns;
+
     // Detect whether any top-level ColumnDef uses the `children` property.
     // When present, create the DisplayGroupEngine and wire it into the renderer.
     // The engine parses the logical group tree once; all subsequent renders use
     // a stateless builder to produce fresh display trees from the current column order.
-    const hasGroups = options.columns?.some((c) => Array.isArray(c.children) && c.children.length > 0) ?? false;
+    const hasGroups = normalizedColumns.some((c) => Array.isArray(c.children) && c.children.length > 0);
     if (hasGroups) {
       const engine = new DisplayGroupEngine(
         renderer.colStyles,
@@ -130,7 +145,7 @@ export class GridCore {
         store,
         iconRenderer,
       );
-      engine.parse(options.columns!);
+      engine.parse(normalizedColumns);
       this.displayGroupEngine = engine;
       renderer.setDisplayGroupEngine(engine);
     }
@@ -236,15 +251,15 @@ export class GridCore {
       });
     }
 
-    if (options.columns?.length) {
+    if (this.normalizedColumns.length) {
       if (this.displayGroupEngine) {
         // Groups are a header concept — the body operates on leaf columns only.
-        ctx.columnModel.initColumns(collectLeaves(options.columns));
+        ctx.columnModel.initColumns(collectLeaves(this.normalizedColumns));
       } else if (this.columnGroupModel) {
-        this.columnGroupModel.init(options.columns);
+        this.columnGroupModel.init(this.normalizedColumns);
         ctx.columnModel.initColumns(this.columnGroupModel.getAllLeaves());
       } else {
-        ctx.columnModel.initColumns(options.columns);
+        ctx.columnModel.initColumns(this.normalizedColumns);
       }
     }
 

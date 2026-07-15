@@ -67,6 +67,16 @@ export const columnContextMenuCss = `/* ─────────────�
   font-weight: 600;
 }
 
+/* Trailing check mark for a currently-selected leaf (e.g. the chosen aggregate). */
+.pg-col-ctx-menu__item-check {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding-left: 12px;
+  color: var(--pg-colors-primary, #2563eb);
+}
+
 /* Disabled item — rendered but not interactive */
 .pg-col-ctx-menu__item--disabled {
   opacity: 0.38;

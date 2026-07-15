@@ -214,9 +214,28 @@ export class RangeChartController implements ChartPanelHost, ChartToolPanelHost 
   // ── Internals ──────────────────────────────────────────────────────────────
 
   private buildData() {
-    const rows = this.ctx.store.get('visibleRows') as RowNode[];
+    const allRows = this.ctx.store.get('visibleRows') as RowNode[];
     const columns = this.ctx.columnModel.getAllColumns() as ColumnDef[];
-    return buildChartData(this.model, rows, columns);
+    return buildChartData(this.model, this.rowsInRange(allRows), columns);
+  }
+
+  /**
+   * Restricts the source rows to the chart's selected cell range, so the chart
+   * plots only the rows the user highlighted — not the entire data set. The
+   * range is positional (indices into the current `visibleRows`), which keeps a
+   * linked chart tracking the same slice as the grid is sorted or filtered.
+   *
+   * @param rows - The current full `visibleRows`.
+   * @returns The rows within the selection's row bounds (inclusive).
+   */
+  private rowsInRange(rows: RowNode[]): RowNode[] {
+    const { startRowIndex, endRowIndex } = this.model.cellRange;
+    if (startRowIndex == null || endRowIndex == null) return rows;
+    const lo = Math.max(0, Math.min(startRowIndex, endRowIndex));
+    const hi = Math.min(rows.length - 1, Math.max(startRowIndex, endRowIndex));
+    if (lo > hi) return [];
+    // Whole-grid selections (or ranges wider than the data) chart everything.
+    return lo === 0 && hi === rows.length - 1 ? rows : rows.slice(lo, hi + 1);
   }
 
   private subscribe(): void {

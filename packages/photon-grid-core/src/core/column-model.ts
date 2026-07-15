@@ -1,10 +1,50 @@
-import type { ColumnDef, ColumnState, ColumnPinPosition } from '../types/column.types';
+import type { ColumnDef, ColumnDefInput, Column, ColumnState, ColumnPinPosition, AggFunc } from '../types/column.types';
 import type { GridStore } from './grid-store';
 import type { EventBus } from '../event-bus/event-bus';
 import { GridEventType } from '../types/event.types';
 
+/**
+ * Converts a field path to a human-readable Title Case header, used as the
+ * default header when a column omits one. Handles camelCase, snake_case,
+ * kebab-case and dotted paths, e.g. `firstName` → `First Name`,
+ * `user_id` → `User Id`, `address.city` → `Address City`.
+ */
+function toTitleCase(field: string): string {
+  return field
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2') // split camelCase
+    .replace(/[._-]+/g, ' ')                // separators → spaces
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+    .map((word) => (word ? word.charAt(0).toUpperCase() + word.slice(1) : word))
+    .join(' ');
+}
+
+/**
+ * Recursively normalizes an author-supplied {@link ColumnDefInput} tree into a
+ * fully-typed {@link ColumnDef} tree — filling `colId`, `header` and `type`
+ * defaults on every node (leaves and groups) so downstream consumers, including
+ * the column-group engine, never see missing fields. `colId`s are assigned from
+ * a single running counter so the group tree and the flattened leaf list agree.
+ */
+export function normalizeColumnTree(input: ReadonlyArray<ColumnDefInput>): ColumnDef[] {
+  let counter = 0;
+  const walk = (defs: ReadonlyArray<ColumnDefInput>): ColumnDef[] =>
+    defs.map((def): ColumnDef => {
+      const colId = def.colId ?? `col_${def.field}_${counter++}`;
+      return {
+        ...def,
+        colId,
+        header: def.header ?? toTitleCase(def.field),
+        type: def.type ?? 'string',
+        children: def.children ? walk(def.children) : undefined,
+      };
+    });
+  return walk(input);
+}
+
 export class ColumnModel {
-  private columns: ColumnDef[] = [];
+  private columns: Column[] = [];
 
   /**
    * Snapshot of the column state captured at the last {@link initColumns} call,
@@ -13,29 +53,37 @@ export class ColumnModel {
    */
   private initialColumnStates: ColumnState[] = [];
 
+  /**
+   * Deep-ish clones of each column's definition captured at the last
+   * {@link initColumns} call, keyed by `colId`. Lets {@link resetColumn} restore
+   * a single column's full definition (header, width, pin, flags, aggFunc, …).
+   */
+  private initialColumnDefs = new Map<string, Column>();
+
   constructor(
     private store: GridStore,
     private eventBus: EventBus,
   ) {}
 
-  initColumns(defs: ColumnDef[]): void {
+  initColumns(defs: ReadonlyArray<ColumnDefInput>): void {
     this.columns = defs.map((col, i) => this.normalizeColumn(col, i));
     this.rebuildPinnedSections();
     this.store.set('columns', this.columns);
     // Capture the pristine layout so it can be restored via resetColumnState().
     this.initialColumnStates = this.getColumnStates();
+    this.initialColumnDefs = new Map(this.columns.map((c) => [c.colId, { ...c }]));
     this.emitStatesChanged();
   }
 
-  getColumn(colId: string): ColumnDef | undefined {
+  getColumn(colId: string): Column | undefined {
     return this.columns.find((c) => c.colId === colId);
   }
 
-  getAllColumns(): ColumnDef[] {
+  getAllColumns(): Column[] {
     return this.columns;
   }
 
-  getVisibleColumns(): ColumnDef[] {
+  getVisibleColumns(): Column[] {
     return this.columns.filter((c) => c.visible !== false);
   }
 
@@ -48,6 +96,46 @@ export class ColumnModel {
     this.store.set('columns', [...this.columns]);
     this.eventBus.emit(GridEventType.COLUMN_RESIZED, { colDef: col, newWidth: col.width, finished });
     if (finished) this.emitStatesChanged();
+  }
+
+  /**
+   * Applies several column widths in one operation, clamping each to its
+   * min/max, then emits a single `COLUMNS_STATE_CHANGED`. The batch counterpart
+   * to {@link setColumnWidth}, used by Auto Size All / Fit to Grid so N columns
+   * cost one store update and one render instead of N.
+   *
+   * @param entries - `[colId, width]` pairs to apply.
+   */
+  setColumnWidths(entries: ReadonlyArray<readonly [string, number]>): void {
+    let changed = false;
+    for (const [colId, width] of entries) {
+      const col = this.getColumn(colId);
+      if (!col) continue;
+      const min = col.minWidth ?? 40;
+      const max = col.maxWidth ?? Infinity;
+      col.width = Math.min(max, Math.max(min, width));
+      changed = true;
+    }
+    if (!changed) return;
+    this.store.set('columns', [...this.columns]);
+    this.emitStatesChanged();
+  }
+
+  /**
+   * Restores a single column's width to the value captured at the last
+   * {@link initColumns} call (the "Reset Width" action). For a column defined
+   * with `flex`, this seed is overridden by flex re-resolution on the next
+   * render — the caller should also clear any user-fixed width so flex resumes.
+   *
+   * @param colId - Column whose width should be reset.
+   */
+  resetColumnWidth(colId: string): void {
+    const col = this.getColumn(colId);
+    if (!col) return;
+    const initial = this.initialColumnStates.find((s) => s.colId === colId);
+    col.width = initial?.width ?? 150;
+    this.store.set('columns', [...this.columns]);
+    this.emitStatesChanged();
   }
 
   setColumnVisible(colId: string, visible: boolean): void {
@@ -128,11 +216,134 @@ export class ColumnModel {
     this.emitStatesChanged();
   }
 
+  /**
+   * Sets (or clears) the aggregation function for a column — the function used
+   * to summarize the column's values on group rows when row grouping is active.
+   * Aggregation itself only applies to `number`/`currency` columns (see
+   * `AggregationEngine`); this setter does not enforce that, leaving the menu to
+   * decide where it is offered.
+   *
+   * @param colId   - Target column.
+   * @param aggFunc - Aggregation function, or `null` to clear it.
+   */
+  setColumnAggFunc(colId: string, aggFunc: AggFunc | null): void {
+    const col = this.getColumn(colId);
+    if (!col) return;
+    col.aggFunc = aggFunc ?? undefined;
+    this.store.set('columns', [...this.columns]);
+    this.emitStatesChanged();
+  }
+
+  // ──────────────────── Column menu operations ────────────────────
+
+  /**
+   * Renames a column (its header text). Used by the column menu's "Rename".
+   *
+   * @param colId  - Target column.
+   * @param header - New header text; ignored when empty.
+   */
+  setColumnHeader(colId: string, header: string): void {
+    const col = this.getColumn(colId);
+    if (!col || !header) return;
+    col.header = header;
+    this.store.set('columns', [...this.columns]);
+    this.emitStatesChanged();
+  }
+
+  /**
+   * Inserts a copy of a column immediately after it. The duplicate shares the
+   * source `field` (so it shows the same data) but gets a fresh, unique `colId`.
+   * Used by the column menu's "Duplicate".
+   *
+   * @param colId - Column to duplicate.
+   * @returns The new column's `colId`, or `null` if the source was not found.
+   */
+  duplicateColumn(colId: string): string | null {
+    const idx = this.columns.findIndex((c) => c.colId === colId);
+    if (idx === -1) return null;
+    const source = this.columns[idx];
+
+    let n = 2;
+    let newColId = `${colId}_copy`;
+    const taken = new Set(this.columns.map((c) => c.colId));
+    while (taken.has(newColId)) newColId = `${colId}_copy_${n++}`;
+
+    const clone: Column = { ...source, colId: newColId, sortOrder: null };
+    this.columns.splice(idx + 1, 0, clone);
+    this.rebuildPinnedSections();
+    this.store.set('columns', [...this.columns]);
+    this.emitStatesChanged();
+    return newColId;
+  }
+
+  /**
+   * Toggles "Freeze Position" — whether the column can be dragged/reordered.
+   * Frozen columns have `draggable === false`. Used by "Freeze Position".
+   *
+   * @param colId - Target column.
+   */
+  toggleColumnFrozen(colId: string): void {
+    const col = this.getColumn(colId);
+    if (!col) return;
+    col.draggable = col.draggable === false; // false → true (unfreeze), else → false (freeze)
+    this.store.set('columns', [...this.columns]);
+    this.emitStatesChanged();
+  }
+
+  /**
+   * Toggles "Lock Column" — whether the column's cells can be edited. Locked
+   * columns are never editable regardless of {@link ColumnDef.editable}.
+   *
+   * @param colId - Target column.
+   */
+  toggleColumnLocked(colId: string): void {
+    const col = this.getColumn(colId);
+    if (!col) return;
+    col.locked = !col.locked;
+    this.store.set('columns', [...this.columns]);
+    this.emitStatesChanged();
+  }
+
+  /**
+   * Restores a single column to the definition captured at {@link initColumns}
+   * (header, width, pin, visibility, sort, flags, aggFunc, …) and moves it back
+   * to its original position. The single-column counterpart to
+   * {@link resetColumnState}. Callers should also clear any user-fixed width in
+   * the style manager so a `flex` column resumes flexing.
+   *
+   * @param colId - Column to reset.
+   */
+  resetColumn(colId: string): void {
+    const initial = this.initialColumnDefs.get(colId);
+    const col = this.getColumn(colId);
+    if (!initial || !col) return;
+
+    // Restore properties in place so existing references stay valid.
+    Object.assign(col, { ...initial });
+
+    // Restore original position among the columns.
+    const initialIndex = this.initialColumnStates.findIndex((s) => s.colId === colId);
+    if (initialIndex >= 0) {
+      const current = this.columns.filter((c) => c.colId !== colId);
+      current.splice(Math.min(initialIndex, current.length), 0, col);
+      this.columns = current;
+    }
+
+    this.rebuildPinnedSections();
+    this.store.set('columns', [...this.columns]);
+    this.emitStatesChanged();
+  }
+
   setColumnSort(colId: string, order: 'asc' | 'desc' | null): void {
     for (const col of this.columns) {
       col.sortOrder = col.colId === colId ? order : null;
     }
-    this.store.set('columns', [...this.columns]);
+    // NOTE: intentionally does NOT `store.set('columns', …)`. Sort order only
+    // drives the header arrow (updated in place via the COLUMN_SORTED handler),
+    // and the body re-sorts through the visibleRows pipeline. Writing `columns`
+    // here would trigger the columns-watch full header/body teardown, which
+    // fights the RowAnimator's FLIP and makes sorting stutter. The sortOrder
+    // mutation above is still visible to the store (same object references).
     const col = this.getColumn(colId);
     if (col) {
       this.eventBus.emit(GridEventType.COLUMN_SORTED, { colId, field: col.field, order });
@@ -142,7 +353,8 @@ export class ColumnModel {
   /** Clears the sort indicator from every column (the header-arrow counterpart to `SortEngine.clearSort`). */
   clearAllSort(): void {
     for (const col of this.columns) col.sortOrder = null;
-    this.store.set('columns', [...this.columns]);
+    // See setColumnSort — deliberately no `store.set('columns')` to avoid the
+    // teardown; the empty-colId event clears every arrow.
     this.eventBus.emit(GridEventType.COLUMN_SORTED, { colId: '', field: '', order: null });
   }
 
@@ -184,7 +396,7 @@ export class ColumnModel {
     // Collect movers in the requested order (skip unknown/hidden ids).
     const moving = colIds
       .map((id) => visibleCols.find((c) => c.colId === id))
-      .filter((c): c is ColumnDef => !!c);
+      .filter((c): c is Column => !!c);
     if (moving.length === 0) return;
 
     const remaining = visibleCols.filter((c) => !movingSet.has(c.colId));
@@ -290,12 +502,16 @@ export class ColumnModel {
     );
   }
 
-  private syncColumnOrder(orderedVisible: ColumnDef[]): ColumnDef[] {
+  private syncColumnOrder(orderedVisible: Column[]): Column[] {
     const hiddenCols = this.columns.filter((c) => c.visible === false);
     return [...orderedVisible, ...hiddenCols];
   }
 
-  private normalizeColumn(col: ColumnDef, index: number): ColumnDef {
+  private normalizeColumn(col: ColumnDefInput, index: number): Column {
+    // `children` is a ColumnDefInput[] on the input; leaves reaching the model
+    // never have one (they were flattened), so drop it to keep the type a
+    // fully-normalized Column with ColumnDef[] children.
+    const { children: _children, ...leaf } = col;
     return {
       width: 150,
       minWidth: 40,
@@ -308,8 +524,12 @@ export class ColumnModel {
       groupable: false,
       sortOrder: null,
       filterActive: false,
-      ...col,
+      ...leaf,
       colId: col.colId ?? `col_${col.field}_${index}`,
+      // Sensible defaults so a column can be declared with just a `field`:
+      // type falls back to plain text, header to the field in Title Case.
+      type: col.type ?? 'string',
+      header: col.header ?? toTitleCase(col.field),
     };
   }
 

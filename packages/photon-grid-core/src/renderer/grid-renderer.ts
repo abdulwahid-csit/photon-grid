@@ -18,6 +18,7 @@ import type { DisplayGroupEngine } from '../column-groups/display-group-engine';
 import { GridEventType } from '../types/event.types';
 import { GroupDropZone } from './group-drop-zone';
 import { HeaderRenderer } from './header-renderer';
+import { ColumnChooser } from './column-chooser';
 import { BodyRenderer } from './body-renderer';
 import { RowDragRenderer } from './row-drag-renderer';
 import { FooterRenderer } from './footer-renderer';
@@ -85,6 +86,8 @@ export class GridRenderer {
   private rowPositionSheet: RowPositionSheet;
   private scrollController: ScrollController;
   private headerRenderer: HeaderRenderer;
+  /** Lazily-opened "Choose Columns" dialog. Created once, reused across opens. */
+  private columnChooser: ColumnChooser | null = null;
   private bodyRenderer: BodyRenderer;
   private footerRenderer: FooterRenderer;
   private overlayRenderer: OverlayRenderer;
@@ -745,6 +748,7 @@ export class GridRenderer {
     this.unsubscribers = [];
 
     this.headerRenderer.destroy();
+    this.columnChooser?.destroy();
     this.bodyRenderer.destroy();
     this.footerRenderer.destroy();
     this.overlayRenderer.destroy();
@@ -1008,6 +1012,18 @@ export class GridRenderer {
 
     // Wire filter-panel opening: header filter icon click → open panel overlay
     this.headerRenderer.setOpenFilterPanelCallback((col, anchor) => this.openFilterPanel(col, anchor));
+
+    // Wire the Column Chooser: the column/group menu "Column Chooser…" item opens
+    // a themed dialog built from the original (nested) column definitions, with
+    // live visibility driven through the ColumnModel.
+    this.columnChooser = new ColumnChooser(this.columnModel, this.iconRenderer);
+    this.headerRenderer.setColumnChooserCallback(() => {
+      this.columnChooser?.open(this.options.columns ?? []);
+    });
+
+    // Re-run the pipeline after an aggregate function change so grouped
+    // aggregations recompute. filterRefreshFn is GridApi.refresh (set post-construction).
+    this.headerRenderer.setColumnDataRefreshCallback(() => this.filterRefreshFn?.());
 
     // ── Edge auto-scroller ───────────────────────────────────────────────────
     // A single RAF-based AutoScroller handles both cell-range selection drag

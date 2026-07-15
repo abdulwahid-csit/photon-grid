@@ -95,7 +95,7 @@ export const filterCss = `/* ─────────────────
 .pg-filter-panel {
   position: absolute;
   z-index: var(--pg-z-index-filter-panel, 200);
-  min-width: 270px;
+  min-width: 230px;
   max-width: 320px;
   width: max-content;
   background: var(--pg-colors-surface, #fff);

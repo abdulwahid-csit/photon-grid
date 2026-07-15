@@ -1,4 +1,4 @@
-import type { ColumnDef, ColumnState } from './column.types';
+import type { ColumnDef, ColumnDefInput, ColumnState } from './column.types';
 import type { RowNode } from './row.types';
 import type { FilterModel, QuickFilterConfig } from './filter.types';
 import type { BuiltInThemeName } from './theme.types';
@@ -149,7 +149,8 @@ export interface ColumnGroupConfig {
 }
 
 export interface GridOptions {
-  columns: ColumnDef[];
+  /** Column definitions. Only `field` is required per column — see {@link ColumnDefInput}. */
+  columns: ColumnDefInput[];
   data?: Record<string, unknown>[];
 
   theme?: BuiltInThemeName | string;

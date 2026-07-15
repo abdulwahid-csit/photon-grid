@@ -1,5 +1,5 @@
 import type { GridContext } from './grid-context';
-import type { ColumnDef, ColumnState, ColumnPinPosition } from '../types/column.types';
+import type { ColumnDef, ColumnDefInput, ColumnState, ColumnPinPosition } from '../types/column.types';
 import type { RowNode } from '../types/row.types';
 import type { FilterModel, ColumnFilter } from '../types/filter.types';
 import type { SortConfig, GridState, CellRange } from '../types/grid.types';
@@ -89,7 +89,7 @@ export class GridApi {
 
   // ──────────────────── Columns ────────────────────
 
-  setColumns(defs: ColumnDef[]): void {
+  setColumns(defs: ColumnDefInput[]): void {
     this.ctx.columnModel.initColumns(defs);
     this.refresh();
   }

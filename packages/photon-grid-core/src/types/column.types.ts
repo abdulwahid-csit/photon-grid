@@ -94,6 +94,11 @@ export interface ColumnDef {
   resizable?: boolean;
   draggable?: boolean;
   editable?: boolean;
+  /**
+   * When `true`, the column is "locked": its cells cannot be edited regardless
+   * of {@link ColumnDef.editable}. Toggled by the column menu's "Lock Column".
+   */
+  locked?: boolean;
   groupable?: boolean;
   rowDrag?: boolean;
   alwaysVisible?: boolean;
@@ -219,6 +224,39 @@ export interface ColumnDef {
 
   sortOrder?: 'asc' | 'desc' | null;
   filterActive?: boolean;
+}
+
+/**
+ * A fully-normalized column as held internally by the grid after
+ * {@link ColumnDef} defaults are applied. `colId`, `header` and `type` are
+ * always present (defaulted from `field` / `'string'` when omitted on input),
+ * so internal code never has to null-check them. Consumers reading columns from
+ * the store or `ColumnModel` receive this type.
+ */
+export interface Column extends ColumnDef {
+  colId: string;
+  header: string;
+  type: ColumnDataType;
+}
+
+/**
+ * The public, author-friendly column definition. Only {@link ColumnDef.field}
+ * is required; `colId`, `header` and `type` (and everything else) are optional
+ * and filled in with defaults during normalization:
+ *
+ * - `colId`  → `col_<field>_<index>`
+ * - `header` → the `field` rendered in Title Case
+ * - `type`   → `'string'`
+ *
+ * This is what `GridOptions.columns` and {@link GridApi.setColumns} accept.
+ * Internally the grid works with the fully-normalized {@link ColumnDef}.
+ */
+export interface ColumnDefInput extends Omit<ColumnDef, 'colId' | 'header' | 'type' | 'children'> {
+  colId?: string;
+  header?: string;
+  type?: ColumnDataType;
+  /** Nested child columns (also author-friendly). Presence makes this a group. */
+  children?: ColumnDefInput[];
 }
 
 export interface ColumnState {

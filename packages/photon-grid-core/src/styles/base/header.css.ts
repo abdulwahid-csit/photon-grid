@@ -208,4 +208,23 @@ export const headerCss = `/* ─────────────────
 .pg-th__serial-label { font-size: 11px; opacity: 0.45; }
 .pg-header-checkbox { cursor: pointer; width: 16px; height: 16px; }
 
+/* Inline column-header rename input (column menu → Rename). */
+.pg-th__rename-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 2px 6px;
+  margin: 0 4px;
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  color: var(--pg-colors-text-primary, #0f172a);
+  background: var(--pg-colors-background, #ffffff);
+  border: 1px solid var(--pg-colors-primary, #2563eb);
+  border-radius: var(--pg-borders-radius-sm, 4px);
+  outline: none;
+  box-shadow: 0 0 0 2px var(--pg-colors-primary-soft, rgba(37, 99, 235, 0.16));
+}
+
 `;

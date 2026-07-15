@@ -1,6 +1,6 @@
 import type { EventBus } from '../event-bus/event-bus';
 import { GridEventType } from '../types/event.types';
-import type { ColumnDef, ColumnState } from '../types/column.types';
+import type { Column, ColumnState } from '../types/column.types';
 import type { RowNode } from '../types/row.types';
 import type { FilterModel, QuickFilterConfig } from '../types/filter.types';
 import type { SortConfig, PaginationConfig, CellRange } from '../types/grid.types';
@@ -11,11 +11,11 @@ export interface GridStoreState {
   renderedRows: RowNode[];
   totalRowCount: number;
 
-  columns: ColumnDef[];
+  columns: Column[];
   columnStates: Map<string, ColumnState>;
-  pinnedLeftColumns: ColumnDef[];
-  pinnedRightColumns: ColumnDef[];
-  centerColumns: ColumnDef[];
+  pinnedLeftColumns: Column[];
+  pinnedRightColumns: Column[];
+  centerColumns: Column[];
 
   sortConfig: SortConfig[];
   filterModel: FilterModel;

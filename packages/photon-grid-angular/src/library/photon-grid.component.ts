@@ -95,7 +95,7 @@ import type {ColumnDef as GridColumnDef } from './angular-renderer.types';
  * ```
  */
 @Component({
-    selector: 'photon-grid',
+    selector: 'photon-grid-angular',
     standalone: true,
     template: `<div #gridHost class="photon-grid__host"></div>`,
     styleUrl: './photon-grid.component.scss',

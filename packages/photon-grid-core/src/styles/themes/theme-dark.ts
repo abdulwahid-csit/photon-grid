@@ -19,6 +19,9 @@ export const themeDarkCss = `
   --pg-colors-primary: #60a5fa;
   --pg-colors-filter-background: #1e293b;
   --pg-colors-scrollbar-bg: #0f172a;
+  --pg-colors-scrollbar-track: #0f172a;
+  --pg-colors-scrollbar-thumb: #475569;
+  --pg-colors-scrollbar-thumb-hover: #64748b;
   --pg-colors-badge-background: rgba(96,165,250,.2);
   --pg-colors-badge-text: #93c5fd;
   --pg-colors-group-row-text: #cbd5e1;

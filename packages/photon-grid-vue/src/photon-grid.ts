@@ -9,7 +9,7 @@ import {
   type PropType,
 } from 'vue';
 import { GridCore, GridEventType } from 'photon-grid-core';
-import type { ColumnDef, GridApi, GridOptions } from 'photon-grid-core';
+import type { ColumnDefInput, GridApi, GridOptions } from 'photon-grid-core';
 
 /**
  * Maps a core grid event to the Vue event this component emits. Kept as a flat
@@ -49,8 +49,12 @@ const EVENT_MAP: ReadonlyArray<readonly [event: string, emit: string]> = [
 export const PhotonGrid = defineComponent({
   name: 'PhotonGrid',
   props: {
-    /** Column definitions. */
-    columns: { type: Array as PropType<ColumnDef[]>, default: () => [] },
+    /**
+     * Column definitions. Only `field` is required per column — `colId`,
+     * `header` and `type` are optional and defaulted by the core (auto `colId`,
+     * header from the field in Title Case, `type` defaulting to `'string'`).
+     */
+    columns: { type: Array as PropType<ColumnDefInput[]>, default: () => [] },
     /** Row data. */
     dataSet: { type: Array as PropType<Record<string, unknown>[]>, default: () => [] },
     /** Additional grid options (theme, selection, features…). */

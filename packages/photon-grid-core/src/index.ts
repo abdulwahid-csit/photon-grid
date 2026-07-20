@@ -98,8 +98,9 @@ export type {
 export type { PhotonAIConfig, PhotonAIProviderConfig } from './types/photon-ai.types';
 export { PhotonAIProviderType } from './types/photon-ai.types';
 
-export type { GridOptions, GridState, GridDimensions, SortConfig, PaginationConfig, SelectionConfig, EditingConfig, CellRange, ColumnGroupConfig } from './types/grid.types';
+export type { GridOptions, GridState, GridDimensions, SortConfig, PaginationConfig, SelectionConfig, EditingConfig, CellRange, ColumnGroupConfig, HeaderIconsConfig } from './types/grid.types';
 export type { ColumnDef, ColumnDefInput, Column, ColumnState, ColumnGroup, ColumnDropdownOption, ColumnDataType, ColumnPinPosition, AggFunc } from './types/column.types';
+export { HeaderIconDisplay } from './types/column.types';
 export { RendererSlot } from './types/renderer.types';
 export type {
   RendererOutput,

@@ -57,6 +57,25 @@ export type ColumnSummaryAggregation = 'sum' | 'avg' | 'min' | 'max' | 'count' |
  */
 export type AggFunc = 'sum' | 'avg' | 'min' | 'max' | 'count';
 
+/**
+ * Visibility strategy for a header action icon — the filter funnel and the
+ * column-menu "⋯" button.
+ *
+ * Applied grid-wide via {@link HeaderIconsConfig}, and overridable per column
+ * through {@link ColumnDef.filterIconDisplay} / {@link ColumnDef.menuIconDisplay}.
+ */
+export enum HeaderIconDisplay {
+  /**
+   * Icon stays hidden until the pointer hovers the header cell (or the icon is
+   * otherwise activated — e.g. a column with an active filter always shows its
+   * funnel). This is the default and matches the classic "reveal on hover"
+   * behaviour.
+   */
+  HOVER = 'hover',
+  /** Icon is permanently rendered, regardless of hover state. */
+  ALWAYS = 'always',
+}
+
 export interface ColumnDropdownOption {
   /** The stored value — must be unique within the option list. */
   value: string | number;
@@ -103,6 +122,25 @@ export interface ColumnDef {
   rowDrag?: boolean;
   alwaysVisible?: boolean;
   visible?: boolean;
+
+  /**
+   * Controls when this column's filter funnel icon appears in the header.
+   * Only relevant while the column is filterable ({@link ColumnDef.filterable}
+   * is not `false`). Overrides the grid-level {@link HeaderIconsConfig.filter}
+   * default.
+   *
+   * @default HeaderIconDisplay.HOVER
+   */
+  filterIconDisplay?: HeaderIconDisplay;
+
+  /**
+   * Controls when this column's column-menu "⋯" icon appears in the header.
+   * Only relevant while the column menu is enabled for the grid. Overrides the
+   * grid-level {@link HeaderIconsConfig.menu} default.
+   *
+   * @default HeaderIconDisplay.HOVER
+   */
+  menuIconDisplay?: HeaderIconDisplay;
 
   renderHtml?: boolean;
 

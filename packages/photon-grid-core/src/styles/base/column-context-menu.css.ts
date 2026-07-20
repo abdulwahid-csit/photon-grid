@@ -31,11 +31,18 @@ export const columnContextMenuCss = `/* ─────────────�
   color: var(--pg-colors-text-primary, #0f172a);
   user-select: none;
   outline: none;
+  /* Theme the internal overflow scrollbar so it matches the surface in dark
+     mode too (the menu is portaled to <body>, outside the grid's own
+     scrollbar styling — these tokens are mirrored onto :root by ThemeManager). */
+  scrollbar-width: thin;
+  scrollbar-color: var(--pg-colors-scrollbar-thumb, #cbd5e1) var(--pg-colors-scrollbar-track, #f1f5f9);
 }
 
-/* Horizontal divider between section groups */
+/* Horizontal divider between section groups.
+   Uses the themed border token — a non-existent token here would fall back to
+   a hardcoded light value and paint a bright line in dark mode. */
 .pg-col-ctx-menu__separator {
-  border-top: 1px solid var(--pg-colors-border-col-ctxt-menu, #e2e8f0);
+  height: 1px;
   background: var(--pg-colors-border, #e2e8f0);
   margin: 4px 0;
 }
@@ -51,14 +58,17 @@ export const columnContextMenuCss = `/* ─────────────�
   padding: 7px 10px;
   border-radius: var(--pg-borders-radius-sm, 4px);
   cursor: pointer;
-  transition: background var(--pg-transitions-fast, 80ms ease);
+  transition: background var(--pg-transitions-duration-fast, 80ms) ease;
   outline: none;
   white-space: nowrap;
 }
 
+/* Hover / keyboard-focus background. Uses header-hover (distinct from the menu
+   surface in both light and dark themes) rather than background-alt, which
+   collapses to the surface colour in dark mode and leaves hover invisible. */
 .pg-col-ctx-menu__item:hover,
 .pg-col-ctx-menu__item:focus-visible {
-  background: var(--pg-colors-background-alt, #f1f5f9);
+  background: var(--pg-colors-header-hover, #f1f5f9);
 }
 
 /* Highlighted / "currently applied" item (e.g. active sort direction) */
@@ -118,7 +128,7 @@ export const columnContextMenuCss = `/* ─────────────�
   height: 14px;
   opacity: 0.4;
   margin-left: 4px;
-  transition: opacity var(--pg-transitions-fast, 80ms ease);
+  transition: opacity var(--pg-transitions-duration-fast, 80ms) ease;
 }
 
 .pg-col-ctx-menu__item--has-submenu:hover .pg-col-ctx-menu__item-chevron {

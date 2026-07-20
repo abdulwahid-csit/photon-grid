@@ -1,4 +1,5 @@
 import type { ColumnDef, AggFunc } from '../types/column.types';
+import { HeaderIconDisplay } from '../types/column.types';
 import type { GridStore } from '../core/grid-store';
 import type { EventBus } from '../event-bus/event-bus';
 import type { IconRenderer } from '../icons/icon-renderer';
@@ -32,6 +33,10 @@ export interface HeaderRendererOptions {
   filterRowHeight?: number;
   hasGroupedColumns?: boolean;
   autoGroupColWidth?: number;
+  /** Grid-wide default display mode for the filter funnel icon. @default HeaderIconDisplay.HOVER */
+  filterIconDisplay?: HeaderIconDisplay;
+  /** Grid-wide default display mode for the column-menu "⋯" icon. @default HeaderIconDisplay.HOVER */
+  menuIconDisplay?: HeaderIconDisplay;
 }
 
 interface PanelDragEntry {
@@ -783,11 +788,14 @@ export class HeaderRenderer {
       th.appendChild(content);
     }
 
-    // Filter icon — visible on hover; always visible when a filter is active.
+    // Filter icon — reveal-on-hover by default; always visible when a filter is
+    // active, or when the column/grid opts into `HeaderIconDisplay.ALWAYS`.
     if (col.filterable !== false) {
       const filterBtn = createDiv('pg-th__filter-btn');
       const filterActive = col.filterActive === true;
       if (filterActive) filterBtn.classList.add('pg-th__filter-btn--active');
+      const filterMode = col.filterIconDisplay ?? options.filterIconDisplay ?? HeaderIconDisplay.HOVER;
+      if (filterMode === HeaderIconDisplay.ALWAYS) filterBtn.classList.add('pg-th__filter-btn--always');
       filterBtn.innerHTML = this.iconRenderer.renderToString(filterActive ? 'filterActive' : 'filter', 14);
       filterBtn.title = 'Filter column';
       filterBtn.setAttribute('tabindex', '0');
@@ -801,6 +809,8 @@ export class HeaderRenderer {
 
     if (options.showColumnMenu !== false) {
       const menuBtn = createDiv('pg-th__menu-btn');
+      const menuMode = col.menuIconDisplay ?? options.menuIconDisplay ?? HeaderIconDisplay.HOVER;
+      if (menuMode === HeaderIconDisplay.ALWAYS) menuBtn.classList.add('pg-th__menu-btn--always');
       menuBtn.innerHTML = this.iconRenderer.renderToString('menuHorizontal', 14);
       menuBtn.title = 'Column options';
       menuBtn.setAttribute('tabindex', '0');

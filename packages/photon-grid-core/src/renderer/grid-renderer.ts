@@ -1364,6 +1364,8 @@ export class GridRenderer {
       filterRowHeight: this.options.filterRowHeight,
       hasGroupedColumns,
       autoGroupColWidth: AUTO_GROUP_COL_WIDTH,
+      filterIconDisplay: this.options.headerIcons?.filter,
+      menuIconDisplay: this.options.headerIcons?.menu,
     };
     if (!this.headerRendered && this.leftHeaderPanelEl && this.centerHeaderInnerEl && this.rightHeaderPanelEl) {
       this.headerRenderer.renderInPanels(

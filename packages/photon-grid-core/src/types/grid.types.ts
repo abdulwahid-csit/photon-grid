@@ -1,4 +1,4 @@
-import type { ColumnDef, ColumnDefInput, ColumnState } from './column.types';
+import type { ColumnDef, ColumnDefInput, ColumnState, HeaderIconDisplay } from './column.types';
 import type { RowNode } from './row.types';
 import type { FilterModel, QuickFilterConfig } from './filter.types';
 import type { BuiltInThemeName } from './theme.types';
@@ -32,6 +32,37 @@ export interface SortConfig {
   colId: string;
   field: string;
   order: 'asc' | 'desc';
+}
+
+/**
+ * Grid-wide visibility policy for the header action icons — the filter funnel
+ * and the column-menu "⋯" button.
+ *
+ * These are the defaults applied to every eligible column (filterable columns
+ * for {@link HeaderIconsConfig.filter}; all columns when the menu is enabled
+ * for {@link HeaderIconsConfig.menu}). Any column may override the grid default
+ * via {@link ColumnDef.filterIconDisplay} / {@link ColumnDef.menuIconDisplay}.
+ *
+ * @example
+ * ```ts
+ * // Always show the "⋯" menu, keep the filter funnel on hover only.
+ * headerIcons: {
+ *   menu:   HeaderIconDisplay.ALWAYS,
+ *   filter: HeaderIconDisplay.HOVER,
+ * }
+ * ```
+ */
+export interface HeaderIconsConfig {
+  /**
+   * Default display mode for the filter funnel icon on filterable columns.
+   * @default HeaderIconDisplay.HOVER
+   */
+  filter?: HeaderIconDisplay;
+  /**
+   * Default display mode for the column-menu "⋯" icon.
+   * @default HeaderIconDisplay.HOVER
+   */
+  menu?: HeaderIconDisplay;
 }
 
 export interface PaginationConfig {
@@ -172,6 +203,15 @@ export interface GridOptions {
   showHorizontalBorders?: boolean;
   showFilterRow?: boolean;
   rowShading?: boolean;
+
+  /**
+   * When the header action icons (filter funnel + column-menu "⋯") appear —
+   * on hover (default) or always. Set grid-wide here; override per column with
+   * {@link ColumnDef.filterIconDisplay} / {@link ColumnDef.menuIconDisplay}.
+   *
+   * @see {@link HeaderIconsConfig}
+   */
+  headerIcons?: HeaderIconsConfig;
 
   selection?: Partial<SelectionConfig>;
   editing?: Partial<EditingConfig>;

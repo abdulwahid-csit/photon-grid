@@ -47,5 +47,8 @@
   },
   "dependencies": {
     "vite": "^8.1.5"
+  },
+  "overrides": {
+    "esbuild": "0.28.1"
   }
 }

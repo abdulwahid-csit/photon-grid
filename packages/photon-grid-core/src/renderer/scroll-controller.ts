@@ -1,3 +1,11 @@
+import {
+  isTouchPointer,
+  DRAG_THRESHOLD_TOUCH,
+  MOMENTUM_DECAY,
+  MOMENTUM_MIN_VELOCITY,
+  PAN_EXCLUDE_SELECTOR,
+} from '../core/pointer-utils';
+
 export type ScrollYCallback = (scrollTop: number) => void;
 
 export class ScrollController {
@@ -14,6 +22,34 @@ export class ScrollController {
   private sbHNativeEl: HTMLElement | null = null;
   private sbHSpacerEl: HTMLElement | null = null;
   private sbHRowEl: HTMLElement | null = null;
+
+  // ── Touch-pan state ───────────────────────────────────────────────────────
+  // Touch has no `wheel` event, so finger-drag panning is synthesized here:
+  // pointer deltas drive `scrollToX/Y`, and residual velocity feeds a momentum
+  // (kinetic) glide after release. Mouse/trackpad keep using `onWheel` — this
+  // path only engages for `pointerType === 'touch'`.
+  private panPointerId: number | null = null;
+  private panStartX = 0;
+  private panStartY = 0;
+  private panLastX = 0;
+  private panLastY = 0;
+  private panLastT = 0;
+  private panScrollStartLeft = 0;
+  private panScrollStartTop = 0;
+  private panMoved = false;
+  /** The body/header element the active pan pointer was captured to (for release). */
+  private panCaptureEl: HTMLElement | null = null;
+  /** Residual finger velocity in scroll-space px/ms, sampled from the last move. */
+  private velX = 0;
+  private velY = 0;
+  private momentumRAF: number | null = null;
+  /**
+   * Returns `true` while another interaction (column reorder/resize) owns the
+   * pointer, so touch-panning yields to it. Wired by `GridRenderer` to the
+   * HeaderRenderer's busy state; unset means "never busy".
+   */
+  private gestureGuard: (() => boolean) | null = null;
+
 
   private abortCtrl: AbortController | null = null;
   private resizeObs: ResizeObserver | null = null;
@@ -35,6 +71,15 @@ export class ScrollController {
 
   setReserveVerticalGutter(reserve: boolean): void {
     this.reserveVerticalGutter = reserve;
+  }
+
+  /**
+   * Registers a predicate that, while it returns `true`, suspends touch-panning
+   * so a concurrent column reorder or resize owns the pointer instead. See
+   * {@link gestureGuard}.
+   */
+  setGestureGuard(fn: () => boolean): void {
+    this.gestureGuard = fn;
   }
 
   mount(
@@ -61,6 +106,19 @@ export class ScrollController {
     bodyEl.addEventListener('wheel', this.onWheel as EventListener, { passive: false, signal: sig });
     const headerEl = gridEl.querySelector<HTMLElement>('.pg-grid__header');
     headerEl?.addEventListener('wheel', this.onWheel as EventListener, { passive: false, signal: sig });
+
+    // Touch-drag panning (finger scroll). Bound to both the body and the header
+    // so a quick horizontal swipe over either scrolls the grid sideways. A
+    // stationary press on the header instead arms the long-press column-reorder
+    // gesture (HeaderRenderer); the `gestureGuard` below lets the pan bail out
+    // the moment that — or a column resize — takes ownership of the pointer.
+    for (const el of [bodyEl, headerEl]) {
+      if (!el) continue;
+      el.addEventListener('pointerdown', this.onPanPointerDown, { signal: sig });
+      el.addEventListener('pointermove', this.onPanPointerMove, { passive: false, signal: sig });
+      el.addEventListener('pointerup', this.onPanPointerUp, { signal: sig });
+      el.addEventListener('pointercancel', this.onPanPointerUp, { signal: sig });
+    }
 
     sbVNativeEl.addEventListener('scroll', this.onVNativeScroll, { signal: sig });
     sbHNativeEl.addEventListener('scroll', this.onHNativeScroll, { signal: sig });
@@ -130,6 +188,7 @@ export class ScrollController {
   scrollToTop(): void { this.scrollToY(0); }
 
   destroy(): void {
+    this.stopMomentum();
     this.abortCtrl?.abort();
     this.abortCtrl = null;
     this.resizeObs?.disconnect();
@@ -212,4 +271,134 @@ export class ScrollController {
       this.scrollToY(this.scrollTop + dy);
     }
   };
+
+  // ── Touch panning ───────────────────────────────────────────────────────────
+
+  private readonly onPanPointerDown = (e: PointerEvent): void => {
+    // Mouse/trackpad scroll through `onWheel`; only touch needs synthesized pan.
+    if (!isTouchPointer(e)) return;
+    if (this.panPointerId !== null) return; // already tracking a contact
+    // Another interaction (column reorder/resize) already owns the pointer.
+    if (this.gestureGuard?.()) return;
+    // A press on an element that owns its own gesture (resize/drag/fill handle,
+    // editor, AI panel) must start that interaction, not scroll the grid.
+    if ((e.target as HTMLElement | null)?.closest(PAN_EXCLUDE_SELECTOR)) return;
+
+    this.stopMomentum();
+    // A nested Master/Detail grid's body sits inside the parent grid's own body,
+    // so this pointerdown also bubbles to the parent's pan listener. Claim the
+    // gesture here so only the innermost grid pans (mirrors `onWheel`).
+    e.stopPropagation();
+    this.panPointerId = e.pointerId;
+    this.panStartX = this.panLastX = e.clientX;
+    this.panStartY = this.panLastY = e.clientY;
+    this.panLastT = e.timeStamp;
+    this.panScrollStartLeft = this.scrollLeft;
+    this.panScrollStartTop = this.scrollTop;
+    this.panMoved = false;
+    this.velX = 0;
+    this.velY = 0;
+    // Capture to the element the press landed on (body or header) so its own
+    // move/up listeners keep firing even if the finger slides off it.
+    this.panCaptureEl = e.currentTarget as HTMLElement;
+    try { this.panCaptureEl.setPointerCapture(e.pointerId); } catch { /* capture unsupported */ }
+  };
+
+  private readonly onPanPointerMove = (e: PointerEvent): void => {
+    if (e.pointerId !== this.panPointerId) return;
+
+    // A column reorder/resize started mid-gesture (e.g. after a long-press) —
+    // hand the pointer over: abandon the pan without scrolling.
+    if (this.gestureGuard?.()) { this.releasePan(e.pointerId); return; }
+
+    const dx = e.clientX - this.panStartX;
+    const dy = e.clientY - this.panStartY;
+
+    if (!this.panMoved) {
+      if (Math.abs(dx) < DRAG_THRESHOLD_TOUCH && Math.abs(dy) < DRAG_THRESHOLD_TOUCH) return;
+      this.panMoved = true;
+    }
+
+    // Content follows the finger: dragging down reveals content above, so the
+    // scroll offset moves opposite to the finger delta.
+    this.scrollToX(this.panScrollStartLeft - dx);
+    this.scrollToY(this.panScrollStartTop - dy);
+
+    // Sample instantaneous velocity in scroll-space (px/ms) for the post-release
+    // momentum glide. Scroll offset moves opposite the finger, hence last-minus-current.
+    const dt = e.timeStamp - this.panLastT;
+    if (dt > 0) {
+      this.velX = (this.panLastX - e.clientX) / dt;
+      this.velY = (this.panLastY - e.clientY) / dt;
+    }
+    this.panLastX = e.clientX;
+    this.panLastY = e.clientY;
+    this.panLastT = e.timeStamp;
+
+    e.preventDefault();
+  };
+
+  private readonly onPanPointerUp = (e: PointerEvent): void => {
+    if (e.pointerId !== this.panPointerId) return;
+    const moved = this.panMoved;
+    this.releasePan(e.pointerId);
+    if (moved) {
+      // Swallow the synthetic click a touch-drag would otherwise fire, so a
+      // flick to scroll never also selects a cell or triggers a header sort.
+      this.suppressNextClick();
+      this.startMomentum();
+    }
+  };
+
+  /** Ends the active pan contact and releases its pointer capture. */
+  private releasePan(pointerId: number): void {
+    this.panPointerId = null;
+    try { this.panCaptureEl?.releasePointerCapture(pointerId); } catch { /* already released */ }
+    this.panCaptureEl = null;
+  }
+
+  private startMomentum(): void {
+    let vx = this.velX;
+    let vy = this.velY;
+    if (Math.abs(vx) < MOMENTUM_MIN_VELOCITY && Math.abs(vy) < MOMENTUM_MIN_VELOCITY) return;
+    const FRAME_MS = 16;
+    const step = (): void => {
+      this.momentumRAF = null;
+      vx *= MOMENTUM_DECAY;
+      vy *= MOMENTUM_DECAY;
+      if (Math.abs(vx) < MOMENTUM_MIN_VELOCITY && Math.abs(vy) < MOMENTUM_MIN_VELOCITY) return;
+      const beforeL = this.scrollLeft;
+      const beforeT = this.scrollTop;
+      this.scrollToX(this.scrollLeft + vx * FRAME_MS);
+      this.scrollToY(this.scrollTop + vy * FRAME_MS);
+      // Both axes clamped at their edge → nothing left to glide into.
+      if (this.scrollLeft === beforeL && this.scrollTop === beforeT) return;
+      this.momentumRAF = requestAnimationFrame(step);
+    };
+    this.momentumRAF = requestAnimationFrame(step);
+  }
+
+  private stopMomentum(): void {
+    if (this.momentumRAF !== null) {
+      cancelAnimationFrame(this.momentumRAF);
+      this.momentumRAF = null;
+    }
+  }
+
+  /**
+   * Installs a one-shot capture-phase click swallower on the grid so the ghost
+   * click synthesized at the end of a touch-pan gesture never reaches cells or
+   * headers. Self-removing, with a timeout fallback in case no click arrives.
+   */
+  private suppressNextClick(): void {
+    const grid = this.gridEl;
+    if (!grid) return;
+    const swallow = (ev: Event): void => {
+      ev.stopPropagation();
+      ev.preventDefault();
+      grid.removeEventListener('click', swallow, true);
+    };
+    grid.addEventListener('click', swallow, true);
+    setTimeout(() => grid.removeEventListener('click', swallow, true), 400);
+  }
 }

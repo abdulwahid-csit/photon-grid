@@ -74,9 +74,29 @@ export {
   registerBuiltinCommands,
   normalizeInput,
   tokenize,
+  createAIProvider,
+  HttpAIProvider,
+  GridContextBuilder,
+  CommandNormalizer,
+  buildSystemInstruction,
+  PhotonAIErrorKind,
+  PhotonAIProviderError,
 } from './photon-ai';
 export type { PhotonCommand, PhotonCommandResult, ResolvedEntities, IntentDefinition, ParsedIntentMatch } from './photon-ai';
-export type { PhotonAIConfig } from './types/photon-ai.types';
+export type {
+  PhotonAIProvider,
+  PhotonAIProviderRequest,
+  PhotonAIRequest,
+  PhotonAIResponse,
+  PhotonAIGeneration,
+  PhotonAIAction,
+  PhotonGridContext,
+  PhotonAIColumnContext,
+  PhotonAICapability,
+  PhotonAIGridState,
+} from './photon-ai';
+export type { PhotonAIConfig, PhotonAIProviderConfig } from './types/photon-ai.types';
+export { PhotonAIProviderType } from './types/photon-ai.types';
 
 export type { GridOptions, GridState, GridDimensions, SortConfig, PaginationConfig, SelectionConfig, EditingConfig, CellRange, ColumnGroupConfig } from './types/grid.types';
 export type { ColumnDef, ColumnDefInput, Column, ColumnState, ColumnGroup, ColumnDropdownOption, ColumnDataType, ColumnPinPosition, AggFunc } from './types/column.types';

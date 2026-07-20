@@ -134,7 +134,7 @@ export class GroupDropZone {
       }, 180);
     });
 
-    clearBtn.addEventListener('mousedown', (e) => {
+    clearBtn.addEventListener('pointerdown', (e) => {
       e.preventDefault(); // keep input focused
       input.value = '';
       clearBtn.classList.remove('pg-group-search__clear--visible');
@@ -197,7 +197,7 @@ export class GroupDropZone {
       });
       chip.appendChild(closeBtn);
 
-      chip.addEventListener('mousedown', (e) => {
+      chip.addEventListener('pointerdown', (e) => {
         if ((e.target as HTMLElement).closest('.pg-group-chip__close')) return;
         e.preventDefault();
         this.startChipDrag(e, colId, i);
@@ -219,8 +219,8 @@ export class GroupDropZone {
 
     this._onDockMove = (ev) => this.onDockMove(ev);
     this._onDockUp = (ev) => this.onDockUp(ev);
-    document.addEventListener('mousemove', this._onDockMove);
-    document.addEventListener('mouseup', this._onDockUp);
+    document.addEventListener('pointermove', this._onDockMove);
+    document.addEventListener('pointerup', this._onDockUp);
     this.onDockMove(e);
   }
 
@@ -287,8 +287,8 @@ export class GroupDropZone {
     this.isDockDragging = false;
     this.dockIndicatorEl?.remove();
     this.dockIndicatorEl = null;
-    if (this._onDockMove) document.removeEventListener('mousemove', this._onDockMove);
-    if (this._onDockUp) document.removeEventListener('mouseup', this._onDockUp);
+    if (this._onDockMove) document.removeEventListener('pointermove', this._onDockMove);
+    if (this._onDockUp) document.removeEventListener('pointerup', this._onDockUp);
     this._onDockMove = null;
     this._onDockUp = null;
   }
@@ -310,8 +310,8 @@ export class GroupDropZone {
 
     this._onChipMove = (ev) => this.onChipMove(ev);
     this._onChipUp = (ev) => this.onChipUp(ev);
-    document.addEventListener('mousemove', this._onChipMove);
-    document.addEventListener('mouseup', this._onChipUp);
+    document.addEventListener('pointermove', this._onChipMove);
+    document.addEventListener('pointerup', this._onChipUp);
   }
 
   private onChipMove(e: MouseEvent): void {
@@ -363,8 +363,8 @@ export class GroupDropZone {
     }
     this.chipGhostEl?.remove();
     this.chipGhostEl = null;
-    if (this._onChipMove) document.removeEventListener('mousemove', this._onChipMove);
-    if (this._onChipUp) document.removeEventListener('mouseup', this._onChipUp);
+    if (this._onChipMove) document.removeEventListener('pointermove', this._onChipMove);
+    if (this._onChipUp) document.removeEventListener('pointerup', this._onChipUp);
     this._onChipMove = null;
     this._onChipUp = null;
   }
@@ -383,8 +383,8 @@ export class GroupDropZone {
     }
     this._onResizeMove = (ev) => this.onResizeMove(ev);
     this._onResizeUp = () => this.cleanupResize();
-    document.addEventListener('mousemove', this._onResizeMove);
-    document.addEventListener('mouseup', this._onResizeUp);
+    document.addEventListener('pointermove', this._onResizeMove);
+    document.addEventListener('pointerup', this._onResizeUp);
   }
 
   private onResizeMove(e: MouseEvent): void {
@@ -403,8 +403,8 @@ export class GroupDropZone {
 
   private cleanupResize(): void {
     this.isResizing = false;
-    if (this._onResizeMove) document.removeEventListener('mousemove', this._onResizeMove);
-    if (this._onResizeUp) document.removeEventListener('mouseup', this._onResizeUp);
+    if (this._onResizeMove) document.removeEventListener('pointermove', this._onResizeMove);
+    if (this._onResizeUp) document.removeEventListener('pointerup', this._onResizeUp);
     this._onResizeMove = null;
     this._onResizeUp = null;
   }

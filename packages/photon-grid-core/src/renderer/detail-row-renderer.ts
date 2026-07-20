@@ -405,24 +405,25 @@ export class DetailRowRenderer {
     let startY = 0;
     let startHeight = 0;
 
-    const onMouseMove = (e: MouseEvent) => {
+    const onMouseMove = (e: PointerEvent) => {
       this.masterDetailEngine!.setDetailHeight(parentNodeId, startHeight + (e.clientY - startY));
     };
     const onMouseUp = () => {
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
+      document.removeEventListener('pointermove', onMouseMove);
+      document.removeEventListener('pointerup', onMouseUp);
     };
-    const onMouseDown = (e: MouseEvent) => {
+    const onMouseDown = (e: PointerEvent) => {
+      if (e.button !== 0) return;
       e.preventDefault();
       startY = e.clientY;
       startHeight = entry.containerEl.getBoundingClientRect().height;
-      document.addEventListener('mousemove', onMouseMove);
-      document.addEventListener('mouseup', onMouseUp);
+      document.addEventListener('pointermove', onMouseMove);
+      document.addEventListener('pointerup', onMouseUp);
     };
 
-    handle.addEventListener('mousedown', onMouseDown);
+    handle.addEventListener('pointerdown', onMouseDown);
     entry.cleanupFns.push(() => {
-      handle.removeEventListener('mousedown', onMouseDown);
+      handle.removeEventListener('pointerdown', onMouseDown);
       onMouseUp();
     });
   }

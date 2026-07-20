@@ -18,3 +18,33 @@ export type {
   IntentDefinition,
   ParsedIntentMatch,
 } from './photon-ai.types';
+
+// ── Generative provider (config-driven HTTP provider + provider-agnostic contracts) ──
+export {
+  createAIProvider,
+  HttpAIProvider,
+  GridContextBuilder,
+  CommandNormalizer,
+  buildSystemInstruction,
+  serializeGridContext,
+  parseGenerationText,
+  coerceGeneration,
+  PhotonAIErrorKind,
+  PhotonAIProviderError,
+  describeProviderError,
+} from './provider';
+export type {
+  PhotonAIProvider,
+  PhotonAIProviderRequest,
+  PhotonAIRequest,
+  PhotonAIResponse,
+  PhotonAIGeneration,
+  PhotonAIAction,
+  PhotonGridContext,
+  PhotonAIColumnContext,
+  PhotonAICapability,
+  PhotonAIGridState,
+  PhotonAISortState,
+  PhotonAIFilterState,
+  ProviderPreset,
+} from './provider';

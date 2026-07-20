@@ -44,6 +44,7 @@ import { ColumnGroupHeaderBuilder } from '../column-groups/column-group-header-b
 import { DisplayGroupEngine } from '../column-groups/display-group-engine';
 import type { CellValueChangedEvent } from '../types/event.types';
 import { PhotonAIService } from '../photon-ai/photon-ai-service';
+import { createAIProvider } from '../photon-ai/provider';
 
 /** Recursively collects leaf `ColumnDef` entries, skipping group wrappers. */
 function collectLeaves(cols: ColumnDef[]): ColumnDef[] {
@@ -293,8 +294,20 @@ export class GridCore {
     // so, like the Master/Detail parent-api wiring above, it is constructed
     // here rather than in `buildContext`.
     if (options.photonAI?.enabled) {
-      this.photonAIService = new PhotonAIService(this.api);
+      const provider = createAIProvider(options.photonAI.provider);
+      this.photonAIService = new PhotonAIService(
+        this.api,
+        undefined,
+        provider,
+        options.photonAI.provider?.systemInstruction,
+      );
       ctx.renderer.setPhotonAISubmitHandler((text) => this.photonAIService!.submit(text));
+      // When a generative provider is configured, route the panel through the
+      // async streaming path; the deterministic sync handler above stays wired
+      // as the fallback used whenever no provider is present.
+      if (provider) {
+        ctx.renderer.setPhotonAIAsyncSubmitHandler((text, signal) => this.photonAIService!.submitAsync(text, signal));
+      }
     }
 
     const rangeChartService = new RangeChartService(ctx);

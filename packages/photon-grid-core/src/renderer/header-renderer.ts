@@ -16,6 +16,12 @@ import { GroupContextMenu } from './group-context-menu';
 import { ColumnStyleManager } from './column-style-manager';
 import { createDiv, toggleClass } from './dom-utils';
 import { resolveColumnRenderer } from './renderer-resolver';
+import {
+  isTouchPointer,
+  DRAG_THRESHOLD_MOUSE,
+  DRAG_THRESHOLD_TOUCH,
+  LONG_PRESS_MS,
+} from '../core/pointer-utils';
 
 export interface HeaderRendererOptions {
   showCheckboxes?: boolean;
@@ -128,6 +134,13 @@ export class HeaderRenderer {
 
   /** Read by grid-renderer's columns-store watcher to skip header destroy during drag */
   get isDraggingCol(): boolean { return this.isDragging; }
+
+  /**
+   * `true` while the header owns the pointer for a column reorder or resize.
+   * The ScrollController's touch-pan yields to this (see `setGestureGuard`) so a
+   * long-press reorder or an edge resize is never fought by kinetic scrolling.
+   */
+  get isBusy(): boolean { return this.isDragging || this._isResizingColumn; }
 
   /** True while the user holds the resize handle and is actively moving the mouse. */
   private _isResizingColumn = false;
@@ -437,7 +450,7 @@ export class HeaderRenderer {
         onCollapseToggle:    (id: string)              => this.onGroupToggleFn?.(id),
         onGroupResize:       (id: string, w: number)   => this.onGroupResizeFn?.(id, w),
         onGroupHeaderMouseDown: dragHandler
-          ? (e: MouseEvent, node: import('../column-groups/display-group.types').DisplayGroupNode, el: HTMLElement) =>
+          ? (e: PointerEvent, node: import('../column-groups/display-group.types').DisplayGroupNode, el: HTMLElement) =>
               dragHandler.onHeaderMouseDown(e, node, el)
           : undefined,
         didJustDragFn:       dragHandler ? () => dragHandler.didJustDrag : undefined,
@@ -547,8 +560,8 @@ export class HeaderRenderer {
   }
 
   destroy(): void {
-    document.removeEventListener('mousemove', this.boundMouseMove);
-    document.removeEventListener('mouseup', this.boundMouseUp);
+    document.removeEventListener('pointermove', this.boundMouseMove);
+    document.removeEventListener('pointerup', this.boundMouseUp);
     this.columnMenu.destroy();
     this.groupContextMenu?.destroy();
     this.leftHeaderRowEl   = null;
@@ -805,7 +818,8 @@ export class HeaderRenderer {
     if (col.resizable !== false) {
       const resizeHandle = createDiv('pg-th__resize-handle');
       // resizeHandle.innerHTML = '|';
-      resizeHandle.addEventListener('mousedown', (e) => {
+      resizeHandle.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
         e.preventDefault();
         e.stopPropagation();
         // Double-press on the same handle → auto-size the column (AG Grid
@@ -879,27 +893,65 @@ export class HeaderRenderer {
     _panelColumns: ColumnDef[],
     panelRowEl: HTMLElement,
   ): void {
-    th.addEventListener('mousedown', (e: MouseEvent) => {
+    th.addEventListener('pointerdown', (e: PointerEvent) => {
       if ((e.target as HTMLElement).closest('.pg-th__resize-handle, .pg-th__menu-btn, .pg-th__filter-btn, .pg-checkbox')) return;
       if (col.draggable === false || e.button !== 0) return;
+
       const startX = e.clientX;
-      let moved = false;
-      const onMoveCheck = (ev: MouseEvent) => {
-        if (!moved && Math.abs(ev.clientX - startX) > 5) {
-          moved = true;
-          this.startColumnDrag(col, panelRowEl);
-          document.removeEventListener('mousemove', onMoveCheck);
-          document.addEventListener('mousemove', this.boundMouseMove);
-          document.addEventListener('mouseup', this.boundMouseUp);
+      const startY = e.clientY;
+      const touch = isTouchPointer(e);
+      let started = false;       // actual column drag engaged
+      let longPressTimer = 0;
+
+      // Tear down the pre-drag probe listeners + long-press timer + affordance.
+      const cleanupProbe = (): void => {
+        if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = 0; }
+        th.classList.remove('pg-th--drag-armed');
+        document.removeEventListener('pointermove', onMoveCheck);
+        document.removeEventListener('pointerup', onUpEarly);
+      };
+
+      // Promote the press to a live column drag and hand movement over to the
+      // global drag handlers. Called by the mouse threshold or the touch
+      // long-press timer.
+      const beginDrag = (): void => {
+        if (started) return;
+        started = true;
+        if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = 0; }
+        th.classList.remove('pg-th--drag-armed');
+        this.startColumnDrag(col, panelRowEl);
+        document.removeEventListener('pointermove', onMoveCheck);
+        document.addEventListener('pointermove', this.boundMouseMove);
+        document.addEventListener('pointerup', this.boundMouseUp);
+        this.onDragMove(startX);
+      };
+
+      const onMoveCheck = (ev: PointerEvent): void => {
+        if (started) return; // global handlers own movement now
+        const dx = Math.abs(ev.clientX - startX);
+        const dy = Math.abs(ev.clientY - startY);
+        if (touch) {
+          // Movement before the long-press fires means the user is swiping to
+          // scroll, not reordering — abandon so the ScrollController pans.
+          if (dx > DRAG_THRESHOLD_TOUCH || dy > DRAG_THRESHOLD_TOUCH) cleanupProbe();
+        } else if (dx > DRAG_THRESHOLD_MOUSE) {
+          beginDrag();
         }
-        if (moved) this.onDragMove(ev.clientX);
       };
-      const onUpEarly = () => {
-        document.removeEventListener('mousemove', onMoveCheck);
-        document.removeEventListener('mouseup', onUpEarly);
-      };
-      document.addEventListener('mousemove', onMoveCheck);
-      document.addEventListener('mouseup', onUpEarly);
+
+      const onUpEarly = (): void => { if (!started) cleanupProbe(); };
+
+      document.addEventListener('pointermove', onMoveCheck);
+      document.addEventListener('pointerup', onUpEarly);
+
+      if (touch) {
+        // Arm a long-press: hold ~400ms without swiping to pick the column up.
+        th.classList.add('pg-th--drag-armed');
+        longPressTimer = window.setTimeout(() => {
+          longPressTimer = 0;
+          beginDrag();
+        }, LONG_PRESS_MS);
+      }
     });
   }
 
@@ -1171,7 +1223,7 @@ export class HeaderRenderer {
       onCollapseToggle:       (id: string)                                     => this.onGroupToggleFn?.(id),
       onGroupResize:          (id: string, w: number)                          => this.onGroupResizeFn?.(id, w),
       onGroupHeaderMouseDown: dragHandler
-        ? (e: MouseEvent, node: DisplayGroupNode, el: HTMLElement)             => dragHandler.onHeaderMouseDown(e, node, el)
+        ? (e: PointerEvent, node: DisplayGroupNode, el: HTMLElement)             => dragHandler.onHeaderMouseDown(e, node, el)
         : undefined,
       didJustDragFn:          dragHandler ? () => dragHandler.didJustDrag : undefined,
       onGroupContextMenu:     (e: MouseEvent, node: DisplayGroupNode, el: HTMLElement) =>
@@ -1479,11 +1531,11 @@ export class HeaderRenderer {
     this.draggingPanelRowEl = null;
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
-    document.removeEventListener('mousemove', this.boundMouseMove);
-    document.removeEventListener('mouseup', this.boundMouseUp);
+    document.removeEventListener('pointermove', this.boundMouseMove);
+    document.removeEventListener('pointerup', this.boundMouseUp);
   }
 
-  private startResize(e: MouseEvent, col: ColumnDef, thEl: HTMLElement): void {
+  private startResize(e: PointerEvent, col: ColumnDef, thEl: HTMLElement): void {
     const startX = e.clientX;
     const startWidth = this.colStyles.getWidth(col.colId);
     // Right-pinned columns anchor their right edge to the grid border, so their
@@ -1503,7 +1555,7 @@ export class HeaderRenderer {
     // element is replaced mid-gesture and the double-click auto-size is lost.
     let moved = false;
 
-    const onMove = (ev: MouseEvent) => {
+    const onMove = (ev: PointerEvent) => {
       if (!moved) {
         if (Math.abs(ev.clientX - startX) <= 2) return;
         moved = true;
@@ -1518,22 +1570,22 @@ export class HeaderRenderer {
       this.colStyles.setWidth(col.colId, Math.max(minWidth, startWidth + (ev.clientX - startX) * dir));
       this.onResizeCb?.();
     };
-    const onUp = (ev: MouseEvent) => {
+    const onUp = (ev: PointerEvent) => {
       // Clear the flag BEFORE setColumnWidth fires an event so the final
       // post-resize render calls renderRows normally and the body is correct.
       this._isResizingColumn = false;
       thEl.classList.remove('pg-th--resizing');
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
       if (!moved) return; // no drag occurred — leave widths untouched
       const newWidth = Math.max(minWidth, startWidth + (ev.clientX - startX) * dir);
       this.colStyles.setWidth(col.colId, newWidth);
       this.columnModel.setColumnWidth(col.colId, newWidth, true);
     };
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
   }
 
   /**

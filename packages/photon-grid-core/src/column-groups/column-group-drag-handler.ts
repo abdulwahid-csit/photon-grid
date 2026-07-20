@@ -8,6 +8,7 @@ import type { IColumnGroupNode } from './column-group.types';
 import { ColumnGroupNodeType } from './column-group.types';
 import { GridEventType } from '../types/event.types';
 import { createDiv } from '../renderer/dom-utils';
+import { isTouchPointer, DRAG_THRESHOLD_MOUSE, DRAG_THRESHOLD_TOUCH, LONG_PRESS_MS } from '../core/pointer-utils';
 
 /**
  * Valid drop-zone positions during a group header drag.
@@ -123,38 +124,68 @@ export class ColumnGroupDragHandler {
    * @param group - The group node this cell represents.
    */
   attachGroupDragListeners(el: HTMLElement, group: IColumnGroupNode): void {
-    el.addEventListener('mousedown', (e: MouseEvent) => {
+    el.addEventListener('pointerdown', (e: PointerEvent) => {
       if ((e.target as HTMLElement).closest('.pg-th__resize-handle, .pg-th__collapse-btn')) return;
       if (e.button !== 0) return;
 
       const startX = e.clientX;
-      let moved    = false;
+      const startY = e.clientY;
+      const touch  = isTouchPointer(e);
+      let started      = false;
+      let longPressTimer = 0;
 
-      const onMoveStart = (ev: MouseEvent) => {
-        if (!moved && Math.abs(ev.clientX - startX) > 5) {
-          moved = true;
-          document.removeEventListener('mousemove', onMoveStart);
-          document.removeEventListener('mouseup', onUpEarly);
-          this.startGroupDrag(group, ev.clientX, ev.clientY);
-          document.addEventListener('mousemove', this.boundMouseMove);
-          document.addEventListener('mouseup',   this.boundMouseUp);
+      // Intercept the click that would fire on release so collapse does not toggle.
+      const armClickBlocker = (): void => {
+        const blockClick = (ce: Event): void => {
+          ce.stopPropagation();
+          document.removeEventListener('click', blockClick, true);
+        };
+        document.addEventListener('click', blockClick, true);
+      };
 
-          // Intercept the click that would fire on mouseup so collapse does not toggle
-          const blockClick = (ce: Event) => {
-            ce.stopPropagation();
-            document.removeEventListener('click', blockClick, true);
-          };
-          document.addEventListener('click', blockClick, true);
+      const beginDrag = (clientX: number, clientY: number): void => {
+        if (started) return;
+        started = true;
+        if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = 0; }
+        el.classList.remove('pg-th--drag-armed');
+        document.removeEventListener('pointermove', onMoveStart);
+        this.startGroupDrag(group, clientX, clientY);
+        document.addEventListener('pointermove', this.boundMouseMove);
+        document.addEventListener('pointerup',   this.boundMouseUp);
+        armClickBlocker();
+      };
+
+      const cleanupProbe = (): void => {
+        if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = 0; }
+        el.classList.remove('pg-th--drag-armed');
+        document.removeEventListener('pointermove', onMoveStart);
+        document.removeEventListener('pointerup', onUpEarly);
+      };
+
+      const onMoveStart = (ev: PointerEvent): void => {
+        if (started) return;
+        const dx = Math.abs(ev.clientX - startX);
+        const dy = Math.abs(ev.clientY - startY);
+        if (touch) {
+          // Swipe before the long-press fires → scroll, not reorder.
+          if (dx > DRAG_THRESHOLD_TOUCH || dy > DRAG_THRESHOLD_TOUCH) cleanupProbe();
+        } else if (dx > DRAG_THRESHOLD_MOUSE) {
+          beginDrag(ev.clientX, ev.clientY);
         }
       };
 
-      const onUpEarly = () => {
-        document.removeEventListener('mousemove', onMoveStart);
-        document.removeEventListener('mouseup', onUpEarly);
-      };
+      const onUpEarly = (): void => { if (!started) cleanupProbe(); };
 
-      document.addEventListener('mousemove', onMoveStart);
-      document.addEventListener('mouseup',   onUpEarly);
+      document.addEventListener('pointermove', onMoveStart);
+      document.addEventListener('pointerup',   onUpEarly);
+
+      if (touch) {
+        el.classList.add('pg-th--drag-armed');
+        longPressTimer = window.setTimeout(() => {
+          longPressTimer = 0;
+          beginDrag(startX, startY);
+        }, LONG_PRESS_MS);
+      }
     });
   }
 
@@ -182,8 +213,8 @@ export class ColumnGroupDragHandler {
   /** Release all event listeners and remove DOM artefacts. */
   destroy(): void {
     this.cleanupDrag();
-    document.removeEventListener('mousemove', this.boundMouseMove);
-    document.removeEventListener('mouseup',   this.boundMouseUp);
+    document.removeEventListener('pointermove', this.boundMouseMove);
+    document.removeEventListener('pointerup',   this.boundMouseUp);
   }
 
   // ── Private: drag lifecycle ───────────────────────────────────────────────
@@ -431,8 +462,8 @@ export class ColumnGroupDragHandler {
     this.gridEl = null;
     document.body.style.cursor     = '';
     document.body.style.userSelect = '';
-    document.removeEventListener('mousemove', this.boundMouseMove);
-    document.removeEventListener('mouseup',   this.boundMouseUp);
+    document.removeEventListener('pointermove', this.boundMouseMove);
+    document.removeEventListener('pointerup',   this.boundMouseUp);
   }
 
   // ── Private: drop-target hit test ────────────────────────────────────────

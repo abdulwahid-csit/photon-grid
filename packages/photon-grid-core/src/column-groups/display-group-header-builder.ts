@@ -22,7 +22,7 @@ export interface DisplayGroupCellOptions {
    * Called on `mousedown` of a group header cell (before the drag threshold check).
    * The drag handler uses this to attach its own listeners to each new cell.
    */
-  onGroupHeaderMouseDown?: (e: MouseEvent, node: DisplayGroupNode, el: HTMLElement) => void;
+  onGroupHeaderMouseDown?: (e: PointerEvent, node: DisplayGroupNode, el: HTMLElement) => void;
   /**
    * Guard function — returns `true` when a group drag just completed.
    * Used to suppress the residual `click` event that fires after mouseup.
@@ -190,7 +190,8 @@ export class DisplayGroupHeaderBuilder {
     if (group.resizable) {
       const handle = createDiv('pg-th__resize-handle pg-th__resize-handle--group');
       handle.setAttribute('aria-hidden', 'true');
-      handle.addEventListener('mousedown', (e) => {
+      handle.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
         e.stopPropagation();
         e.preventDefault();
         this.startGroupResize(e, group, width, options);
@@ -198,8 +199,8 @@ export class DisplayGroupHeaderBuilder {
       th.appendChild(handle);
     }
 
-    // Mousedown: notify drag handler before threshold check
-    th.addEventListener('mousedown', (e) => {
+    // Pointerdown: notify drag handler before threshold check
+    th.addEventListener('pointerdown', (e) => {
       if ((e.target as HTMLElement).closest('.pg-th__resize-handle')) return;
       options.onGroupHeaderMouseDown?.(e, group, th);
     });
@@ -270,7 +271,7 @@ export class DisplayGroupHeaderBuilder {
    * @param options    - Contains the `onGroupResize` callback.
    */
   private startGroupResize(
-    e:          MouseEvent,
+    e:          PointerEvent,
     group:      DisplayGroupNode,
     startWidth: number,
     options:    DisplayGroupCellOptions,
@@ -279,21 +280,21 @@ export class DisplayGroupHeaderBuilder {
     document.body.style.cursor     = 'col-resize';
     document.body.style.userSelect = 'none';
 
-    const onMove = (ev: MouseEvent): void => {
+    const onMove = (ev: PointerEvent): void => {
       const newW = Math.max(group.collapsedWidth, startWidth + ev.clientX - startX);
       options.onGroupResize?.(group.instanceId, newW);
     };
 
-    const onUp = (ev: MouseEvent): void => {
+    const onUp = (ev: PointerEvent): void => {
       const newW = Math.max(group.collapsedWidth, startWidth + ev.clientX - startX);
       options.onGroupResize?.(group.instanceId, newW);
       document.body.style.cursor     = '';
       document.body.style.userSelect = '';
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup',   onUp);
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup',   onUp);
     };
 
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup',   onUp);
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup',   onUp);
   }
 }

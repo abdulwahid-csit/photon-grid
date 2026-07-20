@@ -285,7 +285,8 @@ export class ColumnGroupHeaderBuilder {
     if (group.resizable !== false) {
       const handle = createDiv('pg-th__resize-handle pg-th__resize-handle--group');
       handle.textContent = '|';
-      handle.addEventListener('mousedown', (e) => {
+      handle.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
         e.stopPropagation();
         e.preventDefault();
         this.startGroupResize(e, group, cell.width, options);
@@ -353,7 +354,7 @@ export class ColumnGroupHeaderBuilder {
   // ── Private: group resize ────────────────────────────────────────────────
 
   private startGroupResize(
-    e:         MouseEvent,
+    e:         PointerEvent,
     group:     IColumnGroupNode,
     startWidth: number,
     options:   GroupCellBuildOptions,
@@ -362,21 +363,21 @@ export class ColumnGroupHeaderBuilder {
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
 
-    const onMove = (ev: MouseEvent): void => {
+    const onMove = (ev: PointerEvent): void => {
       const newWidth = Math.max(group.collapsedWidth, startWidth + (ev.clientX - startX));
       options.onGroupResize?.(group.groupId, newWidth);
     };
 
-    const onUp = (ev: MouseEvent): void => {
+    const onUp = (ev: PointerEvent): void => {
       const newWidth = Math.max(group.collapsedWidth, startWidth + (ev.clientX - startX));
       options.onGroupResize?.(group.groupId, newWidth);
       document.body.style.cursor     = '';
       document.body.style.userSelect = '';
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
     };
 
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
   }
 }

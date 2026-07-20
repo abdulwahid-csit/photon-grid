@@ -46,9 +46,6 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "vite": "^8.1.5"
-  },
-  "overrides": {
-    "esbuild": "0.23.1"
+    "vite": "^7.1.5"
   }
 }

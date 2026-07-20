@@ -44,7 +44,7 @@ export class RowDragRenderer {
     this.gridEl = gridEl;
     this.bodyWrapEl = bodyWrapEl;
     this.scrollFn = scrollFn;
-    bodyWrapEl.addEventListener('mousedown', this.boundMouseDown, true);
+    bodyWrapEl.addEventListener('pointerdown', this.boundMouseDown, true);
   }
 
   /**
@@ -60,7 +60,7 @@ export class RowDragRenderer {
   }
 
   destroy(): void {
-    this.bodyWrapEl?.removeEventListener('mousedown', this.boundMouseDown, true);
+    this.bodyWrapEl?.removeEventListener('pointerdown', this.boundMouseDown, true);
     this.cleanup();
     this.gridEl = null;
     this.bodyWrapEl = null;
@@ -121,8 +121,8 @@ export class RowDragRenderer {
     this.setDraggingClass(nodeId, true);
     this.gridEl?.classList.add('pg-grid--row-dragging');
 
-    document.addEventListener('mousemove', this.boundMouseMove);
-    document.addEventListener('mouseup', this.boundMouseUp);
+    document.addEventListener('pointermove', this.boundMouseMove);
+    document.addEventListener('pointerup', this.boundMouseUp);
     document.body.style.userSelect = 'none';
     document.body.style.cursor = 'grabbing';
 
@@ -474,8 +474,8 @@ export class RowDragRenderer {
     this.isDragging = false;
     document.body.style.userSelect = '';
     document.body.style.cursor = '';
-    document.removeEventListener('mousemove', this.boundMouseMove);
-    document.removeEventListener('mouseup', this.boundMouseUp);
+    document.removeEventListener('pointermove', this.boundMouseMove);
+    document.removeEventListener('pointerup', this.boundMouseUp);
   }
 
   // Phase 2 — remove visual overrides once RowPositionSheet has settled

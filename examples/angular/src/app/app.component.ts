@@ -3,10 +3,12 @@ import { ChangeDetectionStrategy, Component, OnInit, TemplateRef, ViewChild } fr
 import { PhotonGridComponent } from 'photon-grid-angular';
 import type { ColumnDef, RendererContext } from 'photon-grid-angular';
 import type { CellRange, DisplayRendererParams, GridApi, GridOptions } from 'photon-grid-core';
+import { PhotonAIProviderType } from 'photon-grid-core';
 import type { RowClickPayload, RowSelectedEvent } from 'photon-grid-core';
 
 import { EmployeeCellComponent } from './employee-cell.component';
 import { CommonModule } from '@angular/common';
+import { environment } from '../environments/environment';
 
 /** Emoji flags for the fixed country list used by `generateData` below. */
 
@@ -134,7 +136,17 @@ export class AppComponent implements OnInit {
         headerRowHeight: 48,
         selection: { mode: 'multiple' },
         photonAI: {
-            enabled: true
+            enabled: true,
+            provider: {
+                // Groq exposes an OpenAI-compatible Chat Completions API, so the
+                // built-in OpenAI preset works as-is — just point apiUrl at Groq
+                // and supply the Groq key + a Groq model. No custom transformers
+                // needed (Bearer auth + response_format json_object are handled).
+                type: PhotonAIProviderType.OpenAI,
+                apiKey: environment.groqApiKey,
+                apiUrl: 'https://api.groq.com/openai/v1/chat/completions',
+                model: 'llama-3.3-70b-versatile',
+            },
         }
     };
 

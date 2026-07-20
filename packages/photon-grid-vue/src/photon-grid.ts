@@ -57,7 +57,27 @@ export const PhotonGrid = defineComponent({
     columns: { type: Array as PropType<ColumnDefInput[]>, default: () => [] },
     /** Row data. */
     dataSet: { type: Array as PropType<Record<string, unknown>[]>, default: () => [] },
-    /** Additional grid options (theme, selection, features…). */
+    /**
+     * Additional grid options (theme, selection, features…), forwarded to the
+     * core. Enable the natural-language AI panel — and, optionally, its Gemini
+     * generative back-end — through `options.photonAI`:
+     *
+     * @example Gemini-powered AI panel
+     * ```ts
+     * import { PhotonAIProviderType } from 'photon-grid-vue';
+     *
+     * const options = {
+     *   photonAI: {
+     *     enabled: true,
+     *     provider: {
+     *       type: PhotonAIProviderType.Gemini,
+     *       apiKey: import.meta.env.VITE_GEMINI_API_KEY,
+     *       model: 'gemini-2.5-flash',
+     *     },
+     *   },
+     * };
+     * ```
+     */
     options: { type: Object as PropType<Partial<GridOptions>>, default: () => ({}) },
   },
   emits: [

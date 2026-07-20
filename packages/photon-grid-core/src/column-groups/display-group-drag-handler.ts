@@ -1,5 +1,6 @@
 import type { DisplayGroupNode } from './display-group.types';
 import { createDiv } from '../renderer/dom-utils';
+import { isTouchPointer, DRAG_THRESHOLD_MOUSE, DRAG_THRESHOLD_TOUCH, LONG_PRESS_MS } from '../core/pointer-utils';
 
 /**
  * Fired by {@link DisplayGroupDragHandler} when the user drops a group at a
@@ -125,13 +126,17 @@ export class DisplayGroupDragHandler {
   /**
    * Called from `DisplayGroupHeaderBuilder.onGroupHeaderMouseDown` for each
    * newly built group header cell.  Wires a threshold-based drag using the
-   * `mousedown` event already delivered by the builder.
+   * `pointerdown` event already delivered by the builder.
    *
-   * @param e    - The `mousedown` event from the group header cell.
+   * Mouse/pen start the drag after a 5 px move; touch requires a ~400 ms
+   * long-press (so a quick horizontal swipe scrolls the grid instead), matching
+   * the leaf-column and column-group reorder gestures.
+   *
+   * @param e    - The `pointerdown` event from the group header cell.
    * @param node - The display group node this cell represents.
    * @param el   - The DOM element of the group header cell.
    */
-  onHeaderMouseDown(e: MouseEvent, node: DisplayGroupNode, el: HTMLElement): void {
+  onHeaderMouseDown(e: PointerEvent, node: DisplayGroupNode, el: HTMLElement): void {
     if (e.button !== 0) return;
 
     this.startX       = e.clientX;
@@ -141,30 +146,64 @@ export class DisplayGroupDragHandler {
     this.isDragging   = false;
     this.sourcePanel  = this.detectPanelFromElement(el);
 
-    const onMove = (ev: MouseEvent): void => {
+    const touch = isTouchPointer(e);
+    let longPressTimer = 0;
+
+    const clearProbe = (): void => {
+      if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = 0; }
+      el.classList.remove('pg-th--drag-armed');
+    };
+
+    const startDragNow = (clientX: number, clientY: number): void => {
+      if (this.isDragging) return;
+      clearProbe();
+      this.isDragging = true;
+      this.activateDrag({ clientX, clientY } as MouseEvent, node);
+    };
+
+    const onMove = (ev: PointerEvent): void => {
       if (!this.isDragging) {
         const dx = Math.abs(ev.clientX - this.startX);
         const dy = Math.abs(ev.clientY - this.startY);
-        if (dx < 5 && dy < 5) return;
+        if (touch) {
+          // Swipe before the long-press fires → scroll, not reorder: abandon
+          // the probe so the ScrollController can pan.
+          if (dx > DRAG_THRESHOLD_TOUCH || dy > DRAG_THRESHOLD_TOUCH) {
+            this.removeMoveUp?.();
+            this.removeMoveUp = null;
+            clearProbe();
+          }
+          return;
+        }
+        if (dx < DRAG_THRESHOLD_MOUSE && dy < DRAG_THRESHOLD_MOUSE) return;
         this.isDragging = true;
         this.activateDrag(ev, node);
       }
       if (this.isDragging) this.onMouseMove(ev);
     };
 
-    const onUp = (ev: MouseEvent): void => {
+    const onUp = (ev: PointerEvent): void => {
       this.removeMoveUp?.();
       this.removeMoveUp = null;
+      clearProbe();
       if (this.isDragging) this.onMouseUp(ev);
       this.isDragging = false;
     };
 
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup',   onUp);
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup',   onUp);
     this.removeMoveUp = () => {
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup',   onUp);
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup',   onUp);
     };
+
+    if (touch) {
+      el.classList.add('pg-th--drag-armed');
+      longPressTimer = window.setTimeout(() => {
+        longPressTimer = 0;
+        startDragNow(this.startX, this.startY);
+      }, LONG_PRESS_MS);
+    }
   }
 
   /**

@@ -13,3 +13,13 @@ export type {
     GridOptions,
 } from 'photon-grid-core';
 export { GridEventType } from 'photon-grid-core';
+
+// ── Photon AI configuration ──────────────────────────────────────────────────
+// Configure the AI panel (and its optional generative provider — Gemini,
+// OpenAI, Anthropic, or a fully Custom endpoint) through the `[options]`
+// input's `photonAI` field — see the `options` input on PhotonGridComponent for
+// an example. `PhotonAIProviderType` is an enum (a runtime value), so it is
+// re-exported as a value, not just a type.
+export { PhotonAIProviderType } from 'photon-grid-core';
+export type { PhotonAIConfig, PhotonAIProviderConfig, PhotonAIRequest, PhotonAIResponse } from 'photon-grid-core';
+

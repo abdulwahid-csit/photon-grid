@@ -26,6 +26,35 @@ import { ReactRendererAdapter, type PhotonGridColumnDef } from './react-renderer
 export interface PhotonGridProps {
   columns?: PhotonGridColumnDef[];
   dataSet?: Record<string, unknown>[];
+  /**
+   * Additional grid options (theme, selection, features…), forwarded verbatim
+   * to the core. Enable the natural-language AI panel — and, optionally, its
+   * Gemini generative back-end — through `options.photonAI`:
+   *
+   * @example Deterministic (offline) AI panel
+   * ```tsx
+   * <PhotonGrid options={{ photonAI: { enabled: true } }} />
+   * ```
+   *
+   * @example Gemini-powered AI panel
+   * ```tsx
+   * import { PhotonAIProviderType } from 'photon-grid-react';
+   *
+   * <PhotonGrid
+   *   options={{
+   *     photonAI: {
+   *       enabled: true,
+   *       defaultOpen: true,
+   *       provider: {
+   *         type: PhotonAIProviderType.Gemini,
+   *         apiKey: import.meta.env.VITE_GEMINI_API_KEY,
+   *         model: 'gemini-2.5-flash',
+   *       },
+   *     },
+   *   }}
+   * />
+   * ```
+   */
   options?: Partial<GridOptions>;
   onGridReady?: (api: GridApi) => void;
   onDataChanged?: (event: DataChangedEvent) => void;

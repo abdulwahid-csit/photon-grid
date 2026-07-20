@@ -8,6 +8,10 @@ import { CommandExecutor } from './command-executor';
 import { PhotonAICommandRegistry } from './photon-ai-registry';
 import { PhotonAIMemoryStore, columnSignature } from './photon-ai-memory';
 import { registerBuiltinCommands } from './builtins';
+import { GridContextBuilder } from './provider/grid-context-builder';
+import { CommandNormalizer } from './provider/command-normalizer';
+import { buildSystemInstruction } from './provider/system-prompt';
+import { describeProviderError, type PhotonAIProvider, type PhotonAIAction } from './provider/ai-provider.types';
 import type { PhotonCommand, PhotonCommandResult } from './photon-ai.types';
 
 /**
@@ -62,14 +66,39 @@ export class PhotonAIService {
   private readonly executor: CommandExecutor;
 
   /**
+   * Generative back-end, when one was configured (e.g. Gemini). `null` keeps
+   * Photon AI in its default fully-deterministic mode — the two modes share
+   * the same registry, executor, and result contract, so nothing else changes.
+   */
+  private readonly provider: PhotonAIProvider | null;
+  /** Extra domain guidance appended to the base system instruction; only meaningful when {@link provider} is set. */
+  private readonly providerSystemInstruction?: string;
+  /** Builds a fresh grid-context snapshot per generative request. Lazily constructed alongside a provider. */
+  private readonly contextBuilder: GridContextBuilder | null;
+  /** Reshapes model-generated actions into executable commands. Lazily constructed alongside a provider. */
+  private readonly commandNormalizer: CommandNormalizer | null;
+
+  /**
    * @param api - The grid's own `GridApi` — every command runs through it, never around it.
    * @param registry - Supply a custom registry to fully replace the built-ins, or omit to get sort/filter/pin/visibility/grouping/selection out of the box.
+   * @param provider - Optional generative back-end. When supplied, {@link submitAsync} routes prompts through it; when omitted, only the synchronous deterministic pipeline is available.
+   * @param providerSystemInstruction - Optional extra guidance appended to the base system instruction sent to {@link provider}.
    */
-  constructor(private api: GridApi, registry?: PhotonAICommandRegistry) {
+  constructor(
+    private api: GridApi,
+    registry?: PhotonAICommandRegistry,
+    provider?: PhotonAIProvider | null,
+    providerSystemInstruction?: string,
+  ) {
     this.registry = registry ?? PhotonAIService.createDefaultRegistry();
     this.executor = new CommandExecutor(this.registry);
     this.memory = new PhotonAIMemoryStore(columnSignature(api.getAllColumns().map((c) => c.colId)));
     this.resolver = new EntityResolver(this.memory);
+
+    this.provider = provider ?? null;
+    this.providerSystemInstruction = providerSystemInstruction;
+    this.contextBuilder = this.provider ? new GridContextBuilder(this.api, this.registry) : null;
+    this.commandNormalizer = this.provider ? new CommandNormalizer(this.api) : null;
   }
 
   /** A registry pre-populated with every built-in intent — the default `PhotonAIService` uses when none is supplied. */
@@ -108,6 +137,76 @@ export class PhotonAIService {
       success: results.every((r) => r.success),
       message: results.map((r, i) => `${i + 1}) ${r.message}`).join(' '),
     };
+  }
+
+  /** `true` when a generative back-end is configured — i.e. {@link submitAsync} will use the model rather than the deterministic pipeline. */
+  hasProvider(): boolean {
+    return this.provider !== null;
+  }
+
+  /**
+   * Async counterpart to {@link submit}. When a provider is configured, the
+   * prompt is interpreted by the model: the grid's current context (columns,
+   * capabilities, state) plus the user command are sent to the provider, and
+   * every returned action is executed through the *same* `CommandExecutor` the
+   * deterministic pipeline uses — so the two backends are interchangeable.
+   *
+   * With no provider configured, this simply awaits the synchronous
+   * deterministic pipeline, so callers can always use the async entry point
+   * regardless of mode. Like {@link submit}, it always resolves — provider and
+   * execution failures come back as `{ success: false }`, never a rejection.
+   */
+  async submitAsync(rawInput: string, signal?: AbortSignal): Promise<PhotonCommandResult> {
+    const trimmed = rawInput.trim();
+    if (!trimmed) return { success: false, message: 'Type a command first.' };
+
+    if (!this.provider || !this.contextBuilder || !this.commandNormalizer) {
+      return this.submit(trimmed);
+    }
+
+    try {
+      const gridContext = this.contextBuilder.build();
+      const generation = await this.provider.generate({
+        systemInstruction: buildSystemInstruction(this.providerSystemInstruction),
+        gridContext,
+        userCommand: trimmed,
+        signal,
+      });
+
+      return this.executeGeneratedActions(generation.actions, generation.reply);
+    } catch (err) {
+      return { success: false, message: describeProviderError(err) };
+    }
+  }
+
+  /**
+   * Runs the model's actions in order and folds them into a single
+   * {@link PhotonCommandResult}. The model's natural-language `reply` is the
+   * user-facing message; per-command execution failures are appended so a
+   * partial success is never silently swallowed.
+   */
+  private executeGeneratedActions(
+    actions: readonly PhotonAIAction[],
+    reply: string,
+  ): PhotonCommandResult {
+    const normalizer = this.commandNormalizer!;
+    const executionMessages: string[] = [];
+    const failures: string[] = [];
+    let lastCommand: PhotonCommand | undefined;
+
+    for (const action of actions) {
+      const command = normalizer.normalize(action);
+      const result = this.executor.execute(command, this.api);
+      executionMessages.push(result.message);
+      if (result.command) lastCommand = result.command;
+      if (!result.success) failures.push(result.message);
+    }
+
+    const message =
+      reply || executionMessages.join(' ') || 'I understood your request but there was nothing to do.';
+    const combined = failures.length > 0 ? `${message} (${failures.join(' ')})` : message;
+
+    return { success: failures.length === 0, message: combined, command: lastCommand };
   }
 
   private runClause(clause: string): PhotonCommandResult {

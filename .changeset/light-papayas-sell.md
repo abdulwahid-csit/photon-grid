@@ -5,4 +5,4 @@
 "photon-grid-vue": patch
 ---
 
-Update ToCDM
+Updated photon AI

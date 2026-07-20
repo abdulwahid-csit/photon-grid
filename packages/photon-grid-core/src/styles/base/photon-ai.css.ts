@@ -195,5 +195,70 @@ export const photonAiCss = `/* ────────────────�
   opacity: 0.5;
   cursor: default;
 }
+.pg-ai-panel__input:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* ── Generative reply: loading state + typewriter streaming ── */
+
+/* "Thinking" indicator shown while a generative provider request is in flight. */
+.pg-ai-panel__typing {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0;
+}
+.pg-ai-panel__typing-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--pg-borders-radius-pill, 9999px);
+  background: var(--pg-colors-text-secondary, #64748b);
+  opacity: 0.4;
+  animation: pg-ai-typing 1.2s var(--pg-transitions-easing-base, ease) infinite;
+}
+.pg-ai-panel__typing-dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.pg-ai-panel__typing-dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+@keyframes pg-ai-typing {
+  0%, 60%, 100% {
+    opacity: 0.4;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+
+/* Blinking caret trailing the text while a reply is being typed out. */
+.pg-ai-panel__message--streaming > div:last-child::after {
+  content: '';
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 1px;
+  vertical-align: text-bottom;
+  background: var(--pg-colors-primary, #2563eb);
+  animation: pg-ai-caret 1s steps(1) infinite;
+}
+@keyframes pg-ai-caret {
+  0%, 50% {
+    opacity: 1;
+  }
+  50.01%, 100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pg-ai-panel__typing-dot,
+  .pg-ai-panel__message--streaming > div:last-child::after {
+    animation: none;
+  }
+}
 
 `;

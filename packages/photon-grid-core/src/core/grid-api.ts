@@ -421,6 +421,17 @@ export class GridApi {
     return this.ctx.renderer.submitAICommand(text);
   }
 
+  /**
+   * Async counterpart to {@link submitAICommand}. When a generative provider
+   * (e.g. Gemini) is configured via `photonAI.provider`, the prompt is
+   * interpreted by the model and the panel streams the reply; otherwise this
+   * resolves with the same deterministic result {@link submitAICommand}
+   * returns. Never rejects — failures come back as `{ success: false }`.
+   */
+  submitAICommandAsync(text: string): Promise<PhotonCommandResult> {
+    return this.ctx.renderer.submitAICommandAsync(text);
+  }
+
   // ──────────────────── Column Groups ────────────────────
 
   /**

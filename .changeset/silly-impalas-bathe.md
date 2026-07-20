@@ -5,4 +5,4 @@
 "photon-grid-vue": patch
 ---
 
-Added CDN To The Core
+Bumped the versions

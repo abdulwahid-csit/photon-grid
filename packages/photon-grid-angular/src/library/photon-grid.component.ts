@@ -128,6 +128,25 @@ export class PhotonGridComponent implements AfterViewInit, OnChanges, OnDestroy 
      * `columns` and `data` are supplied by the dedicated inputs above and are
      * merged in automatically. The core has no runtime options setter, so a
      * change to this input transparently recreates the grid.
+     *
+     * Enable the natural-language AI panel — and, optionally, its Gemini
+     * generative back-end — through `options.photonAI`:
+     *
+     * @example Gemini-powered AI panel
+     * ```ts
+     * import { PhotonAIProviderType } from 'photon-grid-angular';
+     *
+     * options: Partial<GridOptions> = {
+     *   photonAI: {
+     *     enabled: true,
+     *     provider: {
+     *       type: PhotonAIProviderType.Gemini,
+     *       apiKey: environment.geminiApiKey,
+     *       model: 'gemini-2.5-flash',
+     *     },
+     *   },
+     * };
+     * ```
      */
     @Input()
     options: Partial<GridOptions> = {};

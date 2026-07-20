@@ -18,6 +18,7 @@ import type { DisplayGroupEngine } from '../column-groups/display-group-engine';
 import { GridEventType } from '../types/event.types';
 import { GroupDropZone } from './group-drop-zone';
 import { HeaderRenderer } from './header-renderer';
+import { isTouchPointer } from '../core/pointer-utils';
 import { ColumnChooser } from './column-chooser';
 import { BodyRenderer } from './body-renderer';
 import { RowDragRenderer } from './row-drag-renderer';
@@ -545,10 +546,25 @@ export class GridRenderer {
     this.photonAIPanel?.setSubmitHandler(fn);
   }
 
+  /**
+   * Wires the async (generative provider) handler for the Photon AI panel.
+   * When set, the panel streams the reply with a loading + typewriter effect
+   * instead of rendering it synchronously. A no-op when the panel doesn't exist.
+   */
+  setPhotonAIAsyncSubmitHandler(fn: (text: string, signal: AbortSignal) => Promise<PhotonCommandResult>): void {
+    this.photonAIPanel?.setAsyncSubmitHandler(fn);
+  }
+
   /** Programmatic entry point mirroring the panel's own UI — backs `GridApi.submitAICommand`. */
   submitAICommand(text: string): PhotonCommandResult {
     return this.photonAIPanel?.invoke(text)
       ?? { success: false, message: 'Photon AI is not enabled on this grid.' };
+  }
+
+  /** Async, streaming programmatic entry point — backs `GridApi.submitAICommandAsync`. Falls back to the sync path when no provider is configured. */
+  submitAICommandAsync(text: string): Promise<PhotonCommandResult> {
+    return this.photonAIPanel?.invokeAsync(text)
+      ?? Promise.resolve({ success: false, message: 'Photon AI is not enabled on this grid.' });
   }
 
   /**
@@ -927,6 +943,15 @@ export class GridRenderer {
     // Mount scroll controller — both V and H use native browser scrollbars
     this.scrollController.mount(this.wrapperEl, bodyWrapEl, centerBodyEl, sbVNative, sbVSpacer, sbHNative, sbHSpacer, sbHRowEl);
 
+    // Suspend touch-panning while a column reorder/resize or a column-group drag
+    // owns the pointer, so a long-press pick-up or an edge resize is never fought
+    // by kinetic scrolling.
+    this.scrollController.setGestureGuard(
+      () => this.headerRenderer.isBusy
+        || (this.groupDragHandler?.isDragging ?? false)
+        || (this.displayGroupEngine?.isDraggingGroup ?? false),
+    );
+
     this.scrollController.onScrollY(() => this.scheduleRender());
     this.scrollController.onScrollX(() => this.scheduleRender());
 
@@ -1059,12 +1084,15 @@ export class GridRenderer {
     // coordinates when the cursor exits the grid boundary.
     this.cellSelectionEngine.setDragViewportRectCallback(() => this.bodyWrapEl?.getBoundingClientRect() ?? null);
 
-    // Mouse drag to extend selection.
-    // Guard on e.buttons: if no mouse button is held (e.g. touchpad hover after
+    // Mouse/pen drag to extend selection. Touch is excluded: a finger-drag on
+    // the body pans the grid (ScrollController), so range selection stays a
+    // mouse/pen affordance — a touch user taps a cell, then shift-taps to extend.
+    // Guard on e.buttons: if no button is held (e.g. touchpad hover after
     // keyboard navigation left _isSelecting true), cancel the drag immediately
     // instead of extending the selection on every pointer movement.
-    bodyWrapEl.addEventListener('mousemove', (e) => {
+    bodyWrapEl.addEventListener('pointermove', (e) => {
       if (!this.cellSelectionEngine.isSelecting) return;
+      if (isTouchPointer(e)) return;
       if (e.buttons === 0) {
         this.cellSelectionEngine.endSelection();
         this.autoScroller?.stop();
@@ -1080,12 +1108,12 @@ export class GridRenderer {
       if (!isNaN(ri) && !isNaN(ci)) this.cellSelectionEngine.extendSelection(ri, ci);
     });
 
-    bodyWrapEl.addEventListener('mouseup', () => {
+    bodyWrapEl.addEventListener('pointerup', () => {
       this.cellSelectionEngine.endSelection();
       this.autoScroller?.stop();
     });
 
-    // The bodyWrapEl mouseup only fires when the pointer is released inside the
+    // The bodyWrapEl pointerup only fires when the pointer is released inside the
     // grid.  When the auto-scroller is running the user's cursor is outside the
     // viewport edge — releasing there fires no bodyWrapEl event, so scrolling
     // never stops.  A document-level listener catches the release everywhere and
@@ -1096,8 +1124,8 @@ export class GridRenderer {
       }
       this.autoScroller?.stop();
     };
-    document.addEventListener('mouseup', docMouseUp);
-    this.unsubscribers.push(() => document.removeEventListener('mouseup', docMouseUp));
+    document.addEventListener('pointerup', docMouseUp);
+    this.unsubscribers.push(() => document.removeEventListener('pointerup', docMouseUp));
   }
 
   /**

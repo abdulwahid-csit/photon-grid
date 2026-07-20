@@ -44,8 +44,8 @@ export class DragDropEngine {
   private currentSession: DragSession | null = null;
   private preview = new DragPreview();
   private autoscroll = new DragAutoscroll();
-  private boundMouseMove: (e: MouseEvent) => void;
-  private boundMouseUp: (e: MouseEvent) => void;
+  private boundMouseMove: (e: PointerEvent) => void;
+  private boundMouseUp: (e: PointerEvent) => void;
   private previewOptions: DragPreviewOptions = {};
 
   constructor(private eventBus: EventBus) {
@@ -66,7 +66,7 @@ export class DragDropEngine {
   ): () => void {
     if (previewOpts) this.previewOptions = previewOpts;
 
-    const onMouseDown = (e: MouseEvent) => {
+    const onMouseDown = (e: PointerEvent) => {
       if (e.button !== 0) return;
       e.preventDefault();
 
@@ -85,16 +85,16 @@ export class DragDropEngine {
 
       if (scrollContainer) this.autoscroll.attach(scrollContainer);
 
-      document.addEventListener('mousemove', this.boundMouseMove);
-      document.addEventListener('mouseup', this.boundMouseUp);
+      document.addEventListener('pointermove', this.boundMouseMove);
+      document.addEventListener('pointerup', this.boundMouseUp);
     };
 
-    el.addEventListener('mousedown', onMouseDown);
+    el.addEventListener('pointerdown', onMouseDown);
     el.style.cursor = 'grab';
     el.setAttribute('data-draggable', item.type);
 
     return () => {
-      el.removeEventListener('mousedown', onMouseDown);
+      el.removeEventListener('pointerdown', onMouseDown);
       el.style.cursor = '';
       el.removeAttribute('data-draggable');
     };
@@ -113,11 +113,11 @@ export class DragDropEngine {
   destroy(): void {
     this.cancelDrag();
     this.autoscroll.detach();
-    document.removeEventListener('mousemove', this.boundMouseMove);
-    document.removeEventListener('mouseup', this.boundMouseUp);
+    document.removeEventListener('pointermove', this.boundMouseMove);
+    document.removeEventListener('pointerup', this.boundMouseUp);
   }
 
-  private onMouseMove(e: MouseEvent): void {
+  private onMouseMove(e: PointerEvent): void {
     if (!this.currentSession) return;
 
     const session = this.currentSession;
@@ -165,7 +165,7 @@ export class DragDropEngine {
     });
   }
 
-  private onMouseUp(e: MouseEvent): void {
+  private onMouseUp(e: PointerEvent): void {
     if (!this.currentSession) return;
     const session = this.currentSession;
 
@@ -201,8 +201,8 @@ export class DragDropEngine {
 
     this.preview.destroy();
     this.autoscroll.stop();
-    document.removeEventListener('mousemove', this.boundMouseMove);
-    document.removeEventListener('mouseup', this.boundMouseUp);
+    document.removeEventListener('pointermove', this.boundMouseMove);
+    document.removeEventListener('pointerup', this.boundMouseUp);
     this.currentSession = null;
   }
 

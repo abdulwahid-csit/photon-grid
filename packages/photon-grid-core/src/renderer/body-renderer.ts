@@ -10,6 +10,7 @@ import { formatValue } from '../engines/editing/value-parser';
 import { createDiv, toggleClass } from './dom-utils';
 import { resolveColumnRenderer } from './renderer-resolver';
 import { applyTreeToggle, syncTreeToggle, type TreeToggleRenderConfig } from './tree-cell-renderer';
+import { isTouchPointer, DRAG_THRESHOLD_TOUCH } from '../core/pointer-utils';
 
 /**
  * Sentinel `ColumnDef` emitted with `CELL_CLICKED` for the auto-group label cell.
@@ -924,7 +925,7 @@ export class BodyRenderer {
       this.eventBus.emit(GridEventType.ROW_DOUBLE_CLICKED, { row, event: e, rowIndex: row.rowIndex });
     });
 
-    el.addEventListener('mousedown', (e) => {
+    el.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
       // The Master/Detail toggle sits inside a cell but must never trigger
       // cell selection — it emits its own click event (see
@@ -942,14 +943,41 @@ export class BodyRenderer {
           ? (row.type === 'data' ? (options.leafGroupColDef ?? null) : GROUP_LABEL_COL_DEF)
           : null);
       if (!colDef) return;
-      this.eventBus.emit(GridEventType.CELL_CLICKED, {
-        row,
-        colDef,
-        value: null,
-        rowIndex: row.rowIndex,
-        colIndex: globalColIndex,
-        event: e,
-      });
+
+      const emit = (ev: MouseEvent): void => {
+        this.eventBus.emit(GridEventType.CELL_CLICKED, {
+          row,
+          colDef,
+          value: null,
+          rowIndex: row.rowIndex,
+          colIndex: globalColIndex,
+          event: ev,
+        });
+      };
+
+      // Mouse/pen select immediately on press (enables drag-to-extend). Touch
+      // must not: a press that becomes a swipe is a scroll, not a selection —
+      // so defer to pointerup and only select if the finger stayed put (a tap).
+      if (isTouchPointer(e)) {
+        const sx = e.clientX;
+        const sy = e.clientY;
+        const cleanup = (): void => {
+          document.removeEventListener('pointerup', onUp);
+          document.removeEventListener('pointercancel', cleanup);
+        };
+        const onUp = (ue: PointerEvent): void => {
+          cleanup();
+          if (Math.abs(ue.clientX - sx) <= DRAG_THRESHOLD_TOUCH &&
+              Math.abs(ue.clientY - sy) <= DRAG_THRESHOLD_TOUCH) {
+            emit(ue);
+          }
+        };
+        document.addEventListener('pointerup', onUp);
+        document.addEventListener('pointercancel', cleanup);
+        return;
+      }
+
+      emit(e);
     });
 
     el.addEventListener('contextmenu', (e) => {

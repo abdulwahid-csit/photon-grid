@@ -5,4 +5,4 @@
 "photon-grid-vue": patch
 ---
 
-Added Creating GridCore
+Updated the Mobile accessebility and the Photon AI

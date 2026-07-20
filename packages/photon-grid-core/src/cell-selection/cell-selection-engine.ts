@@ -210,8 +210,8 @@ export class CellSelectionEngine {
 
   detach(): void {
     document.removeEventListener('keydown', this.boundKeydown);
-    document.removeEventListener('mousemove', this.boundFillMouseMove);
-    document.removeEventListener('mouseup', this.boundFillMouseUp);
+    document.removeEventListener('pointermove', this.boundFillMouseMove);
+    document.removeEventListener('pointerup', this.boundFillMouseUp);
     activeGridRegistry.release(this);
     this.fillHandleParentCell?.classList.remove('pg-cell--has-fill-handle');
     this.fillHandleParentCell = null;
@@ -412,7 +412,8 @@ export class CellSelectionEngine {
     if (!this.fillHandleEl) {
       const handle = document.createElement('div');
       handle.className = 'pg-fill-handle';
-      handle.addEventListener('mousedown', (e: MouseEvent) => {
+      handle.addEventListener('pointerdown', (e: PointerEvent) => {
+        if (e.button !== 0) return;
         e.preventDefault();
         e.stopPropagation();
         this.startFillDrag();
@@ -450,8 +451,8 @@ export class CellSelectionEngine {
     this.fillDirection    = null;
     this.fillTargetRow    = null;
     this.fillTargetCol    = null;
-    document.addEventListener('mousemove', this.boundFillMouseMove);
-    document.addEventListener('mouseup',   this.boundFillMouseUp);
+    document.addEventListener('pointermove', this.boundFillMouseMove);
+    document.addEventListener('pointerup',   this.boundFillMouseUp);
   }
 
   /**
@@ -590,8 +591,8 @@ export class CellSelectionEngine {
    * restores the fill handle to its resting position.
    */
   private onFillMouseUp(): void {
-    document.removeEventListener('mousemove', this.boundFillMouseMove);
-    document.removeEventListener('mouseup',   this.boundFillMouseUp);
+    document.removeEventListener('pointermove', this.boundFillMouseMove);
+    document.removeEventListener('pointerup',   this.boundFillMouseUp);
     this.fillDragEndCallback?.();
 
     if (this.fillSourceRange && this.fillDirection) {
@@ -1115,7 +1116,7 @@ export class CellSelectionEngine {
     this.contextMenuEl.style.top  = `${top}px`;
     this.contextMenuEl.classList.add('pg-context-menu--visible');
     requestAnimationFrame(() => {
-      document.addEventListener('mousedown', this.boundHideCtx, { once: true });
+      document.addEventListener('pointerdown', this.boundHideCtx, { once: true });
     });
   }
 
@@ -1529,7 +1530,7 @@ export class CellSelectionEngine {
     exportItem.appendChild(exportSub);
     el.appendChild(exportItem);
 
-    el.addEventListener('mousedown', (e) => e.stopPropagation());
+    el.addEventListener('pointerdown', (e) => e.stopPropagation());
     el.addEventListener('click', (e) => {
       const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-action],[data-chart-type]');
       if (!btn) return;

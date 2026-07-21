@@ -18,6 +18,7 @@ import type { ColumnGroupModel } from '../column-groups/column-group-model';
 import type { ColumnGroupSerialState, ColumnGroupSystemState, ColumnTreeNode } from '../column-groups/column-group.types';
 import { ColumnGroupStateManager } from '../column-groups/column-group-state-manager';
 import type { PhotonCommandResult } from '../photon-ai/photon-ai.types';
+import type { ThemeMode, ThemeVariant } from '../types/theme.types';
 
 export class GridApi {
   private _columnGroupModel: ColumnGroupModel | null = null;
@@ -576,12 +577,46 @@ export class GridApi {
 
   // ──────────────────── Theme ────────────────────
 
+  /**
+   * Set the color mode (light/dark). Preserves the active variant.
+   */
+  setMode(mode: ThemeMode): void {
+    this.ctx.themeManager.applyMode(mode, this.ctx.containerEl);
+  }
+
+  /**
+   * Set (or clear with `'none'`) the cosmetic variant skin. Preserves the
+   * active mode.
+   */
+  setVariant(variant: ThemeVariant | 'none'): void {
+    this.ctx.themeManager.applyVariant(variant, this.ctx.containerEl);
+  }
+
+  /**
+   * @deprecated Use {@link GridApi.setMode} / {@link GridApi.setVariant}.
+   * Accepts legacy theme strings (`'dark'`, `'quartz'`, `'pg-quartz-theme'`, …)
+   * and maps them onto the mode/variant axes.
+   */
   setTheme(nameOrTheme: string): void {
     this.ctx.themeManager.applyTheme(nameOrTheme, this.ctx.containerEl);
   }
 
   toggleDarkMode(): void {
     this.ctx.themeManager.toggleDarkMode();
+  }
+
+  // ──────────────────── Row animation ────────────────────
+
+  /**
+   * Enable or disable row animations (sort reorder, filter appear/disappear,
+   * group / master-detail expand) at runtime, overriding the initial
+   * `GridOptions.animateRows`.
+   *
+   * @param enabled - `true` to animate, `false` to disable. Defaults to enabled
+   *                  when `animateRows` is omitted from the grid options.
+   */
+  setRowAnimation(enabled: boolean): void {
+    this.ctx.renderer.setRowAnimationEnabled(enabled);
   }
 
   // ──────────────────── Full Screen ────────────────────

@@ -1,7 +1,7 @@
-import type { ColumnDef, ColumnDefInput, ColumnState } from './column.types';
+import type { ColumnDef, ColumnDefInput, ColumnState, HeaderIconDisplay } from './column.types';
 import type { RowNode } from './row.types';
 import type { FilterModel, QuickFilterConfig } from './filter.types';
-import type { BuiltInThemeName } from './theme.types';
+import type { BuiltInThemeName, ThemeMode, ThemeVariant } from './theme.types';
 import type { MasterDetailConfig } from './master-detail.types';
 import type { PhotonAIConfig } from './photon-ai.types';
 import type { TreeDataConfig } from './tree-data.types';
@@ -34,6 +34,40 @@ export interface SortConfig {
   order: 'asc' | 'desc';
 }
 
+/**
+ * Grid-wide visibility policy for the header action icons — the filter funnel
+ * and the column-menu "⋯" button.
+ *
+ * These are the defaults applied to every eligible column (filterable columns
+ * for {@link HeaderIconsConfig.filter}; all columns when the menu is enabled
+ * for {@link HeaderIconsConfig.menu}). Any column may override the grid default
+ * via {@link ColumnDef.filterIconDisplay} / {@link ColumnDef.menuIconDisplay}.
+ *
+ * @example
+ * ```ts
+ * // Always show the filter funnel, and hide the "⋯" menu icon entirely.
+ * headerIcons: {
+ *   filter: HeaderIconDisplay.ALWAYS,
+ *   menu:   HeaderIconDisplay.HIDDEN,
+ * }
+ * ```
+ */
+export interface HeaderIconsConfig {
+  /**
+   * Default display mode for the filter funnel icon on filterable columns.
+   * `HIDDEN` suppresses the funnel entirely (filtering remains available via
+   * the filter row).
+   * @default HeaderIconDisplay.HOVER
+   */
+  filter?: HeaderIconDisplay;
+  /**
+   * Default display mode for the column-menu "⋯" icon. `HIDDEN` removes the
+   * three-dots button (the header right-click menu still works).
+   * @default HeaderIconDisplay.HOVER
+   */
+  menu?: HeaderIconDisplay;
+}
+
 export interface PaginationConfig {
   enabled: boolean;
   page: number;
@@ -49,6 +83,20 @@ export interface SelectionConfig {
   selectAllOnHeaderClick: boolean;
   headerCheckbox: boolean;
   suppressRowDeselection: boolean;
+  /**
+   * When `true`, the serial-number (`#`) column acts as an AG Grid–style
+   * selection column: mouse-down on a serial cell selects the row, dragging
+   * extends a contiguous row range (with edge auto-scroll), Ctrl/Cmd toggles
+   * individual rows, and Shift selects a range from the anchor. With a row
+   * selection active, Ctrl+C copies the selected rows (values-only TSV) and
+   * Delete/Backspace/Ctrl+X remove them.
+   *
+   * Requires {@link GridOptions.showSerialNumber} and a non-`'none'`
+   * {@link SelectionConfig.mode}. Ignored otherwise.
+   *
+   * @default false
+   */
+  serialColumnSelection: boolean;
 }
 
 /**
@@ -153,6 +201,31 @@ export interface GridOptions {
   columns: ColumnDefInput[];
   data?: Record<string, unknown>[];
 
+  /**
+   * Base color mode — drives the entire color palette (light or dark).
+   * Defaults to `'light'`. This is the primary theming axis.
+   *
+   * @example
+   * ```ts
+   * new GridCore(el, { columns, mode: 'dark', variant: 'quartz' });
+   * ```
+   */
+  mode?: ThemeMode;
+
+  /**
+   * Cosmetic skin layered on top of {@link GridOptions.mode}. Changes density,
+   * border radii, typography, checkbox shape, motion and accent color while the
+   * base surface/text colors continue to come from the active mode — so every
+   * variant works in both light and dark. Omit for the plain mode look.
+   */
+  variant?: ThemeVariant;
+
+  /**
+   * @deprecated Use {@link GridOptions.mode} and {@link GridOptions.variant}
+   * instead. Retained for backward compatibility: legacy values such as
+   * `'dark'`, `'quartz'` or `'pg-quartz-theme'` are mapped onto the mode/variant
+   * axes at runtime.
+   */
   theme?: BuiltInThemeName | string;
 
   rowHeight?: number;
@@ -172,6 +245,26 @@ export interface GridOptions {
   showHorizontalBorders?: boolean;
   showFilterRow?: boolean;
   rowShading?: boolean;
+
+  /**
+   * Enables the FLIP/slide row animations played when rows reorder (sort),
+   * appear/disappear (filter), or a group / master-detail row expands.
+   *
+   * Set to `false` to disable all row animations entirely — useful for
+   * reduced-motion preferences or very high-frequency data updates.
+   *
+   * @default true
+   */
+  animateRows?: boolean;
+
+  /**
+   * When the header action icons (filter funnel + column-menu "⋯") appear —
+   * on hover (default) or always. Set grid-wide here; override per column with
+   * {@link ColumnDef.filterIconDisplay} / {@link ColumnDef.menuIconDisplay}.
+   *
+   * @see {@link HeaderIconsConfig}
+   */
+  headerIcons?: HeaderIconsConfig;
 
   selection?: Partial<SelectionConfig>;
   editing?: Partial<EditingConfig>;

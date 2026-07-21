@@ -190,3 +190,30 @@ export interface Theme {
 }
 
 export type BuiltInThemeName = 'light' | 'dark' | 'contrast' | 'material-light' | 'material-dark';
+
+/**
+ * Base color mode. Drives the full color palette (surfaces, text, borders,
+ * rows, scrollbars) via design-token injection. This is the primary theming
+ * axis — every grid resolves to exactly one mode.
+ */
+export type ThemeMode = 'light' | 'dark';
+
+/**
+ * Cosmetic skin layered on top of a {@link ThemeMode}. A variant only overrides
+ * structural / appearance concerns — density (row & header heights), border
+ * radii, typography, checkbox shape, motion and the accent color — while base
+ * surface and text colors continue to come from the active mode. This lets any
+ * variant render correctly in both light and dark.
+ *
+ * `'none'` (the default) applies no skin: the grid uses the mode palette with
+ * the base component styling.
+ */
+export type ThemeVariant = 'quartz' | 'alpine' | 'balham' | 'material';
+
+/** CSS class applied to the grid container for a given variant. */
+export const THEME_VARIANT_CLASS: Readonly<Record<ThemeVariant, string>> = {
+  quartz: 'pg-quartz-theme',
+  alpine: 'pg-alpine-theme',
+  balham: 'pg-balham-theme',
+  material: 'pg-material-theme',
+} as const;

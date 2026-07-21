@@ -6,7 +6,7 @@
  * cascade depends on it.
  */
 export const rowDragCss = `/* ──────────────────── Row Drag ──────────────────── */
-.pg-grid__body { position: relative; }
+.pg-grid__body { position: relative; transform: translateZ(10px);}
 
 .pg-row-drag-handle {
   display: inline-flex;

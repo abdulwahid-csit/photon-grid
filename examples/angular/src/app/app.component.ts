@@ -3,7 +3,7 @@ import { ChangeDetectionStrategy, Component, OnInit, TemplateRef, ViewChild } fr
 import { PhotonGridComponent } from 'photon-grid-angular';
 import type { ColumnDef, RendererContext } from 'photon-grid-angular';
 import type { CellRange, DisplayRendererParams, GridApi, GridOptions } from 'photon-grid-core';
-import { PhotonAIProviderType } from 'photon-grid-core';
+import { PhotonAIProviderType, HeaderIconDisplay } from 'photon-grid-core';
 import type { RowClickPayload, RowSelectedEvent } from 'photon-grid-core';
 
 import { EmployeeCellComponent } from './employee-cell.component';
@@ -126,11 +126,17 @@ export class AppComponent implements OnInit {
 
     /** Remaining grid configuration bound to the grid's `options` input. */
     readonly options: Partial<GridOptions> = {
-        theme: 'light',
+        mode: 'light',
+        variant: 'balham',
         showCheckboxes: false,
         showSerialNumber: true,
         rowShading: false,
         showGroupingBar: true,
+        // Header icons: keep the filter funnel always visible, hide the "⋯" menu.
+        headerIcons: {
+            filter: HeaderIconDisplay.ALWAYS,
+            menu: HeaderIconDisplay.HIDDEN,
+        },
         rowHeight: 42,
         pagination: { enabled: true, pageSize: 1000, },
         headerRowHeight: 48,
@@ -281,6 +287,8 @@ setTimeout(() => {
                     // Component-based renderer: avatar + name + gray job title.
                     display: EmployeeCellComponent,
                 },
+                filterIconDisplay: HeaderIconDisplay.ALWAYS,
+                menuIconDisplay: HeaderIconDisplay.ALWAYS
             },
             {
                 colId: 'email',
@@ -321,11 +329,11 @@ setTimeout(() => {
 
                 enumOptions: Object.keys(this.COUNTRY_FLAGS),
             },
-            { colId: 'city', field: 'city', header: 'City', type: 'string', width: 150, groupable: true },
-            { colId: 'phone', field: 'phone', header: 'Phone', type: 'string', width: 170, flex: 1 },
-            { colId: 'joinDate', field: 'joinDate', header: 'Join Date', type: 'date', width: 140, flex: 1},
-            { colId: 'active', field: 'active', header: 'Active', type: 'boolean', width: 100, flex: 1 },
-            { colId: 'rating', field: 'rating', header: 'Rating', type: 'number', width: 100, flex: 1 },
+            { colId: 'city', field: 'city', header: 'City', type: 'string', minWidth: 150, groupable: true },
+            { colId: 'phone', field: 'phone', header: 'Phone', type: 'string', minWidth: 170, flex: 1 },
+            { colId: 'joinDate', field: 'joinDate', header: 'Join Date', type: 'date', minWidth: 140, flex: 1},
+            { colId: 'active', field: 'active', header: 'Active', type: 'boolean', minWidth: 100, width: 120 },
+            { colId: 'rating', field: 'rating', header: 'Rating', type: 'number', minWidth: 100, width: 120 },
         ];
     }
 

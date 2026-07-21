@@ -185,7 +185,7 @@ export const columnGroupHeaderCss = `/* ─────────────�
   align-items: center;
   gap: var(--pg-drag-ghost-gap, 8px);
   padding: 5px 12px 5px 10px;
-  background: var(--pg-colors-drag-ghost-background, #fff);
+  background: var(--pg-colors-drag-ghost-background, var(--pg-colors-drag-preview-background, var(--pg-colors-surface, #fff)));
   border: 1.5px solid var(--pg-colors-primary, #2563eb);
   border-radius: var(--pg-borders-radius-md, 6px);
   box-shadow: 0 6px 24px rgba(0,0,0,0.13), 0 2px 8px rgba(37, 99, 235, 0.12);

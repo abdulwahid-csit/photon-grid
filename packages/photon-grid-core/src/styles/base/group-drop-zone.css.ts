@@ -89,7 +89,7 @@ export const groupDropZoneCss = `/* ──────────────�
   overflow-x: hidden;
 }
 .pg-group-zone-chips--over {
-  background: var(--pg-colors-group-zone-over, #eff6ff);
+  background: var(--pg-colors-group-zone-over, var(--pg-colors-selection-background, #eff6ff));
   outline: 1px dashed var(--pg-colors-primary, #2563eb);
   outline-offset: -2px;
 }
@@ -137,8 +137,8 @@ export const groupDropZoneCss = `/* ──────────────�
   gap: 5px;
   padding: 3px 6px 3px 10px;
   border-radius: var(--pg-borders-radius-pill, 9999px);
-  background: var(--pg-colors-chip-background, #e0e7ff);
-  color: var(--pg-colors-chip-text, #1e40af);
+  background: var(--pg-colors-chip-background, var(--pg-colors-badge-background, #e0e7ff));
+  color: var(--pg-colors-chip-text, var(--pg-colors-badge-text, #1e40af));
   font-size: var(--pg-typography-font-size-sm, 12px);
   font-weight: var(--pg-typography-font-weight-medium, 500);
   user-select: none;

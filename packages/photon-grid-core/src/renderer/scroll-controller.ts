@@ -251,6 +251,29 @@ export class ScrollController {
     // panel's native scroll entirely and redirects the gesture into scrolling
     // the grid underneath it instead — bail out here so the panel scrolls itself.
     if ((e.target as HTMLElement | null)?.closest('.pg-ai-panel')) return;
+
+    let dx = e.deltaX;
+    let dy = e.deltaY;
+    if (e.deltaMode === 1 /* DOM_DELTA_LINE */) { dx *= 32; dy *= 32; }
+    else if (e.deltaMode === 2 /* DOM_DELTA_PAGE */) { dx *= this.centerViewportWidth; dy *= this.viewportHeight; }
+
+    // Which axis this gesture drives, and the signed delta applied to it. A
+    // shift-wheel or horizontal-dominant gesture maps onto X; a plain wheel
+    // with no deltaX still drives X off deltaY (mirrors the scroll calls below).
+    const horizontal = e.shiftKey || Math.abs(dx) > Math.abs(dy);
+    const delta = horizontal ? (e.deltaX !== 0 ? dx : dy) : dy;
+
+    // Only consume the gesture when this grid can still scroll in that
+    // direction. Once pinned at the relevant edge we leave the event neither
+    // prevented nor stopped, so it bubbles: a parent Master/Detail grid — or
+    // the browser's native scroll on any outer container — picks it up instead
+    // of the gesture dead-ending here. This is what lets an at-boundary scroll
+    // hand off to the surrounding page.
+    const canConsume = horizontal
+      ? (delta > 0 ? this.canScrollRight() : delta < 0 ? this.canScrollLeft() : false)
+      : (delta > 0 ? this.canScrollDown()  : delta < 0 ? this.canScrollUp()   : false);
+    if (!canConsume) return;
+
     e.preventDefault();
     // A nested Master/Detail grid's body sits inside the parent grid's own
     // `.pg-grid__body` (a sibling of the pinned panels, not a descendant of
@@ -259,16 +282,14 @@ export class ScrollController {
     // the parent grid's own wheel listener on that shared ancestor, scrolling
     // both grids from a single gesture (most visible on horizontal-dominant
     // scrolls, and intermittently on trackpads whose "vertical" gestures emit
-    // a small stray deltaX).
+    // a small stray deltaX). We only reach here when this grid is actually
+    // consuming the gesture, so stopping propagation is safe — an at-boundary
+    // gesture bailed out above and is intentionally left to bubble.
     e.stopPropagation();
-    let dx = e.deltaX;
-    let dy = e.deltaY;
-    if (e.deltaMode === 1 /* DOM_DELTA_LINE */) { dx *= 32; dy *= 32; }
-    else if (e.deltaMode === 2 /* DOM_DELTA_PAGE */) { dx *= this.centerViewportWidth; dy *= this.viewportHeight; }
-    if (e.shiftKey || Math.abs(dx) > Math.abs(dy)) {
-      this.scrollToX(this.scrollLeft + (e.deltaX !== 0 ? dx : dy));
+    if (horizontal) {
+      this.scrollToX(this.scrollLeft + delta);
     } else {
-      this.scrollToY(this.scrollTop + dy);
+      this.scrollToY(this.scrollTop + delta);
     }
   };
 

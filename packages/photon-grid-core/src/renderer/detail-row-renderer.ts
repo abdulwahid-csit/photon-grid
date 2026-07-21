@@ -323,7 +323,11 @@ export class DetailRowRenderer {
     const nestedHost = createDiv('pg-detail-nested-grid-host');
     entry.containerEl.appendChild(nestedHost);
 
-    const nestedOptions = engine.resolveDetailGridOptions(row, this.themeManager!.getActiveTheme());
+    const nestedOptions = engine.resolveDetailGridOptions(
+      row,
+      this.themeManager!.getActiveMode(),
+      this.themeManager!.getActiveVariant(),
+    );
     const instance = this.nestedGridFactory!(nestedHost, nestedOptions);
     entry.instance = instance;
     entry.contentBuilt = true;

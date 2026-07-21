@@ -82,6 +82,14 @@ export const contextMenuCss = `/* ─── Context menu ─── */
   font-size: var(--pg-typography-font-size-sm, 12px);
 }
 .pg-cell__serial { font-variant-numeric: tabular-nums; }
+/* Dark mode: tint the serial (row-number) column with the header/footer chrome
+   background (which sits above the darker data-row background in dark themes) so
+   the number gutter reads as grid chrome — matching the header and footer
+   surfaces — rather than as data. Scoped to dark mode per design; variants that
+   define their own serial-column chrome (e.g. quartz) still win via source order. */
+[data-pg-mode="dark"] .pg-cell--serial {
+  background: var(--pg-colors-header-background, var(--pg-colors-footer-background, #1e293b));
+}
 .pg-cell--bool-true { color: var(--pg-colors-success, #16a34a); }
 .pg-cell--bool-false { color: var(--pg-colors-text-disabled, #94a3b8); }
 .pg-cell__image { border-radius: var(--pg-borders-radius-sm, 4px); object-fit: cover; }

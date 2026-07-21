@@ -19,6 +19,12 @@ export const sparklineCss = `/* ────────────────
   min-width: 175px; padding: 4px;
   white-space: nowrap;
 }
+/* Viewport-aware flip: when a submenu near the right edge would overflow,
+   JS (positionSubmenu) adds --sub-left so the flyout opens to the left
+   instead. Works at any nesting depth since every wrapper shares the class. */
+.pg-context-menu__item--has-sub.pg-context-menu__item--sub-left > .pg-context-menu__sub {
+  left: auto; right: 100%;
+}
 .pg-context-menu__item--has-sub::after {
   content: '›'; position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
   font-size: 16px; color: var(--pg-colors-text-secondary,#64748b); line-height: 1;

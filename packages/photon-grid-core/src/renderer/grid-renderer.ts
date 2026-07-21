@@ -492,14 +492,31 @@ export class GridRenderer {
    * Snapshot current row positions so the next render animates the transition.
    * Call this **before** any pipeline that reorders or hides rows.
    *
+   * No-ops when row animations are disabled via `GridOptions.animateRows === false`
+   * (or {@link setRowAnimationEnabled}); with no snapshot captured, the next
+   * render simply skips the animation.
+   *
    * @param rows - Current visible rows before the pipeline runs.
-   * @param type - `'sort'` (default) or `'filter'` — controls duration and entrance style.
+   * @param type - `'sort'` (default), `'filter'` or `'detail'` — controls duration and entrance style.
    */
   captureRowAnimation(
     rows: ReadonlyArray<{ nodeId: string; top: number }>,
     type: import('./row-animator').RowAnimationType = 'sort',
   ): void {
+    if (this.options.animateRows === false) return;
     this.rowAnimator.capture(rows, type);
+  }
+
+  /**
+   * Enable or disable row animations at runtime, overriding the initial
+   * `GridOptions.animateRows` value. Disabling clears any pending capture so an
+   * in-flight transition does not play on the next render.
+   *
+   * @param enabled - `true` to animate row reorders/appearance, `false` to disable.
+   */
+  setRowAnimationEnabled(enabled: boolean): void {
+    this.options.animateRows = enabled;
+    if (!enabled) this.rowAnimator.destroy();
   }
 
   /** Wire up the group-bar search input to an external handler (e.g. api.setQuickFilter). */

@@ -30,11 +30,14 @@ export const scrollbarsCss = `/* ───────────────�
 .pg-scrollbar-h-spacer { flex-shrink: 0; background: var(--pg-colors-scrollbar-track, var(--pg-colors-scrollbar-bg, #f8fafc)); }
 .pg-scrollbar-h-spacer--left  { width: var(--pg-left-panel-width, 0px); overflow: scroll; }
 .pg-scrollbar-h-spacer--right { width: var(--pg-right-panel-width, 0px); overflow: scroll; }
-/* Aligns the h-scroll track with the narrowed center panel (which is now
-   offset by the vertical scrollbar width captured in --pg-scrollbar-v-width). */
+/* Aligns the h-scroll track with the narrowed center panel: reserves exactly
+   the vertical scrollbar's *current* width (0 when hidden) so the native
+   h-scroll container's client width equals the center viewport — otherwise the
+   track is wider than the panel and the body scrolls short by the scrollbar
+   width, leaving the last column partly hidden. */
 .pg-scrollbar-h-spacer--vscroll {
   flex-shrink: 0;
-  width: 0px;
+  width: var(--pg-scrollbar-v-live-width, 0px);
   background: var(--pg-colors-scrollbar-track, var(--pg-colors-scrollbar-bg, #f8fafc));
 }
 /* Native horizontal scrollbar container */

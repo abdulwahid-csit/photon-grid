@@ -69,18 +69,18 @@ export const cellsCss = `/* ─────────────────�
 }
 
 /* Dark-mode overrides */
-.pg-grid[data-theme="dark"] .pg-cell--in-selection {
+[data-pg-mode="dark"] .pg-cell--in-selection {
   background-color: rgba(37,99,235,0.18) !important;
 }
-.pg-grid[data-theme="dark"] .pg-cell--sel-top    { --_t:  2px; }
-.pg-grid[data-theme="dark"] .pg-cell--sel-bottom { --_b: -2px; }
-.pg-grid[data-theme="dark"] .pg-cell--sel-left   { --_l:  2px; }
-.pg-grid[data-theme="dark"] .pg-cell--sel-right  { --_r: -2px; }
-.pg-grid[data-theme="dark"] .pg-cell--active-cell {
+[data-pg-mode="dark"] .pg-cell--sel-top    { --_t:  2px; }
+[data-pg-mode="dark"] .pg-cell--sel-bottom { --_b: -2px; }
+[data-pg-mode="dark"] .pg-cell--sel-left   { --_l:  2px; }
+[data-pg-mode="dark"] .pg-cell--sel-right  { --_r: -2px; }
+[data-pg-mode="dark"] .pg-cell--active-cell {
   background-color: rgba(37,99,235,0.25) !important;
   box-shadow: inset 0 0 0 2px #60a5fa !important;
 }
-.pg-grid[data-theme="dark"] .pg-cell--in-selection.pg-cell--active-cell {
+[data-pg-mode="dark"] .pg-cell--in-selection.pg-cell--active-cell {
   background-color: rgba(37,99,235,0.18) !important;
   box-shadow:
     inset 0 var(--_t) 0 0 #60a5fa,
@@ -100,7 +100,7 @@ export const cellsCss = `/* ─────────────────�
   font-style: italic;
   font-weight: var(--pg-typography-font-weight-semi-bold, 600);
 }
-.pg-grid[data-theme="dark"] .pg-cell--agg {
+[data-pg-mode="dark"] .pg-cell--agg {
   color: var(--pg-colors-agg-text, var(--pg-colors-text-secondary, #94a3b8));
 }
 
@@ -140,10 +140,10 @@ export const cellsCss = `/* ─────────────────�
   animation: pg-cut-flash-overlay 0.75s ease-out forwards;
 }
 /* Dark mode uses stronger overlay */
-.pg-grid[data-theme="dark"] .pg-cell--copy-flash::before {
+[data-pg-mode="dark"] .pg-cell--copy-flash::before {
   background: rgba(99, 165, 253, 0.5);
 }
-.pg-grid[data-theme="dark"] .pg-cell--cut-flash::before {
+[data-pg-mode="dark"] .pg-cell--cut-flash::before {
   background: rgba(252, 100, 100, 0.5);
 }
 
@@ -167,7 +167,7 @@ export const cellsCss = `/* ─────────────────�
   background: rgba(34, 197, 94, 0.45);
   animation: pg-fill-flash-overlay 0.75s ease-out forwards;
 }
-.pg-grid[data-theme="dark"] .pg-cell--fill-flash::before {
+[data-pg-mode="dark"] .pg-cell--fill-flash::before {
   background: rgba(74, 222, 128, 0.5);
 }
 
@@ -186,7 +186,7 @@ export const cellsCss = `/* ─────────────────�
   background: rgba(59, 130, 246, 0.40);
   animation: pg-fill-flash-overlay 0.75s ease-out forwards;
 }
-.pg-grid[data-theme="dark"] .pg-cell--flash::before {
+[data-pg-mode="dark"] .pg-cell--flash::before {
   background: rgba(96, 165, 250, 0.45);
 }
 
@@ -244,7 +244,7 @@ export const cellsCss = `/* ─────────────────�
 .pg-cell--fp-left::after   { border-left-width:   1px; }
 .pg-cell--fp-right::after  { border-right-width:  1px; }
 
-.pg-grid[data-theme="dark"] .pg-cell--fill-preview {
+[data-pg-mode="dark"] .pg-cell--fill-preview {
   background-color: rgba(37, 99, 235, 0.12) !important;
 }
 

@@ -104,7 +104,7 @@ export const filterCss = `/* ─────────────────
   box-shadow: var(--pg-shadows-lg, 0 8px 24px rgba(0,0,0,.12));
   overflow: hidden;
   font-size: var(--pg-typography-font-size-sm, 13px);
-  color: var(--pg-colors-text, #1e293b);
+  color: var(--pg-colors-text-primary, #1e293b);
   user-select: none;
 }
 
@@ -121,7 +121,7 @@ export const filterCss = `/* ─────────────────
   border: 1px solid var(--pg-colors-border, #e2e8f0);
   border-radius: var(--pg-borders-radius-sm, 4px);
   background: var(--pg-colors-surface, #fff);
-  color: var(--pg-colors-text, #1e293b);
+  color: var(--pg-colors-text-primary, #1e293b);
   font-size: inherit;
   font-family: inherit;
   cursor: pointer;
@@ -149,7 +149,7 @@ export const filterCss = `/* ─────────────────
   border: 1px solid var(--pg-colors-border, #e2e8f0);
   border-radius: var(--pg-borders-radius-sm, 4px);
   background: var(--pg-colors-surface, #fff);
-  color: var(--pg-colors-text, #1e293b);
+  color: var(--pg-colors-text-primary, #1e293b);
   font-size: inherit;
   font-family: inherit;
   outline: none;
@@ -212,7 +212,7 @@ export const filterCss = `/* ─────────────────
   border: 1px solid var(--pg-colors-border, #e2e8f0);
   border-radius: var(--pg-borders-radius-sm, 4px);
   background: var(--pg-colors-surface, #fff);
-  color: var(--pg-colors-text, #1e293b);
+  color: var(--pg-colors-text-primary, #1e293b);
   font-size: inherit;
   font-family: inherit;
   box-sizing: border-box;
@@ -245,7 +245,7 @@ export const filterCss = `/* ─────────────────
 .pg-filter-set__item--select-all {
   position: static;
   font-weight: 500;
-  color: var(--pg-colors-text, #1e293b);
+  color: var(--pg-colors-text-primary, #1e293b);
 }
 .pg-filter-set__item-label {
   overflow: hidden;
@@ -305,7 +305,7 @@ export const filterCss = `/* ─────────────────
 .pg-filter-panel__clear-btn:hover {
   background: var(--pg-colors-background-alt, #f1f5f9);
   border-color: var(--pg-colors-text-secondary, #475569);
-  color: var(--pg-colors-text, #1e293b);
+  color: var(--pg-colors-text-primary, #1e293b);
 }
 
 `;

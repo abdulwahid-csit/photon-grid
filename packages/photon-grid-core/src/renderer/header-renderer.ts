@@ -790,11 +790,12 @@ export class HeaderRenderer {
 
     // Filter icon — reveal-on-hover by default; always visible when a filter is
     // active, or when the column/grid opts into `HeaderIconDisplay.ALWAYS`.
-    if (col.filterable !== false) {
+    // Skipped entirely when the mode is `HeaderIconDisplay.HIDDEN`.
+    const filterMode = col.filterIconDisplay ?? options.filterIconDisplay ?? HeaderIconDisplay.HOVER;
+    if (col.filterable !== false && filterMode !== HeaderIconDisplay.HIDDEN) {
       const filterBtn = createDiv('pg-th__filter-btn');
       const filterActive = col.filterActive === true;
       if (filterActive) filterBtn.classList.add('pg-th__filter-btn--active');
-      const filterMode = col.filterIconDisplay ?? options.filterIconDisplay ?? HeaderIconDisplay.HOVER;
       if (filterMode === HeaderIconDisplay.ALWAYS) filterBtn.classList.add('pg-th__filter-btn--always');
       filterBtn.innerHTML = this.iconRenderer.renderToString(filterActive ? 'filterActive' : 'filter', 14);
       filterBtn.title = 'Filter column';
@@ -807,9 +808,11 @@ export class HeaderRenderer {
       th.appendChild(filterBtn);
     }
 
-    if (options.showColumnMenu !== false) {
+    // Column-menu "⋯" icon — hidden entirely when the mode is
+    // `HeaderIconDisplay.HIDDEN` (the header right-click menu still works).
+    const menuMode = col.menuIconDisplay ?? options.menuIconDisplay ?? HeaderIconDisplay.HOVER;
+    if (options.showColumnMenu !== false && menuMode !== HeaderIconDisplay.HIDDEN) {
       const menuBtn = createDiv('pg-th__menu-btn');
-      const menuMode = col.menuIconDisplay ?? options.menuIconDisplay ?? HeaderIconDisplay.HOVER;
       if (menuMode === HeaderIconDisplay.ALWAYS) menuBtn.classList.add('pg-th__menu-btn--always');
       menuBtn.innerHTML = this.iconRenderer.renderToString('menuHorizontal', 14);
       menuBtn.title = 'Column options';

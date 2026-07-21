@@ -150,6 +150,10 @@ export const columnContextMenuCss = `/* ─────────────�
   border: 1px solid var(--pg-colors-border, #e2e8f0);
   border-radius: var(--pg-borders-radius-md, 6px);
   box-shadow: var(--pg-shadows-dropdown, 0 8px 24px rgba(15, 23, 42, 0.12));
+  /* Portaled to <body>, so it no longer inherits the parent menu's text color
+     (set on .pg-column-context-menu) — declare it explicitly, or items fall
+     back to the browser default black and are unreadable in dark mode. */
+  color: var(--pg-colors-text-primary, #0f172a);
   z-index: 10000;
 }
 

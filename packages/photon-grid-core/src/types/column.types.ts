@@ -74,6 +74,13 @@ export enum HeaderIconDisplay {
   HOVER = 'hover',
   /** Icon is permanently rendered, regardless of hover state. */
   ALWAYS = 'always',
+  /**
+   * Icon is never rendered. The underlying feature remains available through
+   * other affordances (e.g. the filter row, or right-clicking the header for
+   * the column menu) — only the header button is suppressed. Use this to hide
+   * the filter funnel and/or the "⋯" menu icon entirely.
+   */
+  HIDDEN = 'hidden',
 }
 
 export interface ColumnDropdownOption {

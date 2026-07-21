@@ -11,7 +11,19 @@ export class RowSelectionEngine {
     selectAllOnHeaderClick: true,
     headerCheckbox: true,
     suppressRowDeselection: false,
+    serialColumnSelection: false,
   };
+
+  // ── Serial-column drag state ──────────────────────────────────────────────
+  /** Row index the current drag/range anchors from; null when idle. */
+  private dragAnchorIndex: number | null = null;
+  /**
+   * Selection that existed when a Ctrl/Cmd drag began. The live range is unioned
+   * onto this each `extendRowDrag`, so a modifier-drag adds to the prior
+   * selection while a plain drag (empty base) replaces it.
+   */
+  private dragBaseIds = new Set<string>();
+  private _isRowDragging = false;
 
   constructor(
     private store: GridStore,
@@ -20,6 +32,16 @@ export class RowSelectionEngine {
 
   configure(config: Partial<SelectionConfig>): void {
     this.config = { ...this.config, ...config };
+  }
+
+  /** Whether the serial column is configured to drive row selection. */
+  get serialColumnSelection(): boolean {
+    return this.config.serialColumnSelection && this.config.mode !== 'none';
+  }
+
+  /** Whether a serial-column drag selection is in progress. */
+  get isRowDragging(): boolean {
+    return this._isRowDragging;
   }
 
   selectRow(nodeId: string, rows: RowNode[]): void {
@@ -156,6 +178,95 @@ export class RowSelectionEngine {
       .filter((r) => r.type === 'data' && r.rowIndex >= start && r.rowIndex <= end)
       .map((r) => r.nodeId);
     this.selectRows(rangeIds, rows);
+  }
+
+  // ── Serial-column drag selection ──────────────────────────────────────────
+
+  /**
+   * Begin a serial-column drag/range selection at `rowIndex`.
+   *
+   * - **Shift** (with an existing anchor): replace the selection with the range
+   *   anchor→rowIndex; the anchor is preserved for further shift-clicks.
+   * - **Ctrl/Cmd**: toggle this row while preserving the rest — that becomes the
+   *   drag "base" onto which the live range is unioned.
+   * - **Plain**: replace the selection with just this row.
+   *
+   * The pointer wiring in `GridRenderer` then feeds {@link extendRowDrag} on
+   * move and {@link endRowDrag} on release.
+   */
+  beginRowDrag(
+    rowIndex: number,
+    nodeId: string,
+    rows: RowNode[],
+    mods: { ctrl: boolean; shift: boolean },
+  ): void {
+    if (this.config.mode === 'none') return;
+
+    if (this.config.mode === 'single') {
+      // Single-select: modifiers are meaningless — select just this row.
+      this.setSelection(new Set([nodeId]), rows);
+      this.dragAnchorIndex = rowIndex;
+      this.dragBaseIds = new Set();
+      this._isRowDragging = true;
+      return;
+    }
+
+    if (mods.shift && this.dragAnchorIndex !== null) {
+      this.dragBaseIds = new Set();
+      this.setSelection(new Set(this.rangeIds(this.dragAnchorIndex, rowIndex, rows)), rows);
+    } else if (mods.ctrl) {
+      const current = new Set(this.store.get('selectedRowIds'));
+      if (current.has(nodeId)) current.delete(nodeId);
+      else current.add(nodeId);
+      this.dragBaseIds = new Set(current);
+      this.dragAnchorIndex = rowIndex;
+      this.setSelection(current, rows);
+    } else {
+      this.dragBaseIds = new Set();
+      this.dragAnchorIndex = rowIndex;
+      this.setSelection(new Set([nodeId]), rows);
+    }
+    this._isRowDragging = true;
+  }
+
+  /** Extend an in-progress drag to `rowIndex` (drag base ∪ live range). */
+  extendRowDrag(rowIndex: number, rows: RowNode[]): void {
+    if (!this._isRowDragging || this.dragAnchorIndex === null) return;
+    if (this.config.mode !== 'multiple') return;
+    const ids = new Set(this.dragBaseIds);
+    for (const id of this.rangeIds(this.dragAnchorIndex, rowIndex, rows)) ids.add(id);
+    this.setSelection(ids, rows);
+  }
+
+  /** End the current serial-column drag (selection is left intact). */
+  endRowDrag(): void {
+    this._isRowDragging = false;
+  }
+
+  /** Node ids of `data` rows whose `rowIndex` falls within `[a, b]` inclusive. */
+  private rangeIds(a: number, b: number, rows: RowNode[]): string[] {
+    const start = Math.min(a, b);
+    const end = Math.max(a, b);
+    return rows
+      .filter((r) => r.type === 'data' && r.rowIndex >= start && r.rowIndex <= end)
+      .map((r) => r.nodeId);
+  }
+
+  /**
+   * Replace the selection with exactly `selectedIds`, apply per-row flags,
+   * refresh all/indeterminate state and emit `ROW_SELECTED`. Shared by the
+   * drag path; {@link selectRows} keeps its additive (union) semantics.
+   */
+  private setSelection(selectedIds: Set<string>, rows: RowNode[]): void {
+    this.applySelectionToRows(rows, selectedIds);
+    this.store.set('selectedRowIds', selectedIds);
+    this.updateSelectionState(rows, selectedIds);
+    const selectedRows = rows.filter((r) => selectedIds.has(r.nodeId));
+    this.eventBus.emit(GridEventType.ROW_SELECTED, {
+      rows: selectedRows,
+      selectedCount: selectedIds.size,
+      isAllSelected: this.isAllSelected(rows, selectedIds),
+    });
   }
 
   isRowSelected(nodeId: string): boolean {

@@ -4,7 +4,7 @@ import type { MasterDetailConfig } from '../../types/master-detail.types';
 import type { GridStore } from '../../core/grid-store';
 import type { RowModel } from '../../core/row-model';
 import type { EventBus } from '../../event-bus/event-bus';
-import type { Theme, BuiltInThemeName } from '../../types/theme.types';
+import type { ThemeMode, ThemeVariant } from '../../types/theme.types';
 import { GridEventType } from '../../types/event.types';
 
 const DEFAULT_DETAIL_HEIGHT = 200;
@@ -159,30 +159,40 @@ export class MasterDetailEngine {
   /**
    * Resolves the full `GridOptions` for a parent row's nested grid instance:
    * merges the static/factory `detailGrid` config, inherits the parent's
-   * active theme unless overridden, and injects the fetched detail dataset.
+   * active mode + variant unless the detail config specifies its own theming,
+   * and injects the fetched detail dataset.
    */
   resolveDetailGridOptions(
     row: RowNode,
-    parentActiveTheme: Theme | null,
+    parentMode: ThemeMode | null,
+    parentVariant: ThemeVariant | 'none' | null,
   ): GridOptions {
     const detailGridCfg = this.config?.detailGrid;
     const base: GridOptions = detailGridCfg
       ? (typeof detailGridCfg === 'function' ? detailGridCfg(row.data) : detailGridCfg)
       : { columns: [] };
 
-    const theme: BuiltInThemeName | string | Theme | undefined =
-      base.theme ?? (parentActiveTheme as unknown as (BuiltInThemeName | string) | undefined) ?? undefined;
+    // Inherit the parent's theming only when the detail config is silent on all
+    // three theming inputs — otherwise the detail grid's own choice wins.
+    const inheritsTheme =
+      base.mode === undefined && base.variant === undefined && base.theme === undefined;
 
     // `row` here is the `type: 'detail'` node — its own `nodeId` is
     // `detail_<parentNodeId>` (see `detailNodeId`), while the fetched
     // dataset is cached under the *parent* row's plain `nodeId`
     // (`fetchDetailDataIfNeeded` is keyed by the parent). Must use
     // `parentNodeId` here, not `row.nodeId`, or the cache lookup always misses.
-    return {
+    const resolved: GridOptions = {
       ...base,
-      theme: theme as GridOptions['theme'],
       data: base.data ?? this.detailDataCache.get(row.parentNodeId ?? row.nodeId) ?? [],
     };
+
+    if (inheritsTheme) {
+      if (parentMode) resolved.mode = parentMode;
+      if (parentVariant && parentVariant !== 'none') resolved.variant = parentVariant;
+    }
+
+    return resolved;
   }
 
   destroy(): void {

@@ -31,7 +31,7 @@ export const rowsCss = `/* ─────────────────�
 }
 .pg-row--group:hover,
 .pg-row--group.pg-row--hover {
-  background: var(--pg-colors-group-row-hover, #eff2ff) !important;
+  background: var(--pg-colors-group-row-hover, var(--pg-colors-row-hover, #eff2ff)) !important;
 }
 .pg-row--group:hover .pg-row-group__toggle,
 .pg-row--group.pg-row--hover .pg-row-group__toggle {
@@ -46,15 +46,15 @@ export const rowsCss = `/* ─────────────────�
  * Cells are fully selectable and copyable; editing is blocked because values are computed.
  */
 .pg-row--group-footer {
-  background: var(--pg-colors-group-footer-background, #eef2fa);
+  background: var(--pg-colors-group-footer-background, var(--pg-colors-background-alt, #eef2fa));
   font-style: italic;
   font-weight: var(--pg-typography-font-weight-semi-bold, 600);
-  border-bottom: 2px solid var(--pg-colors-primary-light, #bfdbfe);
+  border-bottom: 2px solid var(--pg-colors-primary-light, var(--pg-colors-border-strong, #bfdbfe));
   cursor: default;
 }
 .pg-row--group-footer:hover,
 .pg-row--group-footer.pg-row--hover {
-  background: var(--pg-colors-group-footer-hover, #e0e9f8) !important;
+  background: var(--pg-colors-group-footer-hover, var(--pg-colors-row-hover, #e0e9f8)) !important;
 }
 /* Level-based indentation mirrors the group header rules */
 .pg-row--group-footer[data-level="0"] .pg-row-group__cell { padding-left: var(--pg-group-indent-0, 8px); }
@@ -65,18 +65,6 @@ export const rowsCss = `/* ─────────────────�
 .pg-row--group-footer[data-level="5"] .pg-row-group__cell { padding-left: var(--pg-group-indent-5, 108px); }
 .pg-row--group-footer .pg-row-group__label {
   color: var(--pg-colors-text-secondary, #475569);
-}
-/* Dark-mode overrides */
-.pg-grid[data-theme="dark"] .pg-row--group-footer {
-  background: var(--pg-colors-group-footer-background, rgba(37, 99, 235, 0.06));
-  border-bottom-color: rgba(96, 165, 250, 0.28);
-}
-.pg-grid[data-theme="dark"] .pg-row--group-footer:hover,
-.pg-grid[data-theme="dark"] .pg-row--group-footer.pg-row--hover {
-  background: var(--pg-colors-group-footer-hover, rgba(37, 99, 235, 0.11)) !important;
-}
-.pg-grid[data-theme="dark"] .pg-row--group-footer .pg-row-group__label {
-  color: var(--pg-colors-text-secondary, #94a3b8);
 }
 
 `;

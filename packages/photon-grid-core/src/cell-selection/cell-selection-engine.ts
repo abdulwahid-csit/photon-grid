@@ -1124,6 +1124,54 @@ export class CellSelectionEngine {
     this.contextMenuEl?.classList.remove('pg-context-menu--visible');
   }
 
+  /**
+   * Keeps a hover-opened submenu inside the viewport.
+   *
+   * Submenus default to opening rightward (`left: 100%`, top-aligned to their
+   * parent item). Near the right or bottom edge that flyout would spill
+   * off-screen, so on hover we measure the item and:
+   *  - add `--sub-left` to open the flyout leftward when it would overflow the
+   *    right edge (and there is room on the left), and
+   *  - nudge it up via an inline `top` when it would overflow the bottom.
+   *
+   * Runs per item, so it corrects flyouts at any nesting depth. Idempotent —
+   * it always resets to the default layout before re-measuring.
+   */
+  private positionSubmenu(item: HTMLElement, sub: HTMLElement): void {
+    const MARGIN = 4;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+
+    // Reset to the default (rightward, top-aligned) layout before measuring.
+    item.classList.remove('pg-context-menu__item--sub-left');
+    sub.style.top = '';
+
+    const itemRect = item.getBoundingClientRect();
+    // The flyout is display:block while hovered; fall back to its min-width if
+    // it is momentarily unmeasurable.
+    const subW = sub.offsetWidth || 185;
+    const subH = sub.offsetHeight;
+
+    // Horizontal: flip left when the rightward flyout overflows and the left
+    // side can fit it; otherwise keep it rightward (clamped by the reset).
+    const overflowsRight = itemRect.right + subW > vw - MARGIN;
+    const fitsLeft = itemRect.left - subW >= MARGIN;
+    if (overflowsRight && fitsLeft) {
+      item.classList.add('pg-context-menu__item--sub-left');
+    }
+
+    // Vertical: if a tall flyout would pass the bottom edge, shift it up so its
+    // bottom sits within the viewport (never above the top edge).
+    if (subH > 0) {
+      const defaultTop = itemRect.top - MARGIN;
+      const overflowBottom = defaultTop + subH - (vh - MARGIN);
+      if (overflowBottom > 0) {
+        const shift = Math.min(overflowBottom, defaultTop - MARGIN);
+        sub.style.top = `${-MARGIN - shift}px`;
+      }
+    }
+  }
+
   // ─── Private ─────────────────────────────────────────────────────────────
 
   private flashSelection(type: 'copy' | 'cut'): void {
@@ -1531,6 +1579,13 @@ export class CellSelectionEngine {
     el.appendChild(exportItem);
 
     el.addEventListener('pointerdown', (e) => e.stopPropagation());
+    // Reposition nested submenus on hover so they never render off-screen.
+    el.addEventListener('mouseover', (e) => {
+      const item = (e.target as HTMLElement).closest<HTMLElement>('.pg-context-menu__item--has-sub');
+      if (!item || !el.contains(item)) return;
+      const sub = item.querySelector<HTMLElement>(':scope > .pg-context-menu__sub');
+      if (sub) this.positionSubmenu(item, sub);
+    });
     el.addEventListener('click', (e) => {
       const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-action],[data-chart-type]');
       if (!btn) return;

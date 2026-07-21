@@ -17,7 +17,7 @@ export const tooltipCss = `/* ────────────────�
   max-width: 320px;
   padding: var(--pg-spacing-xs, 6px) var(--pg-spacing-sm, 10px);
   border-radius: var(--pg-borders-radius-sm, 4px);
-  background: var(--pg-colors-tooltip-bg, #1f2937);
+  background: var(--pg-colors-tooltip-background, #1f2937);
   color: var(--pg-colors-tooltip-text, #ffffff);
   font-family: var(--pg-typography-font-family, sans-serif);
   font-size: var(--pg-typography-font-size-xs, 12px);

@@ -227,10 +227,17 @@ export class GridCore {
     const options = this.ctx.options;
     const ctx = this.ctx;
 
-    if (options.theme) {
+    // Theming resolves along two axes: `mode` (light/dark) drives the color
+    // palette via token injection, `variant` (quartz/alpine/…) layers a
+    // cosmetic skin as a container class. The deprecated `theme` option is
+    // normalized onto these axes only when neither is set explicitly.
+    if (options.mode || options.variant) {
+      ctx.themeManager.applyMode(options.mode ?? 'light', ctx.containerEl);
+      if (options.variant) ctx.themeManager.applyVariant(options.variant, ctx.containerEl);
+    } else if (options.theme) {
       ctx.themeManager.applyTheme(options.theme, ctx.containerEl);
     } else {
-      ctx.themeManager.applyTheme('light', ctx.containerEl);
+      ctx.themeManager.applyMode('light', ctx.containerEl);
     }
 
     if (options.selection) {
@@ -379,7 +386,7 @@ export class GridCore {
     ctx.eventBus.on(GridEventType.ROW_GROUP_OPENED, (payload: unknown) => {
       const p = payload as { groupKey: string };
       const currentRows = ctx.store.get('visibleRows') as Array<{ nodeId: string; top: number }>;
-      if (currentRows.length > 0) ctx.renderer.captureRowAnimation(currentRows, 'filter');
+      if (currentRows.length > 0) ctx.renderer.captureRowAnimation(currentRows, 'group');
       ctx.groupingEngine.toggleGroup(p.groupKey);
       this.api.refresh();
     });
@@ -423,7 +430,7 @@ export class GridCore {
     ctx.eventBus.on(GridEventType.TREE_NODE_TOGGLE_CLICKED, (payload: unknown) => {
       const p = payload as TreeNodeToggleClickedPayload;
       const currentRows = ctx.store.get('visibleRows') as Array<{ nodeId: string; top: number }>;
-      if (currentRows.length > 0) ctx.renderer.captureRowAnimation(currentRows, 'filter');
+      if (currentRows.length > 0) ctx.renderer.captureRowAnimation(currentRows, 'group');
       ctx.treeExpansionService.toggle(p.row);
       this.api.refresh();
     });

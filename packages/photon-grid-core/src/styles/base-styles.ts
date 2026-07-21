@@ -2,7 +2,6 @@ import { themeQuartzCss }   from './themes/theme-quartz';
 import { themeAlpineCss }   from './themes/theme-alpine';
 import { themeBalhamCss }   from './themes/theme-balham';
 import { themeMaterialCss } from './themes/theme-material';
-import { themeDarkCss }     from './themes/theme-dark';
 
 // Base styles are authored as focused per-feature modules under ./base/ for
 // maintainability, then concatenated here in a FIXED order. The order matters:
@@ -72,7 +71,11 @@ const baseCss = [
   touchCss,
 ].join('');
 
-const css = [baseCss, themeQuartzCss, themeAlpineCss, themeBalhamCss, themeMaterialCss, themeDarkCss].join('\n');
+// Variant skins are appended after the base rules. Each is a cosmetic layer
+// (density, radii, typography, accent) that composes with either color mode;
+// the light/dark palettes themselves are injected as tokens by ThemeManager,
+// so no class-based dark skin is bundled here.
+const css = [baseCss, themeQuartzCss, themeAlpineCss, themeBalhamCss, themeMaterialCss].join('\n');
 
 export function injectBaseStyles(): void {
   if (document.getElementById(STYLE_ID)) return;

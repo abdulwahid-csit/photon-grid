@@ -44,6 +44,14 @@ export class CellSelectionEngine {
    */
   private dataChangedCallback: ((nodeIds?: Set<string>) => void) | null = null;
 
+  /**
+   * Clears the serial-column row selection. Wired to
+   * `RowSelectionEngine.deselectAll` by `GridCore` so a row cut can hand the
+   * cut region over to a cell range without this engine depending on the row
+   * selection engine directly.
+   */
+  private clearRowSelectionCallback: (() => void) | null = null;
+
   private boundKeydown: (e: KeyboardEvent) => void;
   private boundHideCtx: (e: MouseEvent) => void;
 
@@ -77,6 +85,8 @@ export class CellSelectionEngine {
   private dragViewportRectFn: (() => DOMRect | null) | null = null;
   private boundFillMouseMove: (e: MouseEvent) => void;
   private boundFillMouseUp: () => void;
+  /** Whether the serial column drives row selection (enables row keyboard ops). */
+  private serialRowSelectionEnabled = false;
 
   constructor(
     private store: GridStore,
@@ -102,6 +112,16 @@ export class CellSelectionEngine {
 
   setBodyPanels(panels: HTMLElement[]): void {
     this.bodyPanels = panels.filter(Boolean) as HTMLElement[];
+  }
+
+  /**
+   * Enables the serial-column row-selection keyboard path. When enabled and a
+   * row selection is active (with no cell range), Ctrl+C copies the selected
+   * rows and Ctrl+X / Delete / Backspace cut them (copy + clear values, like a
+   * cell cut). Fed from `GridOptions.selection.serialColumnSelection`.
+   */
+  setSerialColumnSelection(enabled: boolean): void {
+    this.serialRowSelectionEnabled = enabled;
   }
 
   /**
@@ -135,6 +155,11 @@ export class CellSelectionEngine {
    */
   setScrollToCellCallback(fn: (rowIndex: number, colIndex: number) => void): void {
     this.scrollToCellCallback = fn;
+  }
+
+  /** Registers the callback used to clear the serial-column row selection. */
+  setClearRowSelectionCallback(fn: () => void): void {
+    this.clearRowSelectionCallback = fn;
   }
 
   /**
@@ -771,7 +796,7 @@ export class CellSelectionEngine {
     endRow: number,
     startCol: number,
     endCol: number,
-    flashClass: 'pg-cell--fill-flash' | 'pg-cell--cut-flash' = 'pg-cell--fill-flash',
+    flashClass: 'pg-cell--fill-flash' | 'pg-cell--cut-flash' | 'pg-cell--copy-flash' = 'pg-cell--fill-flash',
   ): void {
     const cells: HTMLElement[] = [];
     for (const panel of this.bodyPanels) {
@@ -784,7 +809,7 @@ export class CellSelectionEngine {
       }
     }
     for (const el of cells) {
-      el.classList.remove('pg-cell--fill-flash', 'pg-cell--cut-flash');
+      el.classList.remove('pg-cell--fill-flash', 'pg-cell--cut-flash', 'pg-cell--copy-flash');
       void el.offsetWidth; // restart animation if re-triggered
       el.classList.add(flashClass);
     }
@@ -830,6 +855,90 @@ export class CellSelectionEngine {
     return this.clipboardEngine.copyRangesToClipboard(
       this.store.get('cellRanges'), rows, columns, false, this.getLeafGroupField(),
     );
+  }
+
+  /**
+   * Copies the currently row-selected rows (serial-column selection) to the
+   * clipboard as values-only TSV. Order follows the current display order.
+   */
+  async copySelectedRows(): Promise<void> {
+    const ids = this.store.get('selectedRowIds') as Set<string>;
+    if (ids.size === 0) return;
+    const visible = this.store.get('visibleRows') as RowNode[];
+    const columns = this.getVisibleColumns();
+    const rows = visible.filter((r) => ids.has(r.nodeId));
+    if (rows.length === 0) return;
+    // Copy flash over the selected rows' full width, matching cell copy feedback.
+    const b = this.selectedRowBounds(ids, visible, columns.length);
+    if (b) this.flashFillArea(b.minRow, b.maxRow, 0, b.maxCol, 'pg-cell--copy-flash');
+    return this.clipboardEngine.copyRowsToClipboard(rows, columns, false);
+  }
+
+  /**
+   * Cuts the serial-column-selected rows exactly like a cell cut: copies their
+   * values (values-only TSV), clears every cell in those rows recording an undo
+   * entry, flashes the cut region, then converts the selection into the
+   * equivalent cell range — so Ctrl+Z/Ctrl+Y reveal + flash it like a cell cut.
+   */
+  async cutSelectedRows(): Promise<void> {
+    const ids = this.store.get('selectedRowIds') as Set<string>;
+    if (ids.size === 0) return;
+    const visible = this.store.get('visibleRows') as RowNode[];
+    const columns = this.getVisibleColumns();
+    const selectedRows = visible.filter((r) => ids.has(r.nodeId) && r.type === 'data');
+    if (selectedRows.length === 0) return;
+    const bounds = this.selectedRowBounds(ids, visible, columns.length);
+    if (!bounds) return;
+
+    // Copy first (text is built synchronously from current values), then clear.
+    void this.clipboardEngine.copyRowsToClipboard(selectedRows, columns, false);
+
+    const changes: CellChange[] = [];
+    for (const row of selectedRows) {
+      for (const col of columns) {
+        changes.push({ nodeId: row.nodeId, field: col.field, oldValue: row.data[col.field], newValue: null });
+        row.data[col.field] = null;
+      }
+    }
+    this.undoRedoEngine?.record({ type: 'cut', changes });
+    this.store.set('allRows', [...(this.store.get('allRows') as RowNode[])]);
+
+    // Hand the cut region over from a row selection to the equivalent cell range
+    // so it stays highlighted and undo/redo operate as a normal cell cut.
+    const { minRow, maxRow, maxCol } = bounds;
+    this.clearRowSelectionCallback?.();
+    const range: CellRange = { startRowIndex: minRow, endRowIndex: maxRow, startColIndex: 0, endColIndex: maxCol };
+    this.anchorCell = { rowIndex: minRow, colIndex: 0 };
+    this.store.set('cellRanges', [range]);
+    this.store.set('activeCell', { rowIndex: minRow, colIndex: 0 });
+    this.emitSelectionChanged();
+
+    // Blank the cleared cells (evicts + rebuilds the row DOM), then flash after
+    // the render RAF so the cut-flash paints on the fresh, blanked cells.
+    this.dataChangedCallback?.(new Set(changes.map((c) => c.nodeId)));
+    requestAnimationFrame(() => requestAnimationFrame(() =>
+      this.flashFillArea(minRow, maxRow, 0, maxCol, 'pg-cell--cut-flash')));
+  }
+
+  /**
+   * Bounding box of the currently selected rows, in visible row indices, across
+   * the full column span. Returns `null` when no selected row is on the page.
+   */
+  private selectedRowBounds(
+    ids: Set<string>,
+    visible: RowNode[],
+    colCount: number,
+  ): { minRow: number; maxRow: number; maxCol: number } | null {
+    let minRow = Infinity;
+    let maxRow = -Infinity;
+    for (let i = 0; i < visible.length; i++) {
+      if (ids.has(visible[i].nodeId)) {
+        if (i < minRow) minRow = i;
+        if (i > maxRow) maxRow = i;
+      }
+    }
+    if (minRow === Infinity) return null;
+    return { minRow, maxRow, maxCol: Math.max(0, colCount - 1) };
   }
 
   async copySelectionWithHeaders(rows: RowNode[], columns: ColumnDef[]): Promise<void> {
@@ -1265,16 +1374,29 @@ export class CellSelectionEngine {
       target.contentEditable === 'true'
     ) return;
 
-    const active = this.store.get('activeCell');
-    if (!active) return;
-
+    // Ctrl/Cmd modifier + resolved key. Computed before the active-cell guard
+    // because undo/redo and the serial-column row clipboard ops must work even
+    // when no cell is active (a row cut leaves none).
     const jump = e.ctrlKey || e.metaKey;
     const key  = e.key.length === 1 ? e.key.toLowerCase() : e.key;
 
-    // Undo / redo operate on allRows and must not be blocked by an empty
-    // visibleRows slice (e.g. all rows filtered out).
+    // Serial-column row selection owns copy/cut while a row selection is active
+    // (mutually exclusive with cell ranges). Cut mirrors cell cut: copy values,
+    // clear them, record undo and flash — then the cut region becomes a cell
+    // range so Ctrl+Z/Y reveal + flash it exactly like a cell cut.
+    if (this.serialRowSelectionEnabled && (this.store.get('selectedRowIds') as Set<string>).size > 0) {
+      if (jump && key === 'c') { e.preventDefault(); void this.copySelectedRows(); return; }
+      if (jump && key === 'x') { e.preventDefault(); void this.cutSelectedRows(); return; }
+      if (key === 'Delete' || key === 'Backspace') { e.preventDefault(); void this.cutSelectedRows(); return; }
+    }
+
+    // Undo / redo operate on allRows and are not blocked by a missing active
+    // cell (so they work after a row cut, which leaves none).
     if (jump && key === 'z') { e.preventDefault(); this.performUndo(); return; }
     if (jump && key === 'y') { e.preventDefault(); this.performRedo(); return; }
+
+    const active = this.store.get('activeCell');
+    if (!active) return;
 
     const rows    = this.store.get('visibleRows') as RowNode[];
     const columns = this.getVisibleColumns();

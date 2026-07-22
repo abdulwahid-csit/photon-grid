@@ -33,7 +33,11 @@ export class CommandNormalizer {
 
     this.normalizeColumnTargets(params);
 
-    if (action.type === 'applyFilter') {
+    // `selectRowsWhere` carries the same colId/operator/typed-value shape as
+    // applyFilter (it highlights matching rows instead of hiding the rest), so
+    // it needs identical value coercion (ISO string → Date, numeric string →
+    // number, default operator) before execution.
+    if (action.type === 'applyFilter' || action.type === 'selectRowsWhere') {
       this.normalizeFilterParams(params);
     }
 

@@ -114,7 +114,7 @@ export const themeMaterialCss = `
 }
 
 /* Material selection — no left bar, full-row tint only */
-.pg-material-theme .pg-row--selected { box-shadow: none; }
+// .pg-material-theme .pg-row--selected { box-shadow: none; }
 
 /* Material row-drag animation — Material motion curve */
 .pg-material-theme .pg-grid--row-dragging .pg-row {

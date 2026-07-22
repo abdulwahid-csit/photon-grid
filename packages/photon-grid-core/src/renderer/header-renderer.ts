@@ -1,4 +1,4 @@
-import type { ColumnDef, AggFunc } from '../types/column.types';
+import type { ColumnDef, AggFunc, ColumnDataType } from '../types/column.types';
 import { HeaderIconDisplay } from '../types/column.types';
 import type { GridStore } from '../core/grid-store';
 import type { EventBus } from '../event-bus/event-bus';
@@ -50,7 +50,9 @@ export class HeaderRenderer {
   private leftHeaderRowEl: HTMLElement | null = null;
   private centerHeaderRowEl: HTMLElement | null = null;
   private rightHeaderRowEl: HTMLElement | null = null;
+  private leftFilterRowEl: HTMLElement | null = null;
   private centerFilterRowEl: HTMLElement | null = null;
+  private rightFilterRowEl: HTMLElement | null = null;
   private headerCheckbox: HTMLInputElement | null = null;
   private columnMenu: ColumnMenu;
   private groupContextMenu: GroupContextMenu | null = null;
@@ -130,6 +132,13 @@ export class HeaderRenderer {
 
   /** Callback wired by GridRenderer to open a filter panel for a column. */
   private openFilterPanelFn: ((colDef: ColumnDef, anchorEl: HTMLElement) => void) | null = null;
+
+  /**
+   * Callback wired by GridRenderer to apply a live, per-column text filter as the
+   * user types in an inline filter-row input. Receives the empty string when the
+   * input is cleared so the column filter can be removed.
+   */
+  private applyInlineFilterFn: ((colDef: ColumnDef, term: string) => void) | null = null;
 
   /** Callback wired by GridRenderer to open the Column Chooser dialog. */
   private openColumnChooserFn: (() => void) | null = null;
@@ -262,6 +271,18 @@ export class HeaderRenderer {
    */
   setOpenFilterPanelCallback(fn: (colDef: ColumnDef, anchorEl: HTMLElement) => void): void {
     this.openFilterPanelFn = fn;
+  }
+
+  /**
+   * Register the callback invoked as the user types in an inline filter-row
+   * input, applying a live per-column text filter. Wired by
+   * `GridRenderer.buildLayout()`. Only fires for free-text (non set-type) columns
+   * — set-type columns (see {@link SET_FILTER_TYPES}) filter through the panel.
+   *
+   * @param fn - Applies (or clears, on empty term) the column's text filter.
+   */
+  setInlineFilterCallback(fn: (colDef: ColumnDef, term: string) => void): void {
+    this.applyInlineFilterFn = fn;
   }
 
   /**
@@ -407,6 +428,24 @@ export class HeaderRenderer {
         }
       }
     }
+
+    // Keep the inline filter-row icons in sync with header state.
+    const filterRows = [
+      this.leftFilterRowEl,
+      this.centerFilterRowEl,
+      this.rightFilterRowEl,
+    ].filter((r): r is HTMLElement => r !== null);
+
+    for (const row of filterRows) {
+      for (const cell of Array.from(row.querySelectorAll<HTMLElement>('.pg-filter-cell[data-col-id]'))) {
+        const colId = cell.getAttribute('data-col-id') ?? '';
+        const active = activeColIds.has(colId);
+        const icon = cell.querySelector<HTMLElement>('.pg-filter-cell__icon');
+        if (!icon) continue;
+        icon.classList.toggle('pg-filter-cell__icon--active', active);
+        this.iconRenderer.updateIcon(icon, active ? 'filterActive' : 'filter', { size: 14 });
+      }
+    }
   }
 
   // ── Private: group-cell option builder ───────────────────────────────────
@@ -506,7 +545,10 @@ export class HeaderRenderer {
     // ── Leaf header rows ──────────────────────────────────────────────────
     this.leftHeaderRowEl = this.buildHeaderRow(leftCols, options, true);
     leftContainer.appendChild(this.leftHeaderRowEl);
-    if (options.showFilterRow) leftContainer.appendChild(this.buildFilterRow(leftCols, options, true));
+    if (options.showFilterRow) {
+      this.leftFilterRowEl = this.buildFilterRow(leftCols, options, true);
+      leftContainer.appendChild(this.leftFilterRowEl);
+    }
 
     this.centerHeaderRowEl = this.buildHeaderRow(centerCols, options, false);
     if (options.hasGroupedColumns) {
@@ -519,13 +561,16 @@ export class HeaderRenderer {
     if (options.showFilterRow) {
       const filterRow = this.buildFilterRow(centerCols, options, false);
       this.centerFilterRowEl = filterRow;
-      if (options.hasGroupedColumns) filterRow.insertBefore(createDiv('pg-filter-cell pg-filter-cell--auto-group'), filterRow.firstChild);
+      if (options.hasGroupedColumns) filterRow.insertBefore(this.buildAutoGroupFilterCell(options.autoGroupColWidth ?? 200), filterRow.firstChild);
       centerInnerEl.appendChild(filterRow);
     }
 
     this.rightHeaderRowEl = this.buildHeaderRow(rightCols, options, false);
     rightContainer.appendChild(this.rightHeaderRowEl);
-    if (options.showFilterRow) rightContainer.appendChild(this.buildFilterRow(rightCols, options, false));
+    if (options.showFilterRow) {
+      this.rightFilterRowEl = this.buildFilterRow(rightCols, options, false);
+      rightContainer.appendChild(this.rightFilterRowEl);
+    }
   }
 
   updateSortIndicator(colId: string, order: 'asc' | 'desc' | null): void {
@@ -572,7 +617,9 @@ export class HeaderRenderer {
     this.leftHeaderRowEl   = null;
     this.centerHeaderRowEl = null;
     this.rightHeaderRowEl  = null;
+    this.leftFilterRowEl   = null;
     this.centerFilterRowEl = null;
+    this.rightFilterRowEl  = null;
     this.headerCheckbox    = null;
     this.leftGroupRowEls   = [];
     this.centerGroupRowEls = [];
@@ -649,7 +696,7 @@ export class HeaderRenderer {
 
     if (!this.centerFilterRowEl) return;
     this.centerFilterRowEl.innerHTML = '';
-    if (options.hasGroupedColumns) this.centerFilterRowEl.appendChild(createDiv('pg-filter-cell pg-filter-cell--auto-group'));
+    if (options.hasGroupedColumns) this.centerFilterRowEl.appendChild(this.buildAutoGroupFilterCell(options.autoGroupColWidth ?? 200));
     if (leftSpacerW > 0) this.centerFilterRowEl.appendChild(this.makeSpacer('pg-filter-cell pg-filter-cell--h-spacer', leftSpacerW));
     for (const col of visibleCols) this.centerFilterRowEl.appendChild(this.buildFilterCell(col));
     if (rightSpacerW > 0) this.centerFilterRowEl.appendChild(this.makeSpacer('pg-filter-cell pg-filter-cell--h-spacer', rightSpacerW));
@@ -706,6 +753,25 @@ export class HeaderRenderer {
     content.appendChild(labelEl);
     th.appendChild(content);
     return th;
+  }
+
+  /**
+   * Build the leading spacer cell for the filter row that reserves the same
+   * horizontal space as the auto-group header column ({@link buildAutoGroupTh}).
+   *
+   * The width must be applied explicitly — with no width the flex cell collapses
+   * to its content, pushing every subsequent filter input out of alignment with
+   * its header. Mirrors the header cell's inline sizing so the two rows track the
+   * same `autoGroupColWidth`.
+   *
+   * @param width - The auto-group column width in pixels.
+   * @returns A zero-content filter cell sized to the group column.
+   */
+  private buildAutoGroupFilterCell(width: number): HTMLElement {
+    const cell = createDiv('pg-filter-cell pg-filter-cell--auto-group');
+    cell.style.width = `${width}px`;
+    cell.style.minWidth = `${width}px`;
+    return cell;
   }
 
   private buildCheckboxHeaderCell(): HTMLElement {
@@ -870,22 +936,81 @@ export class HeaderRenderer {
     return th;
   }
 
+  /**
+   * Column data types whose inline filter is a checkbox **set** dropdown rather
+   * than a free-text term. Their filter-row input is rendered read-only (with a
+   * disabled appearance) and opens the set-filter panel on click; free-text
+   * columns instead filter live as the user types.
+   */
+  private static readonly SET_FILTER_TYPES: ReadonlySet<ColumnDataType> = new Set<ColumnDataType>([
+    'object',
+    'array',
+    'dropdown',
+  ]);
+
+  /** `true` when a column's inline filter should be a set (checkbox) dropdown. */
+  private isSetFilterColumn(col: ColumnDef): boolean {
+    return col.type != null && HeaderRenderer.SET_FILTER_TYPES.has(col.type);
+  }
+
   private buildFilterCell(col: ColumnDef): HTMLElement {
     const cell = createDiv('pg-filter-cell');
     cell.setAttribute('data-col-id', col.colId);
-    if (col.filterable !== false) {
-      const input = document.createElement('input');
-      input.type = 'text';
-      input.className = 'pg-filter-input';
-      input.placeholder = `${col.header}…`;
-      input.setAttribute('data-col-id', col.colId);
-      input.addEventListener('input', (e) => {
-        this.eventBus.emit(GridEventType.COLUMN_FILTER_CHANGED, {
-          colId: col.colId, field: col.field, term: (e.target as HTMLInputElement).value,
-        });
+    if (col.filterable === false) return cell;
+
+    const isSet = this.isSetFilterColumn(col);
+    const filterActive = col.filterActive === true;
+
+    // ── Filter input ────────────────────────────────────────────────────────
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'pg-filter-input';
+    // NOTE: the input deliberately carries no `data-col-id` — the per-column
+    // width rules emitted by ColumnStyleManager target `[data-col-id]` with a
+    // fixed width + `flex-shrink: 0`, which would stop the input from shrinking
+    // and push the trailing icon out of narrow cells. Only the cell (below)
+    // carries the id, so the input stays free to flex beside the icon.
+
+    // ── Trailing filter icon — anchors the (set / advanced) filter panel ─────
+    const iconBtn = createDiv('pg-filter-cell__icon');
+    iconBtn.setAttribute('role', 'button');
+    iconBtn.setAttribute('tabindex', '0');
+    iconBtn.setAttribute('aria-label', `Filter ${col.header}`);
+    if (filterActive) iconBtn.classList.add('pg-filter-cell__icon--active');
+    iconBtn.innerHTML = this.iconRenderer.renderToString(filterActive ? 'filterActive' : 'filter', 14);
+    const openPanel = (): void => this.openFilterPanelFn?.(col, iconBtn);
+    iconBtn.addEventListener('click', openPanel);
+    iconBtn.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        openPanel();
+      }
+    });
+
+    if (isSet) {
+      // Set-type columns (object / array / dropdown) filter via the checkbox
+      // panel — the inline input is non-editable and acts as a button that opens
+      // the dropdown anchored below the trailing filter icon.
+      input.readOnly = true;
+      // input.placeholder = 'Select…';
+      input.setAttribute('aria-disabled', 'true');
+      input.setAttribute('aria-haspopup', 'listbox');
+      input.classList.add('pg-filter-input--set');
+      cell.classList.add('pg-filter-cell--set');
+      input.addEventListener('mousedown', (e) => {
+        e.preventDefault(); // keep focus off the read-only field
+        openPanel();
       });
-      cell.appendChild(input);
+    } else {
+      // Free-text columns filter live as the user types.
+      // input.placeholder = `${col.header}…`;
+      input.addEventListener('input', (e) => {
+        this.applyInlineFilterFn?.(col, (e.target as HTMLInputElement).value);
+      });
     }
+
+    cell.appendChild(input);
+    cell.appendChild(iconBtn);
     return cell;
   }
 

@@ -14,7 +14,9 @@ export const headerCss = `/* ─────────────────
 .pg-filter-row {
   height: var(--pg-filter-row-height, 36px);
   border-top: 1px solid var(--pg-colors-border, #e2e8f0);
-  background: var(--pg-colors-filter-background, #fff);
+  /* Filter row shares the header surface so it reads as one chrome band across
+     every mode/variant. A theme may still override via --pg-colors-filter-background. */
+  background: var(--pg-colors-filter-background, var(--pg-colors-header-background, #f8fafc));
 }
 .pg-th {
   display: flex;
@@ -182,6 +184,7 @@ export const headerCss = `/* ─────────────────
 
 /* No vertical-borders mode: completely remove the 1px border slot from both headers and cells */
 .pg-grid--no-v-borders .pg-th { border-right: none; }
+.pg-grid--no-v-borders .pg-filter-cell { border-right: none; }
 .pg-grid--no-v-borders .pg-cell { border-right: none; }
 // .pg-grid--no-v-borders .pg-th__resize-handle {
 //   background: var(--pg-colors-resize-handle-color, #e2e8f0);

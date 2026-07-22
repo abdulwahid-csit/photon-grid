@@ -10,7 +10,7 @@ import type { SortEngine } from '../engines/sort/sort-engine';
 import type { RowSelectionEngine } from '../engines/selection/row-selection-engine';
 import type { GroupingEngine } from '../engines/grouping/grouping-engine';
 import type { FilterEngine } from '../engines/filter/filter-engine';
-import type { FilterModel } from '../types/filter.types';
+import type { FilterModel, ColumnFilter } from '../types/filter.types';
 import type { ColumnGroupModel } from '../column-groups/column-group-model';
 import type { ColumnGroupHeaderBuilder } from '../column-groups/column-group-header-builder';
 import { ColumnGroupDragHandler } from '../column-groups/column-group-drag-handler';
@@ -444,6 +444,38 @@ export class GridRenderer {
   }
 
   /**
+   * Applies a live, per-column text filter from an inline filter-row input.
+   *
+   * Builds a single `contains` condition against the column's field so typing
+   * substring-matches every column type (numbers/dates are matched on their
+   * string form, mirroring the quick-filter behaviour). An empty term removes
+   * the column's filter entirely. Reuses the same {@link FilterEngine} pathway
+   * as the filter panel so both entry points stay consistent, then re-runs the
+   * data pipeline via {@link filterRefreshFn}.
+   *
+   * @param colDef - Column whose filter is being edited.
+   * @param term   - Current input value; empty/whitespace clears the filter.
+   */
+  private applyInlineTextFilter(colDef: ColumnDef, term: string): void {
+    if (!this.filterEngine) return;
+    const trimmed = term.trim();
+    if (trimmed === '') {
+      this.filterEngine.setColumnFilter(colDef.colId, null);
+    } else {
+      const filter: ColumnFilter = {
+        colId: colDef.colId,
+        field: colDef.field,
+        type: 'string',
+        logic: 'and',
+        conditions: [{ operator: 'contains', value: trimmed }],
+        searchTerm: trimmed,
+      };
+      this.filterEngine.setColumnFilter(colDef.colId, filter);
+    }
+    this.filterRefreshFn?.();
+  }
+
+  /**
    * Extracts unique display value/label pairs for set-type (dropdown / array)
    * filter panels.  For `dropdown` columns the predefined `dropdownOptions`
    * are used directly; for other types unique values are scanned from `allRows`.
@@ -801,6 +833,21 @@ export class GridRenderer {
     this.wrapperEl = null;
   }
 
+  /**
+   * Re-hit-tests the serial cell under the given viewport point and extends the
+   * active row drag-selection to it. Invoked by the auto-scroller after each
+   * scrolled frame so a drag past the top/bottom edge keeps selecting rows.
+   */
+  private extendRowDragAtPoint(cx: number, cy: number): void {
+    const el = document.elementFromPoint(cx, cy) as HTMLElement | null;
+    const rowCell = el?.closest<HTMLElement>('[data-row-index]');
+    if (!rowCell) return;
+    const ri = Number(rowCell.getAttribute('data-row-index'));
+    if (!isNaN(ri)) {
+      this.rowSelectionEngine.extendRowDrag(ri, this.store.get('visibleRows') as RowNode[]);
+    }
+  }
+
   // ─── Layout ──────────────────────────────────────────────────────────────
 
   private buildLayout(): void {
@@ -1034,6 +1081,11 @@ export class GridRenderer {
     // Wire auto-scroll: whenever the active cell changes, scroll it into view
     this.cellSelectionEngine.setScrollToCellCallback((r, c) => this.scrollToCell(r, c));
 
+    // Lets a serial-column row cut clear the row selection before converting the
+    // cut region into a cell range.
+    this.cellSelectionEngine.setClearRowSelectionCallback(() =>
+      this.rowSelectionEngine.deselectAll(this.store.get('visibleRows') as RowNode[]));
+
     // Wire PageUp/PageDown: return the number of fully visible rows so the
     // engine can jump by exactly one viewport height worth of rows.
     this.cellSelectionEngine.setGetViewportRowCountCallback(() => {
@@ -1054,6 +1106,10 @@ export class GridRenderer {
 
     // Wire filter-panel opening: header filter icon click → open panel overlay
     this.headerRenderer.setOpenFilterPanelCallback((col, anchor) => this.openFilterPanel(col, anchor));
+
+    // Wire the inline filter-row text inputs: live per-column filtering as the
+    // user types (set-type columns filter through the panel instead).
+    this.headerRenderer.setInlineFilterCallback((col, term) => this.applyInlineTextFilter(col, term));
 
     // Wire the Column Chooser: the column/group menu "Column Chooser…" item opens
     // a themed dialog built from the original (nested) column definitions, with
@@ -1078,7 +1134,10 @@ export class GridRenderer {
       (dy) => this.scrollController.scrollToY(this.scrollController.getScrollTop() + dy),
       (dx) => this.scrollController.scrollToX(this.scrollController.getScrollLeft() + dx),
       (cx, cy) => {
-        if (this.cellSelectionEngine.isSelecting) {
+        if (this.rowSelectionEngine.isRowDragging) {
+          // Row drag: re-hit-test the serial cell under the cursor after scroll.
+          this.extendRowDragAtPoint(cx, cy);
+        } else if (this.cellSelectionEngine.isSelecting) {
           // Re-hit-test after the grid scrolled so the selection follows.
           const el = document.elementFromPoint(cx, cy) as HTMLElement | null;
           const cellEl = el?.closest<HTMLElement>('[data-row-index][data-col-index]');
@@ -1101,6 +1160,29 @@ export class GridRenderer {
     // coordinates when the cursor exits the grid boundary.
     this.cellSelectionEngine.setDragViewportRectCallback(() => this.bodyWrapEl?.getBoundingClientRect() ?? null);
 
+    // Mouse/pen down on a serial (row-number) cell begins an AG Grid–style row
+    // drag-selection. Touch is excluded (a finger-drag pans the grid); only the
+    // primary button starts a selection.
+    bodyWrapEl.addEventListener('pointerdown', (e) => {
+      if (!this.rowSelectionEngine.serialColumnSelection) return;
+      if (isTouchPointer(e) || e.button !== 0) return;
+      const serial = (e.target as HTMLElement).closest<HTMLElement>('.pg-cell--serial-select');
+      if (!serial) return;
+      const ri = Number(serial.getAttribute('data-row-index'));
+      const nodeId = serial.getAttribute('data-node-id');
+      if (isNaN(ri) || !nodeId) return;
+      e.preventDefault(); // suppress text selection / focus side-effects
+      // Row selection and cell-range selection are mutually exclusive.
+      this.cellSelectionEngine.clearSelection();
+      this.rowSelectionEngine.beginRowDrag(ri, nodeId, this.store.get('visibleRows') as RowNode[], {
+        ctrl: e.ctrlKey || e.metaKey,
+        shift: e.shiftKey,
+      });
+      // Row drag scrolls vertically only — the serial anchor cell hugs the left
+      // edge, so allowing horizontal auto-scroll would pan the body sideways.
+      this.autoScroller?.updateMouse(e.clientX, e.clientY, 'y');
+    });
+
     // Mouse/pen drag to extend selection. Touch is excluded: a finger-drag on
     // the body pans the grid (ScrollController), so range selection stays a
     // mouse/pen affordance — a touch user taps a cell, then shift-taps to extend.
@@ -1108,6 +1190,24 @@ export class GridRenderer {
     // keyboard navigation left _isSelecting true), cancel the drag immediately
     // instead of extending the selection on every pointer movement.
     bodyWrapEl.addEventListener('pointermove', (e) => {
+      // Serial-column row drag takes priority over cell-range drag.
+      if (this.rowSelectionEngine.isRowDragging) {
+        if (isTouchPointer(e)) return;
+        if (e.buttons === 0) {
+          this.rowSelectionEngine.endRowDrag();
+          this.autoScroller?.stop();
+          return;
+        }
+        this.autoScroller?.updateMouse(e.clientX, e.clientY, 'y');
+        // Once a row drag is underway, hovering anywhere on a row extends the
+        // selection to it — not just over the serial cell.
+        const rowCell = (e.target as HTMLElement).closest<HTMLElement>('[data-row-index]');
+        if (rowCell) {
+          const ri = Number(rowCell.getAttribute('data-row-index'));
+          if (!isNaN(ri)) this.rowSelectionEngine.extendRowDrag(ri, this.store.get('visibleRows') as RowNode[]);
+        }
+        return;
+      }
       if (!this.cellSelectionEngine.isSelecting) return;
       if (isTouchPointer(e)) return;
       if (e.buttons === 0) {
@@ -1127,6 +1227,7 @@ export class GridRenderer {
 
     bodyWrapEl.addEventListener('pointerup', () => {
       this.cellSelectionEngine.endSelection();
+      this.rowSelectionEngine.endRowDrag();
       this.autoScroller?.stop();
     });
 
@@ -1138,6 +1239,9 @@ export class GridRenderer {
     const docMouseUp = () => {
       if (this.cellSelectionEngine.isSelecting) {
         this.cellSelectionEngine.endSelection();
+      }
+      if (this.rowSelectionEngine.isRowDragging) {
+        this.rowSelectionEngine.endRowDrag();
       }
       this.autoScroller?.stop();
     };
@@ -1496,6 +1600,7 @@ export class GridRenderer {
       this.bodyRenderer.renderRows(renderedRows, leftCols, visibleCenterCols, rightCols, {
         showCheckboxes: this.options.showCheckboxes,
         showSerialNumber: this.options.showSerialNumber,
+        serialColumnSelection: this.rowSelectionEngine.serialColumnSelection,
         showVerticalBorders: this.options.showVerticalBorders,
         rowShading: this.options.rowShading,
         rowHeight: this.options.rowHeight,
@@ -1659,6 +1764,8 @@ export class GridRenderer {
         for (const row of rows) {
           this.bodyRenderer.updateRowSelection(row.nodeId, (ids as Set<string>).has(row.nodeId));
         }
+        // Redraw the block outline around the (new) contiguous selected runs.
+        this.bodyRenderer.refreshRowSelectionEdges();
       }),
 
       this.store.watch('isAllSelected', (isAll) => {
@@ -1687,6 +1794,11 @@ export class GridRenderer {
     // Cell click → start, extend, or multi-range selection
     this.eventBus.on(GridEventType.CELL_CLICKED, (payload: unknown) => {
       const p = payload as { rowIndex: number; colIndex: number; event: MouseEvent };
+      // Row selection and cell-range selection are mutually exclusive: clicking
+      // into cells clears any serial-column row selection (and vice-versa).
+      if (this.rowSelectionEngine.serialColumnSelection && this.store.get('selectedRowIds').size > 0) {
+        this.rowSelectionEngine.deselectAll(this.store.get('visibleRows') as RowNode[]);
+      }
       if (p.event.shiftKey) {
         // Shift+Click: extend range from existing anchor to clicked cell
         this.cellSelectionEngine.extendSelection(p.rowIndex, p.colIndex);

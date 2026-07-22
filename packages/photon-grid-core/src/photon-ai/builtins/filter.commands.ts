@@ -5,7 +5,7 @@ import type { EntityResolver } from '../entity-resolver';
 import type { IntentDefinition, ResolvedEntities } from '../photon-ai.types';
 import type { PhotonAICommandRegistry } from '../photon-ai-registry';
 
-function toFilterDataType(type: ColumnDataType): FilterDataType {
+export function toFilterDataType(type: ColumnDataType): FilterDataType {
   if (type === 'number' || type === 'currency' || type === 'percentage') return 'number';
   if (type === 'date' || type === 'time') return 'date';
   if (type === 'boolean') return 'boolean';
@@ -28,14 +28,14 @@ function defaultOperatorFor(filterType: FilterDataType): FilterOperator {
   return filterType === 'string' ? 'contains' : 'equals';
 }
 
-interface BuiltCondition {
+export interface BuiltCondition {
   readonly operator: FilterOperator;
   readonly value: unknown;
   readonly valueTo?: unknown;
 }
 
 /** Resolves the free-text remainder of a filter clause into a typed, operator-aware condition for one already-known column. `null` means the sentence didn't contain a usable value for this column's type. */
-function buildConditionForColumn(
+export function buildConditionForColumn(
   column: ColumnDef,
   tokens: readonly string[],
   resolver: EntityResolver,
@@ -92,7 +92,7 @@ function buildConditionForColumn(
 }
 
 /** Builds a condition from an *implicitly* resolved column+value (the user never named a column — e.g. "show active items"). Always a simple equals/notEquals, since there's no explicit operator phrase to detect once the value itself was the only clue to the column. */
-function buildConditionForGuessedValue(
+export function buildConditionForGuessedValue(
   column: ColumnDef,
   rawValue: string,
   negated: boolean,
@@ -107,7 +107,7 @@ function buildConditionForGuessedValue(
   return { operator, value: rawValue };
 }
 
-function toColumnFilter(column: ColumnDef, condition: BuiltCondition): ColumnFilter {
+export function toColumnFilter(column: ColumnDef, condition: BuiltCondition): ColumnFilter {
   const filterType = toFilterDataType(column.type);
   const primary: FilterCondition = { operator: condition.operator, value: condition.value, valueTo: condition.valueTo };
 
@@ -193,7 +193,7 @@ const applyFilter: IntentDefinition = {
   },
 };
 
-function describeValue(value: unknown): string {
+export function describeValue(value: unknown): string {
   if (value instanceof Date) return value.toLocaleDateString();
   return String(value);
 }

@@ -100,7 +100,7 @@ export const themeBalhamCss = `
 }
 
 /* Balham selection — amber left accent bar */
-.pg-balham-theme .pg-row--selected { box-shadow: inset 3px 0 0 var(--pg-colors-primary); }
+// .pg-balham-theme .pg-row--selected { box-shadow: inset 3px 0 0 var(--pg-colors-primary); }
 
 /* Balham row-drag — very fast, minimal */
 .pg-balham-theme .pg-grid--row-dragging .pg-row {

@@ -23,6 +23,25 @@ export const rowsCss = `/* ─────────────────�
   outline: none;
 }
 .pg-row--selected .pg-cell { color: inherit; }
+
+/* Row-selection outline — a thin primary-coloured border drawn around the
+   whole selected block, mirroring the cell-range selection border. Edges are
+   drawn via ::after so corners connect cleanly; JS (BodyRenderer.refreshRow-
+   SelectionEdges) adds the edge classes only on the block's outer rows/parts
+   (top of a run, bottom of a run, leftmost part, rightmost part) so interior
+   boundaries between adjacent selected rows carry no line. */
+.pg-row--selected::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 0 solid var(--pg-colors-primary, #2563eb);
+  pointer-events: none;
+  z-index: 3;
+}
+.pg-row--sel-top::after        { border-top-width:    1px; }
+.pg-row--sel-bottom::after     { border-bottom-width: 1px; }
+.pg-row--sel-edge-left::after  { border-left-width:   1px; }
+.pg-row--sel-edge-right::after { border-right-width:  1px; }
 .pg-row--group {
   background: var(--pg-colors-group-row-background, #f8fafc);
   font-weight: var(--pg-typography-font-weight-semi-bold, 600);

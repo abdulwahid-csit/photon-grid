@@ -98,6 +98,26 @@ export class FilterEngine {
     return true;
   }
 
+  /**
+   * Tests a single `data` row against one *ad-hoc* {@link ColumnFilter} using the
+   * exact same operator logic the display pipeline runs — but without touching
+   * the active filter model or hiding anything. This is the matcher behind
+   * predicate-based **row selection** (e.g. Photon AI's "select all rows where
+   * status is active"): it lets callers highlight matching rows while every row
+   * stays visible.
+   *
+   * Non-`'data'` rows (group headers, footers) never match. Pure and stateless.
+   *
+   * @param row    - The row to test.
+   * @param filter - The column filter (operator + value) to evaluate.
+   * @param col    - The column definition `filter` targets.
+   * @returns `true` when the row's cell value satisfies the filter.
+   */
+  matchesColumnFilter(row: RowNode, filter: ColumnFilter, col: ColumnDef): boolean {
+    if (row.type !== 'data') return false;
+    return this.passesColumnFilters(row, [[filter.colId, filter]], new Map([[col.colId, col]]));
+  }
+
   getFilterModel(): FilterModel {
     return { ...this.filterModel };
   }

@@ -58,9 +58,13 @@ export const filterCss = `/* ─────────────────
 
 .pg-filter-cell {
   display: flex;
+  gap: 6px;
   align-items: center;
   flex-shrink: 0;
   padding: 0 6px;
+  /* Column divider — themed, and gated by showVerticalBorders (removed under
+     .pg-grid--no-v-borders, same as .pg-th/.pg-cell) so the filter row's
+     vertical lines stay continuous with the header and body columns. */
   border-right: 1px solid var(--pg-colors-border, #e2e8f0);
 }
 .pg-filter-cell:last-child { border-right: none; }
@@ -77,8 +81,11 @@ export const filterCss = `/* ─────────────────
   flex-shrink: 0;
 }
 .pg-filter-input {
-  width: 100%;
-  height: 24px;
+  /* Grow to fill the cell but yield room for the trailing filter icon. */
+  flex: 1 1 auto;
+  width: auto !important;
+  min-width: 0 !important;
+  height: 70%;
   padding: 0 8px;
   border: 1px solid var(--pg-colors-border, #e2e8f0);
   border-radius: var(--pg-borders-radius-sm, 4px);
@@ -90,6 +97,40 @@ export const filterCss = `/* ─────────────────
   transition: border-color var(--pg-transitions-duration-fast, 100ms);
 }
 .pg-filter-input:focus { border-color: var(--pg-colors-border-focus, #2563eb); }
+
+/* Set-type columns (object / array / dropdown): read-only input that looks
+   disabled and opens the checkbox filter dropdown on click. */
+.pg-filter-input--set {
+  cursor: pointer;
+  color: var(--pg-colors-text-secondary, #64748b);
+  background: var(--pg-colors-background-alt, #f1f5f9);
+}
+.pg-filter-input--set::placeholder { color: var(--pg-colors-text-secondary, #64748b); }
+
+/* Trailing filter icon inside each filter cell — opens the filter panel. */
+.pg-filter-cell__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--pg-borders-radius-sm, 4px);
+  color: var(--pg-colors-text-secondary, #64748b);
+  cursor: pointer;
+  transition: background var(--pg-transitions-duration-fast, 100ms),
+              color var(--pg-transitions-duration-fast, 100ms);
+}
+.pg-filter-cell__icon:hover {
+  background: var(--pg-colors-background-alt, #f1f5f9);
+  color: var(--pg-colors-text-primary, #1e293b);
+}
+.pg-filter-cell__icon:focus-visible {
+  outline: 2px solid var(--pg-colors-border-focus, #2563eb);
+  outline-offset: -1px;
+}
+.pg-filter-cell__icon svg { display: block; }
+.pg-filter-cell__icon--active { color: var(--pg-colors-primary, #2563eb); }
 
 /* ──────────────────── Filter Panel ──────────────────── */
 .pg-filter-panel {

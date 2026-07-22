@@ -24,6 +24,7 @@ export const themeQuartzCss = `
      both light and dark; defined once here so the look changes in one place. */
   --pg-quartz-chrome-background: var(--pg-colors-background-alt);
   --pg-colors-header-background: var(--pg-quartz-chrome-background);
+  --pg-colors-filter-background: var(--pg-quartz-chrome-background);
   --pg-colors-footer-background: var(--pg-quartz-chrome-background);
   --pg-colors-scrollbar-bg: var(--pg-quartz-chrome-background);
   --pg-colors-scrollbar-track: var(--pg-quartz-chrome-background);
@@ -120,7 +121,7 @@ export const themeQuartzCss = `
 }
 
 /* Quartz row selection highlight — accent left bar */
-.pg-quartz-theme .pg-row--selected { box-shadow: inset 3px 0 0 var(--pg-colors-primary); }
+// .pg-quartz-theme .pg-row--selected { box-shadow: inset 3px 0 0 var(--pg-colors-primary); }
 
 /* Quartz row-drag animation — smooth cubic-bezier */
 .pg-quartz-theme .pg-grid--row-dragging .pg-row {

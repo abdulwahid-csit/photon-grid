@@ -28,6 +28,8 @@ const GROUP_LABEL_COL_DEF: ColumnDef = {
 export interface BodyRendererOptions {
   showCheckboxes?: boolean;
   showSerialNumber?: boolean;
+  /** When true, serial cells become AG Grid–style row-selection column entries. */
+  serialColumnSelection?: boolean;
   showVerticalBorders?: boolean;
   rowShading?: boolean;
   rowHeight?: number;
@@ -92,6 +94,8 @@ export class BodyRenderer {
   private leftContent: HTMLElement | null = null;
   private centerContent: HTMLElement | null = null;
   private rightContent: HTMLElement | null = null;
+  /** Whether serial-column row selection is active (enables the block outline). */
+  private serialColumnSelection = false;
 
   // Track last rendered center col range to detect changes
   private lastCenterStart = -1;
@@ -345,10 +349,58 @@ export class BodyRenderer {
     this.centerContent?.appendChild(centerFrag);
     if (this.rightContent) this.rightContent.appendChild(rightFrag);
 
+    // Freshly-built rows only carry `pg-row--selected` (from `row.selected`);
+    // recompute the block-outline edge classes for the new window.
+    this.serialColumnSelection = !!options.serialColumnSelection;
+    this.refreshRowSelectionEdges();
+
     // Rows just moved under the (possibly stationary) pointer — re-hit-test so
     // the hovered row tracks the scroll instead of sticking to a scrolled-away
     // (or recycled) node. No-op unless the pointer is inside the body.
     this.refreshHoverAtPointer();
+  }
+
+  /**
+   * Recomputes the row-selection block outline. For each rendered row it toggles
+   * the `pg-row--sel-*` edge classes so the primary-coloured border (rows.css)
+   * traces only the *outer* boundary of each contiguous selected run —
+   * top/bottom where the run starts/ends, left/right on the block's outermost
+   * panel parts. Neighbour checks use the full `visibleRows` (via `rowIndex`) so
+   * runs extending beyond the virtualised window don't sprout interior lines.
+   *
+   * Only active when the serial-column selection feature is enabled; plain
+   * checkbox selection keeps its background-only highlight.
+   */
+  refreshRowSelectionEdges(): void {
+    if (!this.serialColumnSelection) return;
+    const visible = this.store.get('visibleRows') as RowNode[];
+    const selectedIds = this.store.get('selectedRowIds') as Set<string>;
+    const indexById = new Map<string, number>();
+    for (let i = 0; i < visible.length; i++) indexById.set(visible[i].nodeId, i);
+
+    for (const [nodeId, ps] of this.renderedRowMap) {
+      const parts = [ps.left, ps.center, ps.right].filter((e): e is HTMLElement => e !== null);
+      const selected = selectedIds.has(nodeId);
+      let top = false;
+      let bottom = false;
+      if (selected) {
+        const i = indexById.get(nodeId);
+        if (i !== undefined) {
+          const prevId = visible[i - 1]?.nodeId;
+          const nextId = visible[i + 1]?.nodeId;
+          top = !prevId || !selectedIds.has(prevId);
+          bottom = !nextId || !selectedIds.has(nextId);
+        }
+      }
+      const leftmost = ps.left ?? ps.center;
+      const rightmost = ps.right ?? ps.center;
+      for (const el of parts) {
+        toggleClass(el, 'pg-row--sel-top', selected && top);
+        toggleClass(el, 'pg-row--sel-bottom', selected && bottom);
+        toggleClass(el, 'pg-row--sel-edge-left', selected && el === leftmost);
+        toggleClass(el, 'pg-row--sel-edge-right', selected && el === rightmost);
+      }
+    }
   }
 
   updateRowSelection(nodeId: string, selected: boolean): void {
@@ -359,6 +411,9 @@ export class BodyRenderer {
       toggleClass(el, 'pg-row--selected', selected);
       const cb = el.querySelector<HTMLInputElement>('.pg-checkbox');
       if (cb) cb.checked = selected;
+      // Keep the serial-column selection entry's ARIA state in sync.
+      const serial = el.querySelector<HTMLElement>('.pg-cell--serial-select');
+      if (serial) serial.setAttribute('aria-selected', selected ? 'true' : 'false');
     }
   }
 
@@ -500,7 +555,7 @@ export class BodyRenderer {
 
     if (panel === 'left') {
       if (options.showSerialNumber) {
-        el.appendChild(this.cellRenderer.renderSerialNumberCell(row.rowIndex, displayIndex + 1));
+        el.appendChild(this.cellRenderer.renderSerialNumberCell(row, displayIndex + 1, !!options.serialColumnSelection));
       }
       if (options.showCheckboxes) {
         el.appendChild(this.cellRenderer.renderCheckboxCell(row, row.rowIndex));

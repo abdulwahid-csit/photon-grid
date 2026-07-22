@@ -191,35 +191,69 @@ export class GridApi {
 
   // ──────────────────── Selection ────────────────────
 
+  /**
+   * Selects a single row by its node id. In `single` selection mode this
+   * replaces any existing selection; in `multiple` mode it adds to it. A no-op
+   * when selection is disabled (`mode: 'none'`). Emits `ROW_SELECTED`.
+   *
+   * @param nodeId - The row's node id (see {@link RowNode.nodeId}).
+   */
   selectRow(nodeId: string): void {
     const rows = this.ctx.store.get('visibleRows');
     this.ctx.rowSelectionEngine.selectRow(nodeId, rows);
   }
 
+  /**
+   * Removes a single row from the selection. Honors `suppressRowDeselection`.
+   * Emits `ROW_DESELECTED`.
+   *
+   * @param nodeId - The row's node id.
+   */
   deselectRow(nodeId: string): void {
     const rows = this.ctx.store.get('visibleRows');
     this.ctx.rowSelectionEngine.deselectRow(nodeId, rows);
   }
 
+  /**
+   * Toggles a single row's selection — selects it if unselected, deselects it if
+   * selected. Mirrors a Ctrl/Cmd-click on the row.
+   *
+   * @param nodeId - The row's node id.
+   */
+  toggleRowSelection(nodeId: string): void {
+    const rows = this.ctx.store.get('visibleRows');
+    this.ctx.rowSelectionEngine.toggleRowSelection(nodeId, rows);
+  }
+
+  /** Selects every data row (only meaningful in `multiple` mode). Emits `ALL_ROWS_SELECTED`. */
   selectAll(): void {
     const rows = this.ctx.store.get('visibleRows');
     this.ctx.rowSelectionEngine.selectAll(rows);
   }
 
+  /** Clears the entire row selection. Emits `ALL_ROWS_DESELECTED`. */
   deselectAll(): void {
     const rows = this.ctx.store.get('visibleRows');
     this.ctx.rowSelectionEngine.deselectAll(rows);
   }
 
+  /** The currently selected rows, in display order. */
   getSelectedRows(): RowNode[] {
     const rows = this.ctx.store.get('visibleRows');
     return this.ctx.rowSelectionEngine.getSelectedRows(rows);
   }
 
+  /** The node ids of the currently selected rows (includes ids selected off-page/filtered-out). */
+  getSelectedRowIds(): string[] {
+    return Array.from(this.ctx.store.get('selectedRowIds') as Set<string>);
+  }
+
+  /** How many rows are currently selected. */
   getSelectedCount(): number {
     return this.ctx.rowSelectionEngine.getSelectedCount();
   }
 
+  /** Whether the row with `nodeId` is currently selected. */
   isRowSelected(nodeId: string): boolean {
     return this.ctx.rowSelectionEngine.isRowSelected(nodeId);
   }
@@ -543,7 +577,8 @@ export class GridApi {
   copySelectedRowsToClipboard(): Promise<void> {
     const rows = this.getSelectedRows();
     const cols = this.ctx.columnModel.getVisibleColumns();
-    return this.ctx.clipboardEngine.copyRowsToClipboard(rows, cols);
+    // Preserve this API's original behaviour of including a header row.
+    return this.ctx.clipboardEngine.copyRowsToClipboard(rows, cols, true);
   }
 
   /** Copies the active cell range(s) — not row selection — to the clipboard as tab-separated text, with a header row. A no-op when no cell range is active. */
@@ -1079,6 +1114,35 @@ export class GridApi {
   }
 
   /**
+   * Selects rows by their **display index** (0-based, into the currently
+   * displayed rows after filter/sort/group/pagination). Indices out of range or
+   * pointing at non-data rows (group headers, detail rows) are ignored.
+   *
+   * @param indexes - Zero-based display indices to select.
+   */
+  selectRowsByIndex(indexes: number[]): void {
+    const visible = this.getVisibleRows();
+    const ids: string[] = [];
+    for (const i of indexes) {
+      const row = visible[i];
+      if (row && row.type === 'data') ids.push(row.nodeId);
+    }
+    if (ids.length > 0) this.ctx.rowSelectionEngine.selectRows(ids, visible);
+  }
+
+  /**
+   * Selects a contiguous, inclusive block of rows between two **display
+   * indices** (0-based, order-independent). Non-data rows in the span are
+   * skipped. Only meaningful in `multiple` selection mode.
+   *
+   * @param fromIndex - One end of the range (inclusive).
+   * @param toIndex   - The other end of the range (inclusive).
+   */
+  selectRowRange(fromIndex: number, toIndex: number): void {
+    this.ctx.rowSelectionEngine.selectRange(fromIndex, toIndex, this.getVisibleRows());
+  }
+
+  /**
    * Selects every data row for which `predicate` returns `true`. The predicate
    * is evaluated against all rows, so rows outside the current page/filter can
    * still be selected.
@@ -1090,6 +1154,30 @@ export class GridApi {
       .filter((r) => r.type === 'data' && predicate(r))
       .map((r) => r.nodeId);
     this.ctx.rowSelectionEngine.selectRows(nodeIds, this.getVisibleRows());
+  }
+
+  /**
+   * Selects every data row whose value in `colId` satisfies `filter`, **without
+   * hiding** the non-matching rows (unlike {@link setColumnFilter}). This is the
+   * programmatic counterpart to Photon AI's "select all rows where …" — the
+   * matching rows are highlighted while the full data set stays visible.
+   *
+   * Matching reuses the grid's own filter-operator logic, so every operator a
+   * column filter supports (contains, greaterThan, inRange, before, …) works
+   * here too. Rows on other pages or currently filtered out can still match.
+   *
+   * @param colId  - Id of the column to test.
+   * @param filter - The column filter (operator + typed value) to evaluate.
+   * @returns The number of rows selected.
+   */
+  selectRowsMatchingFilter(colId: string, filter: ColumnFilter): number {
+    const col = this.ctx.columnModel.getColumn(colId);
+    if (!col) return 0;
+    const ids = this.getAllRows()
+      .filter((r) => r.type === 'data' && this.ctx.filterEngine.matchesColumnFilter(r, filter, col))
+      .map((r) => r.nodeId);
+    if (ids.length > 0) this.ctx.rowSelectionEngine.selectRows(ids, this.getVisibleRows());
+    return ids.length;
   }
 
   // ──────────────────── Row Grouping ────────────────────

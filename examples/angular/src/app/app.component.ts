@@ -50,7 +50,7 @@ export class AppComponent implements OnInit {
     USA: 'us',
     Canada: 'ca',
     Germany: 'de',
-    UK: 'uk',
+    UK: 'gb',
     Pakistan: 'pk',
     India: 'in',
     Australia: 'au',
@@ -127,20 +127,23 @@ export class AppComponent implements OnInit {
     /** Remaining grid configuration bound to the grid's `options` input. */
     readonly options: Partial<GridOptions> = {
         mode: 'light',
-        variant: 'balham',
+        variant: 'alpine',
         showCheckboxes: false,
         showSerialNumber: true,
         rowShading: false,
         showGroupingBar: true,
+        showVerticalBorders: false,
+        showFilterRow: true,
         // Header icons: keep the filter funnel always visible, hide the "⋯" menu.
         headerIcons: {
-            filter: HeaderIconDisplay.ALWAYS,
+            filter: HeaderIconDisplay.HIDDEN,
             menu: HeaderIconDisplay.HIDDEN,
         },
         rowHeight: 42,
         pagination: { enabled: true, pageSize: 1000, },
+        filterRowHeight: 48,
         headerRowHeight: 48,
-        selection: { mode: 'multiple' },
+        selection: { mode: 'multiple', serialColumnSelection: true },
         photonAI: {
             enabled: true,
             provider: {

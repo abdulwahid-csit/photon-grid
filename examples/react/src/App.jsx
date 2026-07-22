@@ -7,7 +7,7 @@ const COUNTRY_FLAGS = {
   USA: 'us',
   Canada: 'ca',
   Germany: 'de',
-  UK: 'uk',
+  UK: 'gb',
   Pakistan: 'pk',
   India: 'in',
   Australia: 'au',
@@ -125,13 +125,19 @@ function App() {
       header: 'Email',
       type: 'string',
       width: 240,
-      renderer: { 
-        display: (params) => {
-          const strong = document.createElement('strong');
-          strong.textContent = String(params.value ?? '');
-          return strong;
-        },
-      },
+      renderer: {
+      display: (params) => {
+      const link = document.createElement('a');
+
+      const email = String(params.value ?? '');
+
+      link.textContent = email;
+      link.href = `mailto:${email}`;
+      link.target = '_blank';
+
+      return link;
+    },
+    },
     },
     { colId: 'department', field: 'department', header: 'Department', type: 'string', width: 160, groupable: true },
     { colId: 'jobTitle', field: 'jobTitle', header: 'Job Title', type: 'string', width: 180, groupable: true },
@@ -160,7 +166,8 @@ function App() {
   ], []);
 
   const options = useMemo(() => ({
-    theme: 'light',
+    mode: 'dark',
+    variant: 'material',
     showCheckboxes: false,
     showSerialNumber: false,
     rowShading: false,

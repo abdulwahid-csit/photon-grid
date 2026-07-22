@@ -24,6 +24,13 @@ export class AutoScroller {
   private clientX = 0;
   private clientY = 0;
   private running = false;
+  /**
+   * Restricts which axes may scroll. `'both'` (default) enables horizontal and
+   * vertical edge scrolling; `'y'` suppresses horizontal (used for serial-column
+   * row-drag, whose anchor cell hugs the left edge and would otherwise pan the
+   * body sideways); `'x'` suppresses vertical.
+   */
+  private axis: 'both' | 'x' | 'y' = 'both';
 
   /**
    * @param getRect    - Returns the bounding rect of the scrollable viewport
@@ -57,10 +64,14 @@ export class AutoScroller {
    *
    * @param x - `MouseEvent.clientX`
    * @param y - `MouseEvent.clientY`
+   * @param axis - Which axes may scroll. Defaults to `'both'`. Pass `'y'` to
+   *               suppress horizontal scrolling (serial-column row drag) or
+   *               `'x'` to suppress vertical.
    */
-  updateMouse(x: number, y: number): void {
+  updateMouse(x: number, y: number, axis: 'both' | 'x' | 'y' = 'both'): void {
     this.clientX = x;
     this.clientY = y;
+    this.axis = axis;
     if (!this.running) {
       this.running = true;
       this.lastTs  = 0;
@@ -105,27 +116,31 @@ export class AutoScroller {
       // `dist` can be negative when the cursor has moved past the viewport
       // boundary (common during fill-handle drag).  Clamp to 0 so being
       // outside the edge triggers max-speed scrolling rather than no scroll.
-      const distTop    = y - rect.top;
-      const distBottom = rect.bottom - y;
+      if (this.axis !== 'x') {
+        const distTop    = y - rect.top;
+        const distBottom = rect.bottom - y;
 
-      if (distTop < this.threshold) {
-        this.scrollY(-this.speedAt(Math.max(0, distTop)) * dt);
-        scrolled = true;
-      } else if (distBottom < this.threshold) {
-        this.scrollY(this.speedAt(Math.max(0, distBottom)) * dt);
-        scrolled = true;
+        if (distTop < this.threshold) {
+          this.scrollY(-this.speedAt(Math.max(0, distTop)) * dt);
+          scrolled = true;
+        } else if (distBottom < this.threshold) {
+          this.scrollY(this.speedAt(Math.max(0, distBottom)) * dt);
+          scrolled = true;
+        }
       }
 
       // ── Horizontal ──────────────────────────────────────────────────────────
-      const distLeft  = x - rect.left;
-      const distRight = rect.right - x;
+      if (this.axis !== 'y') {
+        const distLeft  = x - rect.left;
+        const distRight = rect.right - x;
 
-      if (distLeft < this.threshold) {
-        this.scrollX(-this.speedAt(Math.max(0, distLeft)) * dt);
-        scrolled = true;
-      } else if (distRight < this.threshold) {
-        this.scrollX(this.speedAt(Math.max(0, distRight)) * dt);
-        scrolled = true;
+        if (distLeft < this.threshold) {
+          this.scrollX(-this.speedAt(Math.max(0, distLeft)) * dt);
+          scrolled = true;
+        } else if (distRight < this.threshold) {
+          this.scrollX(this.speedAt(Math.max(0, distRight)) * dt);
+          scrolled = true;
+        }
       }
     }
 

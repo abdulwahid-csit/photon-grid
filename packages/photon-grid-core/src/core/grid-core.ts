@@ -242,6 +242,9 @@ export class GridCore {
 
     if (options.selection) {
       ctx.rowSelectionEngine.configure(options.selection);
+      ctx.cellSelectionEngine.setSerialColumnSelection(
+        !!options.selection.serialColumnSelection && options.selection.mode !== 'none',
+      );
     }
 
     if (options.editing) {

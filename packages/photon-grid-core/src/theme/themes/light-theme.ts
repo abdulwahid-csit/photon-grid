@@ -56,7 +56,7 @@ export const lightTheme: Theme = {
       pinnedBackground: '#ffffff',
       pinnedShadow: '4px 0 6px -2px rgba(15,23,42,0.08)',
 
-      filterBackground: '#ffffff',
+      filterBackground: '#f8fafc',
       filterBorder: '#e2e8f0',
       filterActiveBackground: '#eff6ff',
       filterActiveBorder: '#93c5fd',

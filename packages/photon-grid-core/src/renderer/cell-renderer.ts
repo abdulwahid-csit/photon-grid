@@ -82,10 +82,28 @@ export class CellRenderer {
     return cell;
   }
 
-  renderSerialNumberCell(rowIndex: number, displayIndex: number): HTMLElement {
+  /**
+   * Renders a serial (row-number) gutter cell.
+   *
+   * When `selectable` is `true` the cell becomes an AG Grid–style selection
+   * column entry: it carries the row's `data-node-id` and `aria-selected`, is
+   * focusable, and gets the `pg-cell--serial-select` class so `GridRenderer`
+   * can start a row drag-selection from it. Purely a display gutter otherwise.
+   */
+  renderSerialNumberCell(
+    row: RowNode,
+    displayIndex: number,
+    selectable = false,
+  ): HTMLElement {
     const cell = createDiv('pg-cell pg-cell--serial');
-    cell.setAttribute('data-row-index', String(rowIndex));
+    cell.setAttribute('data-row-index', String(row.rowIndex));
     cell.setAttribute('role', 'gridcell');
+    if (selectable) {
+      cell.classList.add('pg-cell--serial-select');
+      cell.setAttribute('data-node-id', row.nodeId);
+      cell.setAttribute('aria-selected', row.selected ? 'true' : 'false');
+      cell.setAttribute('tabindex', '-1');
+    }
     const span = document.createElement('span');
     span.className = 'pg-cell__serial';
     span.textContent = String(displayIndex);

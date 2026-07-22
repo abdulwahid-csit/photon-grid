@@ -127,6 +127,7 @@ export const columnGroupHeaderCss = `/* ─────────────�
 
 /* Smooth column-shift animation — enabled ONLY while actively dragging a column */
 .pg-grid--col-dragging .pg-th[data-col-id],
+.pg-grid--col-dragging .pg-filter-cell[data-col-id],
 .pg-grid--col-dragging .pg-cell[data-col-id] {
   transform: translateX(var(--pg-drag-x, 0px));
   transition: transform 180ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
@@ -139,11 +140,13 @@ export const columnGroupHeaderCss = `/* ─────────────�
 /* During header auto-scroll the transforms update every RAF tick — disable the
    transition so cells snap instantly rather than endlessly chasing a moving target */
 .pg-grid--col-autoscrolling .pg-th[data-col-id],
+.pg-grid--col-autoscrolling .pg-filter-cell[data-col-id],
 .pg-grid--col-autoscrolling .pg-cell[data-col-id] {
   transition: none;
 }
 /* Live-preview path (store mutations during drag): suppress all transitions */
 .pg-grid--drag-preview-sync .pg-th[data-col-id],
+.pg-grid--drag-preview-sync .pg-filter-cell[data-col-id],
 .pg-grid--drag-preview-sync .pg-cell[data-col-id] {
   transition: none !important;
 }
@@ -164,6 +167,7 @@ export const columnGroupHeaderCss = `/* ─────────────�
   transform: translateX(var(--pg-drag-x, 0px));
   transition: transform var(--pg-drag-transition, 180ms cubic-bezier(0.25, 0.46, 0.45, 0.94));
 }
+.pg-grid--group-dragging .pg-filter-cell[data-col-id],
 .pg-grid--group-dragging .pg-cell[data-col-id] {
   transform: translateX(var(--pg-drag-x, 0px));
   transition: transform var(--pg-drag-transition, 180ms cubic-bezier(0.25, 0.46, 0.45, 0.94));

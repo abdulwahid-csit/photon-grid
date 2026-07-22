@@ -104,8 +104,13 @@ function getInputType(colType: string): string {
   }
 }
 
+/**
+ * Set-type columns render a checkbox value list instead of an operator/condition
+ * form. `object` and `array` cell values are enumerated into discrete options,
+ * and `dropdown` columns use their predefined option list.
+ */
 function isSetType(colType: string): boolean {
-  return colType === 'dropdown' || colType === 'array';
+  return colType === 'dropdown' || colType === 'array' || colType === 'object';
 }
 
 /** Operators that require no value input (blank / notBlank). */

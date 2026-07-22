@@ -101,7 +101,7 @@ export const themeAlpineCss = `
 }
 
 /* Alpine selection — clean accent left bar */
-.pg-alpine-theme .pg-row--selected { box-shadow: inset 2px 0 0 var(--pg-colors-primary); }
+// .pg-alpine-theme .pg-row--selected { box-shadow: inset 2px 0 0 var(--pg-colors-primary); }
 
 /* Alpine row-drag animation — snappy, fast linear */
 .pg-alpine-theme .pg-grid--row-dragging .pg-row {

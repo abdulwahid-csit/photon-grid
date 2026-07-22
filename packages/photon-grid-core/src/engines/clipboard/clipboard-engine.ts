@@ -112,15 +112,20 @@ export class ClipboardEngine {
   }
 
   /**
-   * Copies selected rows (with headers) to the clipboard.
+   * Copies selected rows to the clipboard as tab-separated values.
    * Used by row-selection mode rather than cell-range mode.
    *
    * @param selectedRows - Rows to copy
    * @param columns      - Column definitions
+   * @param withHeaders  - Prepend a header row of column titles (default `false`)
    */
-  copyRowsToClipboard(selectedRows: RowNode[], columns: ColumnDef[]): Promise<void> {
+  copyRowsToClipboard(
+    selectedRows: RowNode[],
+    columns: ColumnDef[],
+    withHeaders = false,
+  ): Promise<void> {
     const descs = this.buildDescriptors(columns, 0, columns.length - 1);
-    const lines: string[] = [columns.map((c) => c.header).join('\t')];
+    const lines: string[] = withHeaders ? [columns.map((c) => c.header).join('\t')] : [];
     for (const row of selectedRows) {
       const cells: string[] = new Array(descs.length);
       for (let i = 0; i < descs.length; i++) {

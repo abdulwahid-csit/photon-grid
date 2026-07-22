@@ -90,6 +90,21 @@ export const contextMenuCss = `/* ─── Context menu ─── */
 [data-pg-mode="dark"] .pg-cell--serial {
   background: var(--pg-colors-header-background, var(--pg-colors-footer-background, #1e293b));
 }
+/* ── Serial column as a row-selection column (opt-in) ──────────────────────
+   When serialColumnSelection is enabled, the "#" cell becomes an AG Grid–style
+   selection handle: mouse-down starts a row drag-selection. The selected-state
+   outline is drawn around the whole row (see rows.css), not on this cell. */
+.pg-cell--serial-select {
+  cursor: pointer;
+  user-select: none;
+}
+.pg-cell--serial-select:hover {
+  background: var(--pg-colors-header-hover, var(--pg-colors-background-alt, #f1f5f9));
+}
+.pg-cell--serial-select:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--pg-colors-primary, #2563eb);
+}
 .pg-cell--bool-true { color: var(--pg-colors-success, #16a34a); }
 .pg-cell--bool-false { color: var(--pg-colors-text-disabled, #94a3b8); }
 .pg-cell__image { border-radius: var(--pg-borders-radius-sm, 4px); object-fit: cover; }

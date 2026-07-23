@@ -23,9 +23,32 @@
       [dataSet]="data"
       [options]="options"
       (gridReady)="onGridReady($event)"
-      (rowClicked)="onRowClicked($event)" 
+      (rowClicked)="onRowClicked($event)"
       (rowSelected)="onRowSelected($event)"
-      > 
+      >
+    </photon-grid-angular>
+  </section>
+
+  <header class="page__header page__header--formula">
+    <h2 class="page__title">Formula Playground</h2>
+    <p class="page__subtitle">
+      A small grid with the <code>formula</code> engine enabled. The
+      <strong>Total (D)</strong> and <strong>Grand Total (F)</strong> columns are
+      seeded with formulas (<code>=B2*C2</code>, <code>=D2*(1+E2)</code>) and the
+      TOTAL row uses <code>=SUM(D1:D8)</code>. Edit any
+      <strong>Qty</strong>, <strong>Unit Price</strong> or <strong>Tax Rate</strong>
+      cell — or type your own <code>=</code> formula into a Total cell — and watch
+      dependents recalculate.
+    </p>
+  </header>
+
+  <section class="grid-wrapper grid-wrapper--formula">
+    <photon-grid-angular
+      [columns]="formulaColumns"
+      [dataSet]="formulaData"
+      [options]="formulaOptions"
+      (gridReady)="onFormulaGridReady($event)"
+      >
     </photon-grid-angular>
   </section>
 </main>

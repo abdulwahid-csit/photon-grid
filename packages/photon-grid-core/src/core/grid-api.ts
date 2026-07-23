@@ -189,6 +189,24 @@ export class GridApi {
     return this.ctx.filterEngine.getFilterModel();
   }
 
+  /**
+   * Opens the Filters Tool Panel (the top-right filter funnel panel). Requires
+   * `GridOptions.filtersToolPanel.enabled`; a no-op when the feature is off.
+   */
+  openFiltersToolPanel(): void {
+    this.ctx.renderer.openFiltersToolPanel();
+  }
+
+  /** Closes the Filters Tool Panel. A no-op when the feature is off. */
+  closeFiltersToolPanel(): void {
+    this.ctx.renderer.closeFiltersToolPanel();
+  }
+
+  /** Toggles the Filters Tool Panel open/closed. A no-op when the feature is off. */
+  toggleFiltersToolPanel(): void {
+    this.ctx.renderer.toggleFiltersToolPanel();
+  }
+
   // ──────────────────── Selection ────────────────────
 
   /**
@@ -785,6 +803,90 @@ export class GridApi {
     this.ctx.renderer.forceRender();
   }
 
+  // ── Formula Engine ─────────────────────────────────────────────────────────
+
+  /**
+   * Assigns a formula to a cell (e.g. `"=SUM(A1:A10)"`), recomputes it and
+   * everything downstream, and repaints. No-op unless the engine is enabled and
+   * the column opted in via `ColumnDef.allowFormula`.
+   *
+   * @param nodeId - Stable row identity.
+   * @param colId  - Immutable column identity.
+   * @param source - The formula source, including the leading `=`.
+   */
+  setCellFormula(nodeId: string, colId: string, source: string): void {
+    const result = this.ctx.formulaEngine.setFormula(nodeId, colId, source);
+    if (result.changedNodeIds.size > 0) this.refresh();
+  }
+
+  /**
+   * @param nodeId - Stable row identity.
+   * @param colId  - Immutable column identity.
+   * @returns The cell's formula source (including `=`), or `null` if it has none.
+   */
+  getCellFormula(nodeId: string, colId: string): string | null {
+    return this.ctx.formulaEngine.getFormula(nodeId, colId);
+  }
+
+  /**
+   * @param nodeId - Stable row identity.
+   * @param colId  - Immutable column identity.
+   * @returns `true` when the cell currently holds a formula.
+   */
+  hasCellFormula(nodeId: string, colId: string): boolean {
+    return this.ctx.formulaEngine.hasFormula(nodeId, colId);
+  }
+
+  /**
+   * Removes a cell's formula (leaving its last computed value) and recomputes
+   * dependents.
+   *
+   * @param nodeId - Stable row identity.
+   * @param colId  - Immutable column identity.
+   * @returns `true` if a formula was removed.
+   */
+  clearCellFormula(nodeId: string, colId: string): boolean {
+    const removed = this.ctx.formulaEngine.clearFormula(nodeId, colId);
+    if (removed) this.refresh();
+    return removed;
+  }
+
+  /**
+   * Recomputes formula cells (volatile cells always; all cells when `force`).
+   *
+   * @param force - Recompute every formula cell, not just volatile ones.
+   */
+  recalculateFormulas(force = false): void {
+    const result = this.ctx.formulaEngine.recalculate(force);
+    if (result.changedNodeIds.size > 0) this.refresh();
+  }
+
+  /**
+   * Defines (or replaces) a named range usable in formulas, then recalculates.
+   *
+   * @param name   - The name (case-insensitive).
+   * @param target - Its A1-notation target (e.g. `"B1"`, `"A1:C3"`).
+   */
+  setNamedRange(name: string, target: string): void {
+    const result = this.ctx.formulaEngine.setNamedRange(name, target);
+    if (result.changedNodeIds.size > 0) this.refresh();
+  }
+
+  /**
+   * Removes a named range, then recalculates.
+   *
+   * @param name - The name (case-insensitive).
+   */
+  removeNamedRange(name: string): void {
+    const result = this.ctx.formulaEngine.removeNamedRange(name);
+    if (result.changedNodeIds.size > 0) this.refresh();
+  }
+
+  /** @returns The registered custom + built-in formula function names. */
+  getFormulaFunctionNames(): string[] {
+    return this.ctx.formulaEngine.getRegistry().names();
+  }
+
   destroy(): void {
     if (this._txnFlushHandle !== null) {
       cancelAnimationFrame(this._txnFlushHandle);
@@ -795,6 +897,7 @@ export class GridApi {
     this.ctx.cellSelectionEngine.detach();
     this.ctx.dragDropEngine.destroy();
     this.ctx.themeManager.destroy();
+    this.ctx.formulaEngine.destroy();
     this.ctx.eventBus.clear();
     this.ctx.store.destroy();
   }

@@ -3,6 +3,7 @@ import type { GridStore } from '../core/grid-store';
 import type { RowNode } from '../types/row.types';
 import type { RendererOutput, TooltipRendererParams } from '../types/renderer.types';
 import { resolveColumnRenderer } from './renderer-resolver';
+import { getCellValue, resolveFieldPath } from '../engines/editing/value-accessor';
 
 /** Delay, in milliseconds, between hovering a cell and the custom tooltip appearing. */
 const SHOW_DELAY_MS = 400;
@@ -77,9 +78,10 @@ export class TooltipController {
     if (!row || row.type !== 'data') return;
 
     this.showTimer = setTimeout(() => {
-      const rawValue = row.data[colDef.field];
+      const value = getCellValue(row.data, colDef, this.api);
+      const rawValue = colDef.valueGetter ? resolveFieldPath(row.data, colDef.field) : value;
       const params: TooltipRendererParams = {
-        value: rawValue,
+        value,
         rawValue,
         row: row.data,
         colDef,

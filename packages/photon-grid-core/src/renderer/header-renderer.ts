@@ -146,6 +146,20 @@ export class HeaderRenderer {
   /** Callback wired by GridRenderer to re-run the data pipeline (e.g. after an aggregate change). */
   private columnDataRefreshFn: (() => void) | null = null;
 
+  /**
+   * Callback wired by GridRenderer to scroll a (possibly virtualized) center
+   * column into view so keyboard header navigation can focus it.
+   */
+  private ensureColumnVisibleFn: ((colId: string) => void) | null = null;
+
+  /**
+   * Column id of the header cell that participates in the tab order (roving
+   * tabindex). All other header cells are `tabindex="-1"`. `null` until the
+   * first render resolves it to the first visible data column. See
+   * {@link setRovingCell} and {@link buildHeaderCell}.
+   */
+  private rovingColId: string | null = null;
+
   /** Read by grid-renderer's columns-store watcher to skip header destroy during drag */
   get isDraggingCol(): boolean { return this.isDragging; }
 
@@ -304,6 +318,49 @@ export class HeaderRenderer {
    */
   setColumnDataRefreshCallback(fn: () => void): void {
     this.columnDataRefreshFn = fn;
+  }
+
+  /**
+   * Register the callback that scrolls a center column into view. Invoked during
+   * keyboard header navigation before focusing a column that may currently be
+   * virtualized out of the DOM.
+   *
+   * @param fn - Reveals the column (typically `GridRenderer.ensureColumnVisible`).
+   */
+  setEnsureColumnVisibleCallback(fn: (colId: string) => void): void {
+    this.ensureColumnVisibleFn = fn;
+  }
+
+  /**
+   * Configure the column context menu (sections, suppressed items, custom items,
+   * right-click behaviour). Forwarded to the internal {@link ColumnMenu}.
+   *
+   * @param cfg - Grid-wide column-menu configuration.
+   */
+  setMenuOptions(cfg: import('../types/column-menu.types').ColumnMenuConfig): void {
+    this.columnMenu.setMenuOptions(cfg);
+  }
+
+  /**
+   * Register the AG-Grid-style `getColumnMenuItems` transform. Forwarded to the
+   * internal {@link ColumnMenu}.
+   *
+   * @param fn - Final item-list transform, or `undefined` to clear.
+   */
+  setColumnMenuItemsCallback(
+    fn: import('../types/column-menu.types').GetColumnMenuItems | undefined,
+  ): void {
+    this.columnMenu.setColumnMenuItemsCallback(fn);
+  }
+
+  /**
+   * Provide the grid's public API to the column menu, forwarded to custom-item
+   * actions via {@link import('../types/column-menu.types').ColumnMenuItemContext}.
+   *
+   * @param api - The owning grid's `GridApi` (typed `unknown` to avoid a cycle).
+   */
+  setMenuApi(api: unknown): void {
+    this.columnMenu.setMenuApi(api);
   }
 
   /**
@@ -571,6 +628,9 @@ export class HeaderRenderer {
       this.rightFilterRowEl = this.buildFilterRow(rightCols, options, false);
       rightContainer.appendChild(this.rightFilterRowEl);
     }
+
+    // Guarantee exactly one header cell remains keyboard-reachable via Tab.
+    this.ensureRovingTabstop();
   }
 
   updateSortIndicator(colId: string, order: 'asc' | 'desc' | null): void {
@@ -694,6 +754,9 @@ export class HeaderRenderer {
     }
     if (rightSpacerW > 0) this.centerHeaderRowEl.appendChild(this.makeSpacer('pg-th pg-th--h-spacer', rightSpacerW));
 
+    // Keep a single keyboard-reachable header cell after the virtual rebuild.
+    this.ensureRovingTabstop();
+
     if (!this.centerFilterRowEl) return;
     this.centerFilterRowEl.innerHTML = '';
     if (options.hasGroupedColumns) this.centerFilterRowEl.appendChild(this.buildAutoGroupFilterCell(options.autoGroupColWidth ?? 200));
@@ -739,7 +802,149 @@ export class HeaderRenderer {
       if (options.showCheckboxes) row.appendChild(this.buildCheckboxHeaderCell());
     }
     for (let i = 0; i < columns.length; i++) row.appendChild(this.buildHeaderCell(columns[i], i, columns, options, row));
+    // One delegated keydown per panel row (not per cell). The center row element
+    // persists across virtual `updateCenterVisibleCols` rebuilds, so this stays
+    // bound once and never accumulates listeners during horizontal scroll.
+    this.attachHeaderKeydown(row);
     return row;
+  }
+
+  /**
+   * Attach the delegated keyboard handler for a panel's header row. Implements
+   * the WAI-ARIA grid-header keyboard model:
+   *
+   * - **ArrowLeft / ArrowRight** — move the roving focus to the previous / next
+   *   visible column (spanning left → center → right panels).
+   * - **Home / End** — move to the first / last visible column.
+   * - **Enter / Space** — toggle the column's sort (when sortable).
+   * - **Alt + ArrowDown** — open the column's filter panel.
+   * - **Shift + F10** or the **ContextMenu** key — open the column context menu.
+   *
+   * Tab is intentionally not intercepted — the roving tabindex makes Tab exit the
+   * header after a single stop.
+   *
+   * @param row - The panel header row element to delegate from.
+   */
+  private attachHeaderKeydown(row: HTMLElement): void {
+    row.addEventListener('keydown', (e: KeyboardEvent) => this.onHeaderKeydown(e));
+  }
+
+  private onHeaderKeydown(e: KeyboardEvent): void {
+    const th = (e.target as HTMLElement).closest<HTMLElement>('.pg-th[data-col-id]');
+    if (!th) return;
+    const colId = th.getAttribute('data-col-id');
+    if (!colId) return;
+    const col = this.columnModel.getColumn(colId);
+    if (!col) return;
+
+    // Shift+F10 / ContextMenu key — open the column menu anchored at the cell.
+    if ((e.shiftKey && e.key === 'F10') || e.key === 'ContextMenu') {
+      e.preventDefault();
+      this.columnMenu.show(col, th);
+      return;
+    }
+
+    switch (e.key) {
+      case 'ArrowRight': e.preventDefault(); this.moveRoving(colId, 1);  break;
+      case 'ArrowLeft':  e.preventDefault(); this.moveRoving(colId, -1); break;
+      case 'Home':       e.preventDefault(); this.moveRovingToEdge(true);  break;
+      case 'End':        e.preventDefault(); this.moveRovingToEdge(false); break;
+      case 'ArrowDown':
+        // Alt+ArrowDown opens the filter panel (WAI-ARIA "open popup" gesture).
+        if (e.altKey) { e.preventDefault(); this.openFilterPanelFn?.(col, th); }
+        break;
+      case 'Enter':
+      case ' ':
+        if (col.sortable !== false) { e.preventDefault(); this.toggleSort(col); }
+        break;
+    }
+  }
+
+  /**
+   * Move the roving header focus by `dir` columns from `fromColId`, in the grid's
+   * visible-column order (which spans the pinned-left, center, and pinned-right
+   * panels). Clamped at both ends.
+   */
+  private moveRoving(fromColId: string, dir: 1 | -1): void {
+    const cols = this.columnModel.getVisibleColumns();
+    const idx  = cols.findIndex((c) => c.colId === fromColId);
+    if (idx === -1) return;
+    const nextIdx = idx + dir;
+    if (nextIdx < 0 || nextIdx >= cols.length) return;
+    this.setRovingCell(cols[nextIdx].colId);
+  }
+
+  /** Move the roving header focus to the first or last visible column. */
+  private moveRovingToEdge(first: boolean): void {
+    const cols = this.columnModel.getVisibleColumns();
+    if (cols.length === 0) return;
+    this.setRovingCell(cols[first ? 0 : cols.length - 1].colId);
+  }
+
+  /**
+   * Make `colId` the roving header cell (the single tab stop) and move DOM focus
+   * to it. Updates every rendered header cell's tabindex across the three panels.
+   * When the target is a virtualized center column not currently in the DOM, it
+   * is first scrolled into view via the ensure-visible callback, then focused on
+   * the next frame.
+   *
+   * @param colId - The column whose header cell should receive focus.
+   */
+  setRovingCell(colId: string): void {
+    this.rovingColId = colId;
+    const rows = [this.leftHeaderRowEl, this.centerHeaderRowEl, this.rightHeaderRowEl];
+    for (const row of rows) {
+      if (!row) continue;
+      for (const cell of Array.from(row.querySelectorAll<HTMLElement>('.pg-th[data-col-id]'))) {
+        cell.setAttribute('tabindex', cell.getAttribute('data-col-id') === colId ? '0' : '-1');
+      }
+    }
+
+    const target = this.findHeaderCell(colId);
+    if (target) {
+      target.focus();
+      return;
+    }
+    // Virtualized out of the DOM — reveal it, then focus once re-rendered.
+    this.ensureColumnVisibleFn?.(colId);
+    requestAnimationFrame(() => {
+      const revealed = this.findHeaderCell(colId);
+      if (revealed) {
+        revealed.setAttribute('tabindex', '0');
+        revealed.focus();
+      }
+    });
+  }
+
+  /** Locate a rendered header cell by column id across all three panels. */
+  private findHeaderCell(colId: string): HTMLElement | null {
+    const rows = [this.leftHeaderRowEl, this.centerHeaderRowEl, this.rightHeaderRowEl];
+    for (const row of rows) {
+      const cell = row?.querySelector<HTMLElement>(`.pg-th[data-col-id="${colId}"]`);
+      if (cell) return cell;
+    }
+    return null;
+  }
+
+  /**
+   * Guarantee exactly one header cell is in the tab order after a (re)render.
+   * If the roving column is not currently rendered (e.g. virtualized out during
+   * horizontal scroll), promote the first rendered data cell so Tab can always
+   * reach the header.
+   */
+  private ensureRovingTabstop(): void {
+    if (this.rovingColId && this.findHeaderCell(this.rovingColId)) return;
+    // Roving column not currently rendered — promote the first rendered data
+    // cell (scanning left → center → right) so Tab can always reach the header.
+    const rows = [this.leftHeaderRowEl, this.centerHeaderRowEl, this.rightHeaderRowEl];
+    let first: HTMLElement | null = null;
+    for (const row of rows) {
+      first = row?.querySelector<HTMLElement>('.pg-th[data-col-id]') ?? null;
+      if (first) break;
+    }
+    if (!first) return;
+    this.rovingColId = first.getAttribute('data-col-id');
+    first.setAttribute('tabindex', '0');
   }
 
   private buildAutoGroupTh(width: number): HTMLElement {
@@ -814,7 +1019,11 @@ export class HeaderRenderer {
     th.setAttribute('role', 'columnheader');
     th.setAttribute('data-col-id', col.colId);
     th.setAttribute('data-col-index', String(index));
-    th.setAttribute('tabindex', '0');
+    // Roving tabindex: exactly one header cell is in the tab order at a time;
+    // Arrow keys move the roving cell (see onHeaderKeydown / setRovingCell). The
+    // first cell built becomes the default roving cell until the user navigates.
+    if (this.rovingColId === null) this.rovingColId = col.colId;
+    th.setAttribute('tabindex', col.colId === this.rovingColId ? '0' : '-1');
     // When a grouped header is present, flat columns must visually span the
     // full header height (group rows + leaf row).  The CSS handles the actual
     // translate + height expansion; this class is the hook.
@@ -865,7 +1074,10 @@ export class HeaderRenderer {
       if (filterMode === HeaderIconDisplay.ALWAYS) filterBtn.classList.add('pg-th__filter-btn--always');
       filterBtn.innerHTML = this.iconRenderer.renderToString(filterActive ? 'filterActive' : 'filter', 14);
       filterBtn.title = 'Filter column';
-      filterBtn.setAttribute('tabindex', '0');
+      // Not individually tabbable — the header cell is the single tab stop
+      // (roving tabindex). Keyboard users open the filter via Alt+ArrowDown on
+      // the cell (see onHeaderKeydown).
+      filterBtn.setAttribute('tabindex', '-1');
       filterBtn.setAttribute('aria-label', `Filter ${col.header}`);
       filterBtn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -882,13 +1094,19 @@ export class HeaderRenderer {
       if (menuMode === HeaderIconDisplay.ALWAYS) menuBtn.classList.add('pg-th__menu-btn--always');
       menuBtn.innerHTML = this.iconRenderer.renderToString('menuHorizontal', 14);
       menuBtn.title = 'Column options';
-      menuBtn.setAttribute('tabindex', '0');
+      menuBtn.setAttribute('aria-label', `${col.header} column menu`);
+      menuBtn.setAttribute('aria-haspopup', 'menu');
+      // Not individually tabbable — keyboard users open the menu via Shift+F10
+      // or the ContextMenu key on the header cell (see onHeaderKeydown).
+      menuBtn.setAttribute('tabindex', '-1');
       menuBtn.addEventListener('click', (e) => { e.stopPropagation(); this.columnMenu.show(col, menuBtn); });
       th.appendChild(menuBtn);
     }
 
-    // Right-click on the header cell opens the context menu at cursor position.
+    // Right-click on the header cell opens the context menu at cursor position,
+    // unless disabled via ColumnMenuConfig.enableRightClick.
     th.addEventListener('contextmenu', (e) => {
+      if (!this.columnMenu.isRightClickEnabled(col)) return;
       e.preventDefault();
       e.stopPropagation();
       this.columnMenu.show(col, th, e.clientX, e.clientY);
@@ -923,17 +1141,37 @@ export class HeaderRenderer {
     if (col.sortable !== false) {
       th.addEventListener('click', (e) => {
         if ((e.target as HTMLElement).closest('.pg-th__resize-handle, .pg-th__menu-btn, .pg-th__filter-btn')) return;
-        const next: 'asc' | 'desc' | null = col.sortOrder === null ? 'asc' : col.sortOrder === 'asc' ? 'desc' : null;
-        if (next) this.sortEngine.sort(col.colId, col.field, next);
-        else this.sortEngine.clearSort();
-        this.columnModel.setColumnSort(col.colId, next);
-        this.updateSortIndicator(col.colId, next);
-        this.onAction('sort', col.colId);
+        this.toggleSort(col);
       });
     }
 
+    // Keyboard navigation is delegated at the panel-row level (see
+    // attachHeaderKeydown). `focusin` keeps the roving cell in sync when the user
+    // Tabs into a header cell or clicks it, so a subsequent Arrow key moves from
+    // the right place.
+    th.addEventListener('focusin', () => { this.rovingColId = col.colId; });
+
     this.attachColumnDragListeners(th, col, panelColumns, panelRowEl);
     return th;
+  }
+
+  /**
+   * Advance a column's sort through the asc → desc → none cycle and update the
+   * model, engine, and header indicator. Shared by the header-cell click handler
+   * and keyboard activation (Enter / Space).
+   *
+   * @param col - The column to (re)sort. A no-op when `col.sortable === false`.
+   */
+  private toggleSort(col: ColumnDef): void {
+    if (col.sortable === false) return;
+    const current = this.columnModel.getColumn(col.colId)?.sortOrder ?? col.sortOrder ?? null;
+    const next: 'asc' | 'desc' | null =
+      current === null ? 'asc' : current === 'asc' ? 'desc' : null;
+    if (next) this.sortEngine.sort(col.colId, col.field, next);
+    else this.sortEngine.clearSort();
+    this.columnModel.setColumnSort(col.colId, next);
+    this.updateSortIndicator(col.colId, next);
+    this.onAction('sort', col.colId);
   }
 
   /**

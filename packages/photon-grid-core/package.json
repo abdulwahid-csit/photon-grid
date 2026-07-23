@@ -35,6 +35,9 @@
     "build:cdn": "esbuild src/index.ts --bundle --minify --platform=browser --format=iife --global-name=PhotonGrid --outfile=dist/photon-grid.min.js",
     "build:watch": "tsc --project tsconfig.json --watch",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "demo": "esbuild demo/demo.ts --bundle --outfile=demo/demo.bundle.js --format=iife --global-name=PhotonGridDemo --target=es2020 --platform=browser --sourcemap",
     "demo:inventory": "esbuild demo/inventory-demo.ts --bundle --outfile=demo/inventory-demo.bundle.js --format=iife --global-name=PhotonGridInventoryDemo --target=es2020 --platform=browser --sourcemap",
     "demo:tree": "esbuild demo/tree-data-demo.ts --bundle --outfile=demo/tree-data-demo.bundle.js --format=iife --global-name=PhotonGridTreeDemo --target=es2020 --platform=browser --sourcemap",
@@ -79,6 +82,7 @@
   "devDependencies": {
     "esbuild": "^0.28.1",
     "rimraf": "^6.0.1",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.7"
   }
 }

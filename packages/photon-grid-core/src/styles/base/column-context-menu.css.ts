@@ -65,8 +65,11 @@ export const columnContextMenuCss = `/* ─────────────�
 
 /* Hover / keyboard-focus background. Uses header-hover (distinct from the menu
    surface in both light and dark themes) rather than background-alt, which
-   collapses to the surface colour in dark mode and leaves hover invisible. */
+   collapses to the surface colour in dark mode and leaves hover invisible.
+   :focus (not only :focus-visible) is matched too because menu items are moved
+   with programmatic .focus() during keyboard navigation. */
 .pg-col-ctx-menu__item:hover,
+.pg-col-ctx-menu__item:focus,
 .pg-col-ctx-menu__item:focus-visible {
   background: var(--pg-colors-header-hover, #f1f5f9);
 }

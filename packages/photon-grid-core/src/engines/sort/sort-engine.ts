@@ -6,6 +6,7 @@ import type { EventBus } from '../../event-bus/event-bus';
 import { GridEventType } from '../../types/event.types';
 import { getComparator } from './sort-comparator';
 import type { ComparatorFn } from './sort-comparator';
+import { getCellValue } from '../editing/value-accessor';
 
 // ── Internal types ────────────────────────────────────────────────────────────
 
@@ -18,6 +19,12 @@ interface SortKey {
   field: string;
   /** `true` when `field` contains a `.` — enables the nested resolver. */
   nested: boolean;
+  /**
+   * Prebound value getter for columns declaring a {@link ColumnDef.valueGetter},
+   * or `null` for plain field access. Bound once here (not per row) so the
+   * O(n) extraction pass stays branch-light and the hot comparator is untouched.
+   */
+  getter: ((data: Record<string, unknown>) => unknown) | null;
   /** Type-specific comparison function (module-level singleton). */
   compareFn: ComparatorFn;
   /** `1` for ascending, `-1` for descending. */
@@ -132,6 +139,9 @@ export class SortEngine {
       return {
         field,
         nested: field.includes('.'),
+        // Only pay the getter indirection when a column actually declares one;
+        // plain columns keep the zero-overhead direct-read path below.
+        getter: col?.valueGetter ? (data: Record<string, unknown>) => getCellValue(data, col) : null,
         compareFn: getComparator(col?.type ?? 'string'),
         direction: (order === 'asc' ? 1 : -1) as 1 | -1,
       };
@@ -160,9 +170,11 @@ export class SortEngine {
       const v = new Array<unknown>(keyCount);
       for (let k = 0; k < keyCount; k++) {
         const key = keys[k];
-        v[k] = key.nested
-          ? resolveNestedValue(data, key.field)
-          : data[key.field];
+        v[k] = key.getter
+          ? key.getter(data)
+          : key.nested
+            ? resolveNestedValue(data, key.field)
+            : data[key.field];
       }
       vals[i] = v;
     }

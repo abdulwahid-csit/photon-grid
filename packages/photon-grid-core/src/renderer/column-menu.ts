@@ -5,66 +5,32 @@ import type { EventBus } from '../event-bus/event-bus';
 import type { IconRenderer } from '../icons/icon-renderer';
 import { GridEventType } from '../types/event.types';
 import { createDiv } from './dom-utils';
-
-// ── Enums ────────────────────────────────────────────────────────────────────
-
-/**
- * Identifiers for the nine sections of the column context menu.
- *
- * Pass a subset to {@link ColumnMenuOptions.sections} to restrict which sections
- * are rendered — for example, `[ColumnMenuSection.SORT, ColumnMenuSection.PIN]`.
- */
-export enum ColumnMenuSection {
-  /** Sort Ascending / Sort Descending / Clear Sort */
-  SORT = 'sort',
-  /** Quick Filter / Advanced Filter / Clear Filter */
-  FILTER = 'filter',
-  /** Pin submenu: Pin Left / Pin Right / Unpin */
-  PIN = 'pin',
-  /** Move Left / Move Right / Move to Start / Move to End */
-  MOVE = 'move',
-  /** Resize submenu: Auto Size / Auto Size All / Fit to Grid / Reset Width */
-  RESIZE = 'resize',
-  /** Visibility submenu: Hide Column / Column Chooser */
-  VISIBILITY = 'visibility',
-  /** Group by Column + Aggregate submenu */
-  DATA = 'data',
-  /** Clipboard submenu: Copy Header / Copy Column / Copy Values */
-  CLIPBOARD = 'clipboard',
-  /** Column submenu: Rename / Duplicate / Freeze / Lock / Reset */
-  COLUMN = 'column',
-}
+import { MenuKeyboardController } from './menu-keyboard-controller';
+import type { MenuKeyboardHost } from './menu-keyboard-controller';
+import {
+  ColumnMenuSection,
+  AggregateFunction,
+} from '../types/column-menu.types';
+import type {
+  ColumnMenuConfig,
+  ColumnMenuCustomItem,
+  ColumnMenuItem,
+  ColumnMenuItemId,
+  ColumnMenuItemContext,
+  GetColumnMenuItems,
+} from '../types/column-menu.types';
 
 /**
- * Aggregate functions available in the Data → Aggregate submenu.
+ * Re-exported for backwards compatibility. The canonical definitions now live in
+ * `types/column-menu.types.ts` and are the public export surface.
  */
-export enum AggregateFunction {
-  SUM   = 'sum',
-  AVG   = 'avg',
-  MIN   = 'min',
-  MAX   = 'max',
-  COUNT = 'count',
-}
-
-// ── Interfaces ───────────────────────────────────────────────────────────────
+export { ColumnMenuSection, AggregateFunction };
 
 /**
- * Options controlling which sections appear in the column context menu
- * and global behaviour flags.
+ * @deprecated Use {@link ColumnMenuConfig}. Retained as an alias so existing
+ * imports keep compiling.
  */
-export interface ColumnMenuOptions {
-  /**
-   * Sections to display, in the given order.
-   * Omit (or pass `undefined`) to show all nine sections in their default order.
-   */
-  sections?: ColumnMenuSection[];
-  /**
-   * When `true`, right-clicking a column header cell opens this menu at the
-   * cursor position in addition to the ⋯ button.
-   * @default true
-   */
-  enableRightClick?: boolean;
-}
+export type ColumnMenuOptions = ColumnMenuConfig;
 
 /**
  * Callbacks for operations that the column context menu delegates to the
@@ -138,6 +104,8 @@ export interface GroupCallbacks {
 /** A clickable leaf item with no children. */
 interface MenuLeafItem {
   readonly kind:      'leaf';
+  /** Stable identifier — the suppression/ordering unit. */
+  readonly id:        ColumnMenuItemId;
   readonly label:     string;
   readonly icon:      string;
   /** When `true` the item receives the `--active` style (e.g. current sort dir). */
@@ -152,6 +120,8 @@ interface MenuLeafItem {
 /** A parent item that opens a fly-out submenu on hover. */
 interface MenuParentItem {
   readonly kind:     'parent';
+  /** Stable identifier — the suppression/ordering unit for the whole submenu. */
+  readonly id:       ColumnMenuItemId;
   readonly label:    string;
   readonly icon:     string;
   readonly children: ReadonlyArray<MenuLeafItem>;
@@ -164,6 +134,15 @@ interface MenuSectionDef {
   readonly key:   ColumnMenuSection;
   readonly items: ReadonlyArray<MenuItem>;
 }
+
+/** Maps each aggregate function to its stable menu-item id. */
+const AGG_ITEM_IDS: Readonly<Record<AggregateFunction, ColumnMenuItemId>> = {
+  [AggregateFunction.SUM]:   'aggSum',
+  [AggregateFunction.AVG]:   'aggAvg',
+  [AggregateFunction.MIN]:   'aggMin',
+  [AggregateFunction.MAX]:   'aggMax',
+  [AggregateFunction.COUNT]: 'aggCount',
+};
 
 // ── Section group layout ─────────────────────────────────────────────────────
 
@@ -230,9 +209,21 @@ export class ColumnMenu {
    * find the owning item once a submenu is detached.
    */
   private submenuParents = new Map<HTMLElement, HTMLElement>();
+  /**
+   * Reverse of {@link submenuParents}: maps each submenu-parent item to its
+   * (portaled) submenu. Lets the keyboard controller open a submenu by parent
+   * without a linear scan.
+   */
+  private itemSubmenus = new Map<HTMLElement, HTMLElement>();
+  /** Keyboard navigation controller — created per open, destroyed on hide. */
+  private keyboardController: MenuKeyboardController | null = null;
   private groupCallbacks:   GroupCallbacks | null = null;
   private menuCallbacks:    Partial<ColumnMenuCallbacks> = {};
-  private menuOptions:      ColumnMenuOptions = {};
+  private menuOptions:      ColumnMenuConfig = {};
+  /** Host-supplied final item transform (AG-Grid-style). `null` when unset. */
+  private getItemsFn:       GetColumnMenuItems | null = null;
+  /** The grid's public API, handed to custom-item actions. `null` until wired. */
+  private api:              unknown = null;
 
   constructor(
     private readonly columnModel:  ColumnModel,
@@ -253,11 +244,48 @@ export class ColumnMenu {
   }
 
   /**
-   * Configure which sections appear and whether right-click is supported.
-   * Call this once after construction or whenever options change.
+   * Configure which sections and items appear and whether right-click is
+   * supported. Call this once after construction or whenever options change.
+   *
+   * @param options - Grid-wide column-menu configuration. Per-column overrides
+   *   supplied via {@link ColumnDef.menu} are layered on top at show time.
    */
-  setMenuOptions(options: ColumnMenuOptions): void {
-    this.menuOptions = options;
+  setMenuOptions(options: ColumnMenuConfig): void {
+    this.menuOptions = options ?? {};
+  }
+
+  /**
+   * Register the AG-Grid-style hook that fully controls the resolved item list.
+   * When set, its return value is authoritative for every column's menu.
+   *
+   * @param fn - Receives the default (post-suppression) built-in item ids and the
+   *   column, and returns the exact ordered items to render. Pass `undefined` to clear.
+   */
+  setColumnMenuItemsCallback(fn: GetColumnMenuItems | undefined): void {
+    this.getItemsFn = fn ?? null;
+  }
+
+  /**
+   * Provide the grid's public API, forwarded to custom-item actions via
+   * {@link ColumnMenuItemContext.api}. Late-bound because the API does not exist
+   * until after the grid is constructed.
+   *
+   * @param api - The owning grid's `GridApi` (typed `unknown` to avoid a cycle).
+   */
+  setMenuApi(api: unknown): void {
+    this.api = api;
+  }
+
+  /**
+   * Whether right-clicking a header cell should open this menu for `colDef`.
+   * Resolves the per-column value over the grid-wide value, defaulting to `true`.
+   *
+   * @param colDef - The column whose header was right-clicked.
+   */
+  isRightClickEnabled(colDef: ColumnDef): boolean {
+    return colDef.menu?.enableRightClick
+      ?? this.menuOptions.enableRightClick
+      ?? true;
   }
 
   /**
@@ -302,16 +330,51 @@ export class ColumnMenu {
         if (this.activeSubmenuEl?.contains(target)) return;
         this.hide();
       };
+      // Fallback Escape handler for the rare case focus has left the menu (e.g.
+      // the user tabbed out). While focus is inside the menu the keyboard
+      // controller (capture phase) handles Escape first and stops propagation.
       this.escKeyFn = (e: KeyboardEvent) => {
         if (e.key === 'Escape') this.hide();
       };
       document.addEventListener('mousedown', this.outsideClickFn);
       document.addEventListener('keydown',   this.escKeyFn);
+
+      // Keyboard navigation — focuses the first item and drives arrow/enter/
+      // submenu/typeahead/escape handling for the lifetime of the menu.
+      this.keyboardController = new MenuKeyboardController(this.buildKeyboardHost());
+      this.keyboardController.attach();
     });
+  }
+
+  /** Build the {@link MenuKeyboardHost} adapter for this menu instance. */
+  private buildKeyboardHost(): MenuKeyboardHost {
+    return {
+      getRootEl:          () => this.el,
+      getActiveSubmenuEl: () => this.activeSubmenuEl,
+      openSubmenu: (parentItem) => {
+        const submenu = this.itemSubmenus.get(parentItem);
+        if (!submenu) return null;
+        this.clearSubmenuTimers();
+        if (this.activeSubmenuEl && this.activeSubmenuEl !== submenu) {
+          this.closeSubmenu(this.activeSubmenuEl);
+        }
+        this.openSubmenu(submenu, parentItem);
+        return submenu;
+      },
+      closeSubmenu:     (submenuEl) => this.closeSubmenu(submenuEl),
+      getSubmenuParent: (submenuEl) => this.submenuParents.get(submenuEl) ?? null,
+      closeAll: (restoreFocus) => {
+        const opener = this.anchorEl;
+        this.hide();
+        if (restoreFocus) opener?.focus();
+      },
+    };
   }
 
   /** Hide and remove the menu from the DOM. */
   hide(): void {
+    this.keyboardController?.destroy();
+    this.keyboardController = null;
     if (this.outsideClickFn) {
       document.removeEventListener('mousedown', this.outsideClickFn);
       this.outsideClickFn = null;
@@ -326,6 +389,7 @@ export class ColumnMenu {
     this.activeSubmenuEl?.remove();
     this.activeSubmenuEl = null;
     this.submenuParents.clear();
+    this.itemSubmenus.clear();
     this.anchorEl?.classList.remove('pg-th__menu-btn--active');
     this.anchorEl = null;
     this.el?.remove();
@@ -343,37 +407,150 @@ export class ColumnMenu {
     const menu = createDiv('pg-col-ctx-menu');
     menu.setAttribute('role', 'menu');
     menu.setAttribute('tabindex', '-1');
+    menu.setAttribute('aria-label', `${colDef.header} column menu`);
 
-    const enabledSections = new Set(this.menuOptions.sections ?? Object.values(ColumnMenuSection));
-    const allSections     = this.buildAllSections(colDef);
-    const sectionMap      = new Map(allSections.map((s) => [s.key, s]));
+    const { groups, byId } = this.collectDescriptors(colDef);
 
+    if (this.getItemsFn) {
+      // Host-controlled: the callback's return is the authoritative item list.
+      const defaultIds = groups.flat().map((i) => i.id);
+      this.renderModel(menu, this.getItemsFn(defaultIds, colDef), byId, colDef);
+      return menu;
+    }
+
+    // Config-built model: section groups (separated) followed by custom items.
     let firstGroupRendered = true;
-
-    for (const group of SECTION_GROUPS) {
-      const visibleInGroup = group.filter(
-        (key) => enabledSections.has(key) && (sectionMap.get(key)?.items.length ?? 0) > 0,
-      );
-      if (visibleInGroup.length === 0) continue;
-
-      if (!firstGroupRendered) {
-        menu.appendChild(this.createSeparator());
-      }
+    for (const groupItems of groups) {
+      if (groupItems.length === 0) continue;
+      if (!firstGroupRendered) menu.appendChild(this.createSeparator());
       firstGroupRendered = false;
+      for (const item of groupItems) this.renderBuiltin(menu, item, colDef);
+    }
 
-      for (const key of visibleInGroup) {
-        const section = sectionMap.get(key)!;
-        for (const item of section.items) {
-          menu.appendChild(
-            item.kind === 'parent'
-              ? this.buildParentItem(item, colDef)
-              : this.buildLeafItem(item),
-          );
-        }
-      }
+    const customItems = this.resolveCustomItems(colDef);
+    if (customItems.length > 0) {
+      if (!firstGroupRendered) menu.appendChild(this.createSeparator());
+      for (const item of customItems) this.renderCustom(menu, item, colDef);
     }
 
     return menu;
+  }
+
+  // ── Private: menu-model resolution ─────────────────────────────────────────
+
+  /**
+   * Build the ordered, filtered top-level descriptors grouped by separator group,
+   * plus a lookup by id. Applies the enabled-sections filter and the grid∪column
+   * suppression set, and strips suppressed submenu children (dropping a parent
+   * left with no children).
+   *
+   * @param colDef - The column the menu is opening for.
+   */
+  private collectDescriptors(colDef: ColumnDef): {
+    groups: MenuItem[][];
+    byId:   Map<ColumnMenuItemId, MenuItem>;
+  } {
+    const enabled = new Set<ColumnMenuSection>(
+      colDef.menu?.sections ?? this.menuOptions.sections ?? Object.values(ColumnMenuSection),
+    );
+    const suppress   = this.resolveSuppressSet(colDef);
+    const sectionMap = new Map(this.buildAllSections(colDef).map((s) => [s.key, s]));
+    const byId       = new Map<ColumnMenuItemId, MenuItem>();
+
+    const groups: MenuItem[][] = SECTION_GROUPS.map((group) => {
+      const out: MenuItem[] = [];
+      for (const key of group) {
+        if (!enabled.has(key)) continue;
+        const section = sectionMap.get(key);
+        if (!section) continue;
+        for (const item of section.items) {
+          if (suppress.has(item.id)) continue;
+          const resolved = this.applyChildSuppression(item, suppress);
+          if (!resolved) continue;
+          byId.set(resolved.id, resolved);
+          out.push(resolved);
+        }
+      }
+      return out;
+    });
+
+    return { groups, byId };
+  }
+
+  /** Union of the grid-wide and per-column `suppressItems` sets. */
+  private resolveSuppressSet(colDef: ColumnDef): Set<ColumnMenuItemId> {
+    const set = new Set<ColumnMenuItemId>(this.menuOptions.suppressItems ?? []);
+    for (const id of colDef.menu?.suppressItems ?? []) set.add(id);
+    return set;
+  }
+
+  /**
+   * Returns the item with suppressed children removed. Leaves pass through
+   * unchanged; a parent whose children are all suppressed returns `null`.
+   */
+  private applyChildSuppression(
+    item:     MenuItem,
+    suppress: Set<ColumnMenuItemId>,
+  ): MenuItem | null {
+    if (item.kind === 'leaf') return item;
+    const children = item.children.filter((c) => !suppress.has(c.id));
+    if (children.length === 0) return null;
+    if (children.length === item.children.length) return item;
+    return { ...item, children };
+  }
+
+  /**
+   * Merge grid-wide and per-column custom items. Grid items come first, then
+   * column items; entries sharing an `id` are de-duplicated with the column
+   * item winning.
+   */
+  private resolveCustomItems(colDef: ColumnDef): ColumnMenuCustomItem[] {
+    const grid = this.menuOptions.customItems ?? [];
+    const col  = colDef.menu?.customItems ?? [];
+    if (grid.length === 0) return [...col];
+    if (col.length === 0)  return [...grid];
+    const colIds = new Set(col.map((i) => i.id).filter((id): id is string => id != null));
+    const merged = grid.filter((i) => i.id == null || !colIds.has(i.id));
+    return [...merged, ...col];
+  }
+
+  /** Render a host-supplied `ColumnMenuItem[]` model into `menu`. */
+  private renderModel(
+    menu:   HTMLElement,
+    model:  ColumnMenuItem[],
+    byId:   Map<ColumnMenuItemId, MenuItem>,
+    colDef: ColumnDef,
+  ): void {
+    for (const entry of model) {
+      if (entry === 'separator') { menu.appendChild(this.createSeparator()); continue; }
+      if (typeof entry === 'string') {
+        const desc = byId.get(entry);
+        if (desc) this.renderBuiltin(menu, desc, colDef);
+        continue;
+      }
+      this.renderCustom(menu, entry, colDef);
+    }
+  }
+
+  /** Append a built-in leaf or parent descriptor to `menu`. */
+  private renderBuiltin(menu: HTMLElement, item: MenuItem, colDef: ColumnDef): void {
+    menu.appendChild(
+      item.kind === 'parent' ? this.buildParentItem(item, colDef) : this.buildLeafItem(item),
+    );
+  }
+
+  /** Append a custom leaf (or fly-out parent) to `menu`. */
+  private renderCustom(menu: HTMLElement, item: ColumnMenuCustomItem, colDef: ColumnDef): void {
+    menu.appendChild(
+      item.children && item.children.length > 0
+        ? this.buildCustomParent(item, colDef)
+        : this.buildCustomLeaf(item, colDef),
+    );
+  }
+
+  /** Build the {@link ColumnMenuItemContext} handed to custom-item actions. */
+  private makeItemContext(colDef: ColumnDef): ColumnMenuItemContext {
+    return { colDef, colId: colDef.colId, api: this.api };
   }
 
   // ── Private: item DOM builders ────────────────────────────────────────────
@@ -384,7 +561,10 @@ export class ColumnMenu {
     el.setAttribute('tabindex', '-1');
 
     if (item.active)   el.classList.add('pg-col-ctx-menu__item--active');
-    if (item.disabled) el.classList.add('pg-col-ctx-menu__item--disabled');
+    if (item.disabled) {
+      el.classList.add('pg-col-ctx-menu__item--disabled');
+      el.setAttribute('aria-disabled', 'true');
+    }
 
     el.appendChild(this.createIcon(item.icon));
     el.appendChild(this.createLabel(item.label));
@@ -428,6 +608,7 @@ export class ColumnMenu {
     // axis. It is still built eagerly so hover has no construction delay.
     const submenu = this.buildSubmenu(item.children, colDef);
     this.submenuParents.set(submenu, el);
+    this.itemSubmenus.set(el, submenu);
 
     this.attachSubmenuListeners(el, submenu);
     return el;
@@ -443,6 +624,68 @@ export class ColumnMenu {
       submenu.appendChild(this.buildLeafItem(child));
     }
     return submenu;
+  }
+
+  // ── Private: custom item DOM builders ────────────────────────────────────
+
+  /**
+   * Build a clickable custom leaf item. Invokes `item.action` with the column
+   * context, then closes the menu. A disabled item is rendered but inert.
+   */
+  private buildCustomLeaf(item: ColumnMenuCustomItem, colDef: ColumnDef): HTMLElement {
+    const el = createDiv('pg-col-ctx-menu__item');
+    el.setAttribute('role', 'menuitem');
+    el.setAttribute('tabindex', '-1');
+    if (item.disabled) {
+      el.classList.add('pg-col-ctx-menu__item--disabled');
+      el.setAttribute('aria-disabled', 'true');
+    }
+
+    el.appendChild(this.createIcon(item.icon));
+    el.appendChild(this.createLabel(item.label));
+
+    if (!item.disabled) {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        item.action?.(this.makeItemContext(colDef));
+        this.hide();
+      });
+    }
+    return el;
+  }
+
+  /**
+   * Build a custom fly-out parent item. Its children are rendered as custom
+   * leaves in a portaled submenu, reusing the same hover/keyboard machinery as
+   * the built-in submenus.
+   */
+  private buildCustomParent(item: ColumnMenuCustomItem, colDef: ColumnDef): HTMLElement {
+    const el = createDiv('pg-col-ctx-menu__item pg-col-ctx-menu__item--has-submenu');
+    el.setAttribute('role', 'menuitem');
+    el.setAttribute('aria-haspopup', 'true');
+    el.setAttribute('aria-expanded', 'false');
+    el.setAttribute('tabindex', '-1');
+    if (item.disabled) {
+      el.classList.add('pg-col-ctx-menu__item--disabled');
+      el.setAttribute('aria-disabled', 'true');
+    }
+
+    el.appendChild(this.createIcon(item.icon));
+    el.appendChild(this.createLabel(item.label));
+
+    const chevron = createDiv('pg-col-ctx-menu__item-chevron');
+    chevron.innerHTML = this.iconRenderer.renderToString('chevronRight', 12);
+    el.appendChild(chevron);
+
+    const submenu = createDiv('pg-col-ctx-menu__submenu');
+    submenu.setAttribute('role', 'menu');
+    for (const child of item.children ?? []) {
+      submenu.appendChild(this.buildCustomLeaf(child, colDef));
+    }
+    this.submenuParents.set(submenu, el);
+    this.itemSubmenus.set(el, submenu);
+    if (!item.disabled) this.attachSubmenuListeners(el, submenu);
+    return el;
   }
 
   // ── Private: submenu hover logic ─────────────────────────────────────────
@@ -535,6 +778,7 @@ export class ColumnMenu {
       items: colDef.sortable === false ? [] : [
         {
           kind:   'leaf',
+          id:     'sortAsc',
           label:  'Sort Ascending',
           icon:   'sortAsc',
           active: currentSort === 'asc',
@@ -546,6 +790,7 @@ export class ColumnMenu {
         },
         {
           kind:   'leaf',
+          id:     'sortDesc',
           label:  'Sort Descending',
           icon:   'sortDesc',
           active: currentSort === 'desc',
@@ -557,6 +802,7 @@ export class ColumnMenu {
         },
         {
           kind:     'leaf',
+          id:       'sortClear',
           label:    'Clear Sort',
           icon:     'close',
           disabled: !currentSort,
@@ -571,24 +817,15 @@ export class ColumnMenu {
   }
 
   /**
-   * Filter section — three flat items: Quick Filter, Advanced Filter, Clear Filter.
+   * Filter section — a single flat item that opens the advanced filter panel.
    */
   private buildFilterSection(colDef: ColumnDef): MenuSectionDef {
-    const filterActive = colDef.filterActive === true;
     return {
       key:   ColumnMenuSection.FILTER,
       items: colDef.filterable === false ? [] : [
-        // {
-        //   kind:   'leaf',
-        //   label:  'Quick Filter…',
-        //   icon:   'search',
-        //   action: () => {
-        //     this.menuCallbacks.onQuickFilter?.(colDef.colId);
-        //     this.onAction('quick-filter', colDef.colId);
-        //   },
-        // },
         {
           kind:   'leaf',
+          id:     'filter',
           label:  'Filter',
           icon:   'filter',
           action: () => {
@@ -597,20 +834,6 @@ export class ColumnMenu {
             this.onAction('advanced-filter', colDef.colId);
           },
         },
-        // {
-        //   kind:     'leaf',
-        //   label:    'Clear Filter',
-        //   icon:     'close',
-        //   disabled: !filterActive,
-        //   action: () => {
-        //     this.eventBus.emit(GridEventType.COLUMN_FILTER_CHANGED, {
-        //       colId: colDef.colId,
-        //       field: colDef.field,
-        //       term:  '',
-        //     });
-        //     this.onAction('clear-filter', colDef.colId);
-        //   },
-        // },
       ],
     };
   }
@@ -624,11 +847,13 @@ export class ColumnMenu {
       items: [
         {
           kind:  'parent',
+          id:    'pinSubmenu',
           label: 'Pin',
           icon:  'pin',
           children: [
             {
               kind:   'leaf',
+              id:     'pinLeft',
               label:  'Pin Left',
               icon:   'pin',
               active: colDef.pinned === 'left',
@@ -639,6 +864,7 @@ export class ColumnMenu {
             },
             {
               kind:   'leaf',
+              id:     'pinRight',
               label:  'Pin Right',
               icon:   'pin',
               active: colDef.pinned === 'right',
@@ -649,6 +875,7 @@ export class ColumnMenu {
             },
             {
               kind:   'leaf',
+              id:     'unpin',
               label:  'Unpin',
               icon:   'unpin',
               active: !colDef.pinned,
@@ -677,6 +904,7 @@ export class ColumnMenu {
       items: [
         {
           kind:     'leaf',
+          id:       'moveLeft',
           label:    'Move Column to Left',
           icon:     'chevronLeft',
           disabled: isFirst,
@@ -687,6 +915,7 @@ export class ColumnMenu {
         },
         {
           kind:     'leaf',
+          id:       'moveRight',
           label:    'Move Column to Right',
           icon:     'chevronRight',
           disabled: isLast,
@@ -697,6 +926,7 @@ export class ColumnMenu {
         },
         {
           kind:     'leaf',
+          id:       'moveStart',
           label:    'Move to Start',
           icon:     'pageFirst',
           disabled: isFirst,
@@ -707,6 +937,7 @@ export class ColumnMenu {
         },
         {
           kind:     'leaf',
+          id:       'moveEnd',
           label:    'Move to End',
           icon:     'pageLast',
           disabled: isLast,
@@ -728,11 +959,13 @@ export class ColumnMenu {
       items: [
         {
           kind:  'parent',
+          id:    'resizeSubmenu',
           label: 'Resize',
           icon:  'expand',
           children: [
             {
               kind:   'leaf',
+              id:     'autoSize',
               label:  'Auto Size',
               icon:   'columns',
               action: () => {
@@ -742,6 +975,7 @@ export class ColumnMenu {
             },
             {
               kind:   'leaf',
+              id:     'autoSizeAll',
               label:  'Auto Size All',
               icon:   'columns',
               action: () => {
@@ -751,6 +985,7 @@ export class ColumnMenu {
             },
             {
               kind:   'leaf',
+              id:     'fitToGrid',
               label:  'Fit to Grid',
               icon:   'expand',
               action: () => {
@@ -760,6 +995,7 @@ export class ColumnMenu {
             },
             {
               kind:   'leaf',
+              id:     'resetWidth',
               label:  'Reset Width',
               icon:   'refresh',
               action: () => {
@@ -782,11 +1018,13 @@ export class ColumnMenu {
       items: [
         {
           kind:  'parent',
+          id:    'visibilitySubmenu',
           label: 'Visibility',
           icon:  'eye',
           children: [
             {
               kind:   'leaf',
+              id:     'hideColumn',
               label:  'Hide Column',
               icon:   'eyeOff',
               action: () => {
@@ -796,6 +1034,7 @@ export class ColumnMenu {
             },
             {
               kind:   'leaf',
+              id:     'columnChooser',
               label:  'Column Chooser…',
               icon:   'columns',
               action: () => {
@@ -821,6 +1060,7 @@ export class ColumnMenu {
       const grouped = this.groupCallbacks.isGrouped(colDef.colId);
       items.push({
         kind:   'leaf',
+        id:     'groupBy',
         label:  grouped ? 'Remove Grouping' : 'Group by Column',
         icon:   'group',
         active: grouped,
@@ -836,6 +1076,7 @@ export class ColumnMenu {
     if (colDef.type === 'number' || colDef.type === 'currency') {
       items.push({
         kind:  'parent',
+        id:    'aggregateSubmenu',
         label: 'Aggregate',
         icon:  'sigma',
         children: [
@@ -846,6 +1087,7 @@ export class ColumnMenu {
           AggregateFunction.COUNT,
         ].map((func): MenuLeafItem => ({
           kind:    'leaf',
+          id:      AGG_ITEM_IDS[func],
           label:   func.charAt(0).toUpperCase() + func.slice(1),
           icon:    'sigma',
           checked: colDef.aggFunc === func,
@@ -869,11 +1111,13 @@ export class ColumnMenu {
       items: [
         {
           kind:  'parent',
+          id:    'clipboardSubmenu',
           label: 'Clipboard',
           icon:  'copy',
           children: [
             {
               kind:   'leaf',
+              id:     'copyHeader',
               label:  'Copy Header',
               icon:   'copy',
               action: () => {
@@ -883,6 +1127,7 @@ export class ColumnMenu {
             },
             {
               kind:   'leaf',
+              id:     'copyColumn',
               label:  'Copy Column',
               icon:   'copy',
               action: () => {
@@ -892,6 +1137,7 @@ export class ColumnMenu {
             },
             {
               kind:   'leaf',
+              id:     'copyValues',
               label:  'Copy Values',
               icon:   'copy',
               action: () => {
@@ -914,11 +1160,13 @@ export class ColumnMenu {
       items: [
         {
           kind:  'parent',
+          id:    'columnSubmenu',
           label: 'Column',
           icon:  'settings',
           children: [
             {
               kind:   'leaf',
+              id:     'rename',
               label:  'Rename',
               icon:   'edit',
               action: () => {
@@ -928,6 +1176,7 @@ export class ColumnMenu {
             },
             {
               kind:   'leaf',
+              id:     'duplicate',
               label:  'Duplicate',
               icon:   'copy',
               action: () => {
@@ -937,6 +1186,7 @@ export class ColumnMenu {
             },
             {
               kind:   'leaf',
+              id:     'freeze',
               label:  'Freeze Position',
               icon:   'pin',
               checked: colDef.draggable === false,
@@ -947,6 +1197,7 @@ export class ColumnMenu {
             },
             {
               kind:   'leaf',
+              id:     'lock',
               label:  'Lock Column',
               icon:   'lock',
               checked: colDef.locked === true,
@@ -957,6 +1208,7 @@ export class ColumnMenu {
             },
             {
               kind:   'leaf',
+              id:     'resetColumn',
               label:  'Reset Column',
               icon:   'refresh',
               action: () => {
@@ -978,9 +1230,10 @@ export class ColumnMenu {
     return sep;
   }
 
-  private createIcon(iconName: string): HTMLElement {
+  private createIcon(iconName?: string): HTMLElement {
     const el = createDiv('pg-col-ctx-menu__item-icon');
-    el.innerHTML = this.iconRenderer.renderToString(iconName, 14);
+    // Custom items may omit an icon — the empty box preserves label alignment.
+    if (iconName) el.innerHTML = this.iconRenderer.renderToString(iconName, 14);
     return el;
   }
 

@@ -25,6 +25,7 @@ import type { MasterDetailEngine } from '../engines/master-detail/master-detail-
 import type { TreeDataService } from '../engines/tree/tree-data-service';
 import type { TreeExpansionService } from '../engines/tree/tree-expansion-service';
 import type { TreeSelectionService } from '../engines/tree/tree-selection-service';
+import type { FormulaEngine } from '../formula/formula-engine';
 
 export interface GridContext {
   options: GridOptions;
@@ -64,5 +65,12 @@ export interface GridContext {
   treeExpansionService: TreeExpansionService;
   /** Cascade select/deselect over `RowSelectionEngine` for Tree Data's parent/descendant selection semantics. */
   treeSelectionService: TreeSelectionService;
+  /**
+   * Excel/Sheets-style Formula Engine. Evaluates `=`-prefixed expressions in
+   * columns opted in via `ColumnDef.allowFormula`, maintains the dependency
+   * graph, and writes computed values back into row data. Inert unless
+   * `GridOptions.formula.enabled`.
+   */
+  formulaEngine: FormulaEngine;
   renderer: GridRenderer;
 }

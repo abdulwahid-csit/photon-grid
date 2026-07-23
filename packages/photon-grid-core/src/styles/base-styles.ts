@@ -34,6 +34,7 @@ import { tooltipCss }           from './base/tooltip.css';
 import { chartConfigCss }       from './base/chart-config.css';
 import { chartControlsCss }     from './base/chart-controls.css';
 import { columnChooserCss }     from './base/column-chooser.css';
+import { filtersToolPanelCss }  from './base/filters-tool-panel.css';
 import { touchCss }             from './base/touch.css';
 
 const STYLE_ID = 'photon-grid-base-styles';
@@ -68,6 +69,7 @@ const baseCss = [
   chartConfigCss,
   chartControlsCss,
   columnChooserCss,
+  filtersToolPanelCss,
   touchCss,
 ].join('');
 

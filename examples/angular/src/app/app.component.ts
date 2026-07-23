@@ -46,6 +46,18 @@ export class AppComponent implements OnInit {
     /** Row data bound to the grid's `dataSet` input. */
     data: Record<string, unknown>[] = [];
 
+    /**
+     * Column definitions for the small "Formula Playground" grid below the main
+     * grid. Kept intentionally tiny so A1-style cell references are easy to
+     * reason about: with these definitions the addressable columns map to
+     * `A = product`, `B = quantity`, `C = unitPrice`, `D = total`,
+     * `E = taxRate`, `F = grandTotal`, and rows are `1`-based in data order.
+     */
+    formulaColumns: ColumnDef[] = [];
+
+    /** Row data bound to the formula grid's `dataSet` input. */
+    formulaData: Record<string, unknown>[] = [];
+
    COUNTRY_FLAGS: Record<string, string> = {
     USA: 'us',
     Canada: 'ca',
@@ -159,9 +171,34 @@ export class AppComponent implements OnInit {
         }
     };
 
+    /**
+     * Options for the "Formula Playground" grid. The only feature that differs
+     * from a plain grid is {@link GridOptions.formula} — enabling it activates
+     * the Formula Engine so that `allowFormula` columns treat a leading `=` as a
+     * formula. `autoRecalculate` keeps dependent cells live as you edit inputs.
+     */
+    readonly formulaOptions: Partial<GridOptions> = {
+        mode: 'light',
+        variant: 'alpine',
+        showCheckboxes: false,
+        showSerialNumber: true,
+        rowShading: true,
+        showVerticalBorders: true,
+        rowHeight: 40,
+        headerRowHeight: 44,
+        formula: {
+            enabled: true,
+            autoRecalculate: true,
+            enableCaching: true,
+        },
+    };
+
     ngOnInit(): void {
         this.data = this.generateData(100000);
         this.columns = this.buildColumns();
+
+        this.formulaColumns = this.buildFormulaColumns();
+        this.formulaData = this.buildFormulaData();
     }
 
 onGridReady(api: GridApi): void {
@@ -338,6 +375,80 @@ setTimeout(() => {
             { colId: 'active', field: 'active', header: 'Active', type: 'boolean', minWidth: 100, width: 120 },
             { colId: 'rating', field: 'rating', header: 'Rating', type: 'number', minWidth: 100, width: 120 },
         ];
+    }
+
+    /**
+     * Builds the columns for the Formula Playground grid.
+     *
+     * `total` and `grandTotal` opt into the Formula Engine via
+     * {@link ColumnDef.allowFormula} and are `editable`, so you can click a cell,
+     * type a formula such as `=B2*C2` or `=SUM(D1:D8)` and see it recalculate.
+     * The plain input columns (`quantity`, `unitPrice`, `taxRate`) are editable
+     * too — editing them re-evaluates every dependent formula automatically.
+     */
+    private buildFormulaColumns(): ColumnDef[] {
+        return [
+            // A — label column, referenced by nothing but keeps the sheet readable.
+            { colId: 'product', field: 'product', header: 'Product (A)', type: 'string', minWidth: 160, flex: 1 },
+            // B — quantity input.
+            { colId: 'quantity', field: 'quantity', header: 'Qty (B)', type: 'number', width: 110, editable: true },
+            // C — unit price input.
+            { colId: 'unitPrice', field: 'unitPrice', header: 'Unit Price (C)', type: 'currency', width: 140, editable: true },
+            // D — computed line total: seeded with `=B*C`, editable so users can retype formulas.
+            { colId: 'total', field: 'total', header: 'Total (D)', type: 'currency', width: 150, editable: true, allowFormula: true },
+            // E — tax rate input (e.g. 0.08 = 8%).
+            { colId: 'taxRate', field: 'taxRate', header: 'Tax Rate (E)', type: 'number', width: 120, editable: true },
+            // F — computed grand total: seeded with `=D*(1+E)`.
+            { colId: 'grandTotal', field: 'grandTotal', header: 'Grand Total (F)', type: 'currency', width: 160, editable: true, allowFormula: true },
+        ];
+    }
+
+    /**
+     * Seed rows for the Formula Playground. `total` and `grandTotal` are left
+     * empty here — they are populated with actual formulas in
+     * {@link onFormulaGridReady} once the grid has assigned row node ids.
+     */
+    private buildFormulaData(): Record<string, unknown>[] {
+        return [
+            { product: 'Wireless Mouse',     quantity: 12, unitPrice: 25,  taxRate: 0.08 },
+            { product: 'Mechanical Keyboard', quantity: 7,  unitPrice: 89,  taxRate: 0.08 },
+            { product: '27" Monitor',        quantity: 4,  unitPrice: 240, taxRate: 0.05 },
+            { product: 'USB-C Dock',         quantity: 9,  unitPrice: 130, taxRate: 0.08 },
+            { product: 'Laptop Stand',       quantity: 15, unitPrice: 45,  taxRate: 0.05 },
+            { product: 'Webcam 1080p',       quantity: 6,  unitPrice: 60,  taxRate: 0.08 },
+            { product: 'Noise-cancel Headset', quantity: 8, unitPrice: 150, taxRate: 0.08 },
+            { product: 'Desk Lamp',          quantity: 20, unitPrice: 30,  taxRate: 0.05 },
+            // Totals row — its formulas aggregate the eight product rows above.
+            { product: 'TOTAL' },
+        ];
+    }
+
+    /**
+     * Seeds formulas into the Formula Playground once its grid is ready.
+     *
+     * Formulas are assigned via {@link GridApi.setCellFormula} rather than baked
+     * into `buildFormulaData`, because A1 references need concrete row node ids
+     * which only exist after the grid has ingested its data. Each product row
+     * gets `Total = Qty × Unit Price` and `Grand Total = Total × (1 + Tax Rate)`;
+     * the final TOTAL row sums both computed columns with `SUM`, demonstrating
+     * range functions and chained recalculation.
+     */
+    onFormulaGridReady(api: GridApi): void {
+        const rows = api.getAllRows();
+        const productCount = rows.length - 1; // last row is the TOTAL row
+
+        rows.forEach((row, i) => {
+            const r = i + 1; // A1 rows are 1-based
+
+            if (i < productCount) {
+                api.setCellFormula(row.nodeId, 'total', `=B${r}*C${r}`);
+                api.setCellFormula(row.nodeId, 'grandTotal', `=D${r}*(1+E${r})`);
+            } else {
+                // Totals row: aggregate the product rows (D1:D8 and F1:F8).
+                api.setCellFormula(row.nodeId, 'total', `=SUM(D1:D${productCount})`);
+                api.setCellFormula(row.nodeId, 'grandTotal', `=SUM(F1:F${productCount})`);
+            }
+        });
     }
 
 

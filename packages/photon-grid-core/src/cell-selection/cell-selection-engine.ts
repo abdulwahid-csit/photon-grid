@@ -10,6 +10,33 @@ import { UndoRedoEngine } from '../engines/undo-redo/undo-redo-engine';
 import type { CellChange } from '../engines/undo-redo/undo-redo-engine';
 import { activeGridRegistry } from './active-grid-registry';
 
+/**
+ * The narrow surface the selection engine needs from the formula engine to make
+ * copy/paste/fill/undo formula-aware — injected (not imported) so the selection
+ * engine stays decoupled from the formula subsystem and is a no-op when formulas
+ * are disabled.
+ */
+export interface FormulaBridge {
+  /** `true` when the formula engine is enabled. */
+  isEnabled(): boolean;
+  /** `true` when the column opted into formulas (`ColumnDef.allowFormula`). */
+  allowsFormula(colId: string): boolean;
+  /** The cell's formula source (including `=`), or `null`. */
+  getFormula(nodeId: string, colId: string): string | null;
+  /** Stores a formula on a cell (writes its computed value into row data); returns rows whose value changed. */
+  setFormula(nodeId: string, colId: string, source: string): ReadonlySet<string>;
+  /** Removes a cell's formula (leaving its last value); returns rows whose value changed. */
+  clearFormula(nodeId: string, colId: string): ReadonlySet<string>;
+  /** Offsets a formula's relative references by a fill/paste displacement. */
+  transpose(source: string, deltaRow: number, deltaCol: number): string;
+  /** Data-model row index for a stable row id (`-1` if unknown). */
+  dataRowIndex(nodeId: string): number;
+  /** Data-model column index for a stable column id (`-1` if unknown). */
+  dataColIndex(colId: string): number;
+  /** Notifies the engine that non-formula cells changed; returns rows whose value changed. */
+  onCellsChanged(cells: ReadonlyArray<{ nodeId: string; colId: string }>): ReadonlySet<string>;
+}
+
 export class CellSelectionEngine {
   private _isSelecting = false;
   private anchorCell: { rowIndex: number; colIndex: number } | null = null;
@@ -43,6 +70,21 @@ export class CellSelectionEngine {
    * Omitting `nodeIds` falls back to a full cache clear (safe but unoptimised).
    */
   private dataChangedCallback: ((nodeIds?: Set<string>) => void) | null = null;
+
+  /**
+   * Optional formula bridge (see {@link FormulaBridge}). When set and enabled,
+   * fill/paste transpose relative references and every mutation recomputes
+   * dependents; when `null` the engine behaves as a pure value grid.
+   */
+  private formulaBridge: FormulaBridge | null = null;
+
+  /**
+   * Internal formula clipboard captured on copy: the values grid and a parallel
+   * grid of formula sources (`null` where a cell had no formula). Used on paste
+   * to detect an in-grid round-trip and re-apply transposed formulas, since the
+   * system clipboard carries only text.
+   */
+  private internalClip: { values: string[][]; formulas: (string | null)[][]; startRow: number; startCol: number } | null = null;
 
   /**
    * Clears the serial-column row selection. Wired to
@@ -182,6 +224,21 @@ export class CellSelectionEngine {
    */
   setDataChangedCallback(fn: (nodeIds?: Set<string>) => void): void {
     this.dataChangedCallback = fn;
+  }
+
+  /**
+   * Registers the formula bridge so copy/paste/fill/undo become formula-aware.
+   * Passing `null` (or never calling this) keeps the engine a pure value grid.
+   *
+   * @param bridge - The formula bridge, or `null` to disable.
+   */
+  setFormulaBridge(bridge: FormulaBridge | null): void {
+    this.formulaBridge = bridge;
+  }
+
+  /** The active formula bridge when the engine is enabled, else `null`. */
+  private activeFormulaBridge(): FormulaBridge | null {
+    return this.formulaBridge && this.formulaBridge.isEnabled() ? this.formulaBridge : null;
   }
 
   /**
@@ -693,6 +750,8 @@ export class CellSelectionEngine {
     const visRows = this.store.get('visibleRows') as RowNode[];
     const columns = this.getVisibleColumns();
     const changes: CellChange[] = [];
+    const bridge = this.activeFormulaBridge();
+    const affectedNodeIds = new Set<string>();
 
     for (let r = fillStartRow; r <= fillEndRow; r++) {
       const row = visRows[r];
@@ -725,6 +784,30 @@ export class CellSelectionEngine {
         const srcCol  = columns[srcC];
         if (!srcCol) continue;
 
+        // ── Formula fill ─────────────────────────────────────────────────────
+        // When the source cell holds a formula, transpose its relative
+        // references by the data-model displacement to the target and store the
+        // result, rather than copying the computed value.
+        const srcFormula = bridge && srcCol.allowFormula
+          ? bridge.getFormula(srcRow.nodeId, srcCol.colId)
+          : null;
+
+        if (bridge && srcFormula !== null && col.allowFormula) {
+          const dRow = bridge.dataRowIndex(row.nodeId) - bridge.dataRowIndex(srcRow.nodeId);
+          const dCol = bridge.dataColIndex(col.colId) - bridge.dataColIndex(srcCol.colId);
+          const newFormula = bridge.transpose(srcFormula, dRow, dCol);
+          const oldFormula = bridge.getFormula(row.nodeId, col.colId);
+          const oldValue = row.data[col.field];
+          const touched = bridge.setFormula(row.nodeId, col.colId, newFormula);
+          for (const id of touched) affectedNodeIds.add(id);
+          changes.push({
+            nodeId: row.nodeId, field: col.field, colId: col.colId,
+            oldValue, newValue: row.data[col.field], oldFormula, newFormula,
+          });
+          continue;
+        }
+
+        // ── Literal fill ─────────────────────────────────────────────────────
         const rawValue = srcRow.data[srcCol.field];
         const srcType  = srcCol.type ?? 'string';
         const dstType  = col.type   ?? 'string';
@@ -735,18 +818,36 @@ export class CellSelectionEngine {
           ? this.coerceToColumnType(rawValue, dstType)
           : rawValue;
         const oldValue = row.data[col.field];
+        // A literal filled over a formula cell must drop that formula.
+        const oldFormula = bridge && col.allowFormula ? bridge.getFormula(row.nodeId, col.colId) : null;
 
-        if (!Object.is(oldValue, newValue)) {
-          changes.push({ nodeId: row.nodeId, field: col.field, oldValue, newValue });
+        if (!Object.is(oldValue, newValue) || oldFormula !== null) {
+          if (oldFormula !== null && bridge) bridge.clearFormula(row.nodeId, col.colId);
+          changes.push({
+            nodeId: row.nodeId, field: col.field, colId: col.colId,
+            oldValue, newValue, oldFormula, newFormula: null,
+          });
           row.data[col.field] = newValue;
+          affectedNodeIds.add(row.nodeId);
         }
+      }
+    }
+
+    // Recompute formula cells that depend on the newly-written literals.
+    if (bridge && changes.length > 0) {
+      const literalCells = changes
+        .filter((c) => c.newFormula == null && c.colId)
+        .map((c) => ({ nodeId: c.nodeId, colId: c.colId as string }));
+      if (literalCells.length > 0) {
+        for (const id of bridge.onCellsChanged(literalCells)) affectedNodeIds.add(id);
       }
     }
 
     if (changes.length > 0) {
       this.undoRedoEngine?.record({ type: 'paste', changes });
       this.store.set('allRows', [...(this.store.get('allRows') as RowNode[])]);
-      this.dataChangedCallback?.(new Set(changes.map((c) => c.nodeId)));
+      for (const c of changes) affectedNodeIds.add(c.nodeId);
+      this.dataChangedCallback?.(affectedNodeIds);
 
       // Expand the selection to cover both the source range and the fill area
       // so the user can immediately see the full result of the operation.
@@ -852,6 +953,7 @@ export class CellSelectionEngine {
 
   async copySelection(rows: RowNode[], columns: ColumnDef[]): Promise<void> {
     this.flashSelection('copy');
+    this.captureInternalClip(this.store.get('cellRanges'), rows, columns);
     return this.clipboardEngine.copyRangesToClipboard(
       this.store.get('cellRanges'), rows, columns, false, this.getLeafGroupField(),
     );
@@ -894,11 +996,17 @@ export class CellSelectionEngine {
     void this.clipboardEngine.copyRowsToClipboard(selectedRows, columns, false);
 
     const changes: CellChange[] = [];
+    const bridge = this.activeFormulaBridge();
     for (const row of selectedRows) {
       for (const col of columns) {
-        changes.push({ nodeId: row.nodeId, field: col.field, oldValue: row.data[col.field], newValue: null });
+        const oldFormula = bridge && col.allowFormula ? bridge.getFormula(row.nodeId, col.colId) : null;
+        if (oldFormula !== null && bridge) bridge.clearFormula(row.nodeId, col.colId);
+        changes.push({ nodeId: row.nodeId, field: col.field, colId: col.colId, oldValue: row.data[col.field], newValue: null, oldFormula, newFormula: null });
         row.data[col.field] = null;
       }
+    }
+    if (bridge && changes.length > 0) {
+      bridge.onCellsChanged(changes.map((c) => ({ nodeId: c.nodeId, colId: c.colId as string })));
     }
     this.undoRedoEngine?.record({ type: 'cut', changes });
     this.store.set('allRows', [...(this.store.get('allRows') as RowNode[])]);
@@ -943,9 +1051,81 @@ export class CellSelectionEngine {
 
   async copySelectionWithHeaders(rows: RowNode[], columns: ColumnDef[]): Promise<void> {
     this.flashSelection('copy');
+    this.captureInternalClip(this.store.get('cellRanges'), rows, columns);
     return this.clipboardEngine.copyRangesToClipboard(
       this.store.get('cellRanges'), rows, columns, true, this.getLeafGroupField(),
     );
+  }
+
+  // ─── Internal formula clipboard ──────────────────────────────────────────────
+
+  /**
+   * Captures the primary copied range as a parallel grid of values, formula
+   * sources and data-model origins, so an in-grid paste can re-apply transposed
+   * formulas (the system clipboard carries only text). Cleared implicitly when a
+   * later paste's values no longer match. No-op without an active formula bridge.
+   */
+  private captureInternalClip(rangesRaw: CellRange[], rows: RowNode[], columns: ColumnDef[]): void {
+    const bridge = this.activeFormulaBridge();
+    if (!bridge || rangesRaw.length !== 1) { this.internalClip = null; return; }
+
+    const n = normalizeRange(rangesRaw[0]);
+    const startRow = n.startRowIndex;
+    const startCol = Math.max(0, n.startColIndex);
+    const values: string[][] = [];
+    const formulas: (string | null)[][] = [];
+    let any = false;
+
+    for (let r = startRow; r <= n.endRowIndex; r++) {
+      const row = rows[r];
+      if (!row || row.type !== 'data') { this.internalClip = null; return; }
+      const vRow: string[] = [];
+      const fRow: (string | null)[] = [];
+      for (let c = startCol; c <= n.endColIndex; c++) {
+        const col = columns[c];
+        vRow.push(col ? this.cellClipText(row.data[col.field], col) : '');
+        const f = col && col.allowFormula ? bridge.getFormula(row.nodeId, col.colId) : null;
+        if (f !== null) any = true;
+        fRow.push(f);
+      }
+      values.push(vRow);
+      formulas.push(fRow);
+    }
+    // Only worth retaining when at least one copied cell was a formula.
+    this.internalClip = any ? { values, formulas, startRow, startCol } : null;
+  }
+
+  /**
+   * `true` when `clipData` exactly matches the captured internal clip values —
+   * i.e. this paste is an in-grid round-trip of a copy that included formulas.
+   */
+  private clipMatchesInternal(clipData: string[][]): boolean {
+    const clip = this.internalClip;
+    if (!clip || clipData.length !== clip.values.length) return false;
+    for (let r = 0; r < clipData.length; r++) {
+      if (clipData[r].length !== clip.values[r].length) return false;
+      for (let c = 0; c < clipData[r].length; c++) {
+        if (clipData[r][c] !== clip.values[r][c]) return false;
+      }
+    }
+    return true;
+  }
+
+  /** Minimal, clipboard-consistent stringification for internal-clip matching. */
+  private cellClipText(val: unknown, col: ColumnDef): string {
+    if (val == null) return '';
+    switch (col.type) {
+      case 'boolean':
+        return val ? 'Yes' : 'No';
+      case 'array':
+        return Array.isArray(val) ? (val as unknown[]).join(', ') : String(val);
+      case 'dropdown': {
+        const opt = col.dropdownOptions?.find((o) => String(o.value) === String(val));
+        return opt ? opt.label : String(val);
+      }
+      default:
+        return String(val);
+    }
   }
 
   async cutSelection(rows: RowNode[], columns: ColumnDef[]): Promise<void> {
@@ -956,6 +1136,7 @@ export class CellSelectionEngine {
     // Capture old values and apply mutations in a single pass per range so we
     // never need a second traversal for undo recording.
     const changes: CellChange[] = [];
+    const bridge = this.activeFormulaBridge();
 
     for (const range of ranges) {
       const n = normalizeRange(range);
@@ -978,10 +1159,19 @@ export class CellSelectionEngine {
           const col = columns[c];
           if (!col) continue;
           const oldVal = row.data[col.field];
-          changes.push({ nodeId: row.nodeId, field: col.field, oldValue: oldVal, newValue: null });
+          // Cutting a formula cell drops its formula (recorded for undo).
+          const oldFormula = bridge && col.allowFormula ? bridge.getFormula(row.nodeId, col.colId) : null;
+          if (oldFormula !== null && bridge) bridge.clearFormula(row.nodeId, col.colId);
+          changes.push({ nodeId: row.nodeId, field: col.field, colId: col.colId, oldValue: oldVal, newValue: null, oldFormula, newFormula: null });
           row.data[col.field] = null;
         }
       }
+    }
+
+    // Recompute formula cells that depended on the cleared cells.
+    if (bridge && changes.length > 0) {
+      const literalCells = changes.filter((c) => c.colId).map((c) => ({ nodeId: c.nodeId, colId: c.colId as string }));
+      if (literalCells.length > 0) bridge.onCellsChanged(literalCells);
     }
 
     this.undoRedoEngine?.record({ type: 'cut', changes });
@@ -1031,6 +1221,11 @@ export class CellSelectionEngine {
     // Capture old values and apply mutations in the same loop pass so a second
     // traversal is never required for undo recording.
     const changes: CellChange[] = [];
+    const bridge = this.activeFormulaBridge();
+    const affectedNodeIds = new Set<string>();
+    // In-grid round-trip of a copy that included formulas → paste transposed
+    // formulas rather than the computed values they produced.
+    const useFormulas = bridge !== null && this.clipMatchesInternal(clipData);
 
     // Track the actual row/column bounds for the success flash.
     let actualEndRow = startRow;
@@ -1040,6 +1235,7 @@ export class CellSelectionEngine {
     for (let ri = startRow; pastedRows < clipData.length && ri < rows.length; ri++) {
       const row = rows[ri];
       if (!row || row.type !== 'data') continue;
+      const clipIndex = pastedRows;
       const clipRow = clipData[pastedRows++];
       actualEndRow = ri;
       if (clipRow.length > maxClipCols) maxClipCols = clipRow.length;
@@ -1051,23 +1247,59 @@ export class CellSelectionEngine {
           row.data[field] = clipRow[ci];
         } else {
           const col = columns[colIdx];
-          if (col) {
-            // Coerce the clipboard string to the column's native type — mirrors
-            // the same conversion used by the fill-handle so pasting "42" into a
-            // number column stores the number 42, not the string "42".
-            const coerced = this.coerceToColumnType(clipRow[ci], col.type ?? 'string');
-            changes.push({ nodeId: row.nodeId, field: col.field, oldValue: row.data[col.field], newValue: coerced });
-            row.data[col.field] = coerced;
+          if (!col) continue;
+
+          // ── Formula paste ────────────────────────────────────────────────
+          const srcFormula = useFormulas && bridge && col.allowFormula
+            ? this.internalClip!.formulas[clipIndex]?.[ci] ?? null
+            : null;
+          if (bridge && srcFormula !== null) {
+            const clip = this.internalClip!;
+            const dRow = bridge.dataRowIndex(row.nodeId) - (clip.startRow + clipIndex);
+            const dCol = bridge.dataColIndex(col.colId) - (clip.startCol + ci);
+            const newFormula = bridge.transpose(srcFormula, dRow, dCol);
+            const oldFormula = bridge.getFormula(row.nodeId, col.colId);
+            const oldValue = row.data[col.field];
+            for (const id of bridge.setFormula(row.nodeId, col.colId, newFormula)) affectedNodeIds.add(id);
+            changes.push({
+              nodeId: row.nodeId, field: col.field, colId: col.colId,
+              oldValue, newValue: row.data[col.field], oldFormula, newFormula,
+            });
+            continue;
           }
+
+          // ── Literal paste ────────────────────────────────────────────────
+          // Coerce the clipboard string to the column's native type — mirrors
+          // the same conversion used by the fill-handle so pasting "42" into a
+          // number column stores the number 42, not the string "42".
+          const coerced = this.coerceToColumnType(clipRow[ci], col.type ?? 'string');
+          const oldFormula = bridge && col.allowFormula ? bridge.getFormula(row.nodeId, col.colId) : null;
+          if (oldFormula !== null && bridge) bridge.clearFormula(row.nodeId, col.colId);
+          changes.push({
+            nodeId: row.nodeId, field: col.field, colId: col.colId,
+            oldValue: row.data[col.field], newValue: coerced, oldFormula, newFormula: null,
+          });
+          row.data[col.field] = coerced;
         }
+      }
+    }
+
+    // Recompute formula cells that depend on the pasted literals.
+    if (bridge && changes.length > 0) {
+      const literalCells = changes
+        .filter((c) => c.newFormula == null && c.colId)
+        .map((c) => ({ nodeId: c.nodeId, colId: c.colId as string }));
+      if (literalCells.length > 0) {
+        for (const id of bridge.onCellsChanged(literalCells)) affectedNodeIds.add(id);
       }
     }
 
     this.undoRedoEngine?.record({ type: 'paste', changes });
     this.store.set('allRows', [...(this.store.get('allRows') as RowNode[])]);
-    // Evict only the pasted rows from the renderer cache so custom cell renderers
+    for (const c of changes) affectedNodeIds.add(c.nodeId);
+    // Evict only the affected rows from the renderer cache so custom cell renderers
     // in untouched rows (images, flags, etc.) are not needlessly re-executed.
-    this.dataChangedCallback?.(new Set(changes.map((c) => c.nodeId)));
+    this.dataChangedCallback?.(affectedNodeIds);
 
     if (changes.length > 0 && maxClipCols > 0) {
       // The group-label column (colIndex −1) is not a regular body cell, so clamp
@@ -1125,13 +1357,38 @@ export class CellSelectionEngine {
     const nodeMap = new Map<string, RowNode>();
     for (const row of allRows) nodeMap.set(row.nodeId, row);
 
+    const bridge = this.activeFormulaBridge();
+    const affectedNodeIds = new Set<string>();
+    const literalCells: { nodeId: string; colId: string }[] = [];
+
     for (const change of changes) {
       const row = nodeMap.get(change.nodeId);
-      if (row) row.data[change.field] = change.newValue;
+      if (!row) continue;
+
+      // Formula-aware change: restore the target formula rather than the value.
+      if (bridge && change.colId !== undefined && change.newFormula !== undefined) {
+        if (change.newFormula !== null) {
+          for (const id of bridge.setFormula(change.nodeId, change.colId, change.newFormula)) affectedNodeIds.add(id);
+        } else {
+          // Becoming a literal again: drop any current formula, write the value.
+          bridge.clearFormula(change.nodeId, change.colId);
+          row.data[change.field] = change.newValue;
+          literalCells.push({ nodeId: change.nodeId, colId: change.colId });
+        }
+      } else {
+        row.data[change.field] = change.newValue;
+        if (bridge && change.colId) literalCells.push({ nodeId: change.nodeId, colId: change.colId });
+      }
+      affectedNodeIds.add(change.nodeId);
+    }
+
+    // Recompute dependents of any literal (non-formula) restorations.
+    if (bridge && literalCells.length > 0) {
+      for (const id of bridge.onCellsChanged(literalCells)) affectedNodeIds.add(id);
     }
 
     this.store.set('allRows', [...allRows]);
-    this.dataChangedCallback?.(new Set(changes.map((c) => c.nodeId)));
+    this.dataChangedCallback?.(affectedNodeIds);
 
     if (changes.length === 0) return;
 
@@ -1373,6 +1630,14 @@ export class CellSelectionEngine {
       target.tagName === 'TEXTAREA' ||
       target.contentEditable === 'true'
     ) return;
+
+    // The header cells, the column/group context menu (including its portaled
+    // fly-out submenu), and the filter panel run their own keyboard navigation.
+    // Never hijack Arrows/Enter/Tab/Home/End destined for them, or focused
+    // header navigation and open menus would fight the cell-range handler.
+    if (target.closest(
+      '.pg-th, .pg-col-ctx-menu, .pg-col-ctx-menu__submenu, .pg-filter-panel, .pg-filter-cell',
+    )) return;
 
     // Ctrl/Cmd modifier + resolved key. Computed before the active-cell guard
     // because undo/redo and the serial-column row clipboard ops must work even
@@ -1662,11 +1927,15 @@ export class CellSelectionEngine {
       makeChartSubItem('bar-stacked', 'Stacked'),
       makeChartSubItem('bar-100stacked', '100% Stacked'),
     ]));
-    chartSub.appendChild(makeChartSubItem('pie', 'Pie'));
+    // Pie sub-group (mirrors the Edit-chart gallery: Pie / Doughnut / Polar)
+    chartSub.appendChild(makeSubGroup('Pie', [
+      makeChartSubItem('pie', 'Pie'),
+      makeChartSubItem('doughnut', 'Doughnut'),
+      makeChartSubItem('polar', 'Polar'),
+    ]));
     chartSub.appendChild(makeChartSubItem('line', 'Line'));
     chartSub.appendChild(makeChartSubItem('area', 'Area'));
     chartSub.appendChild(makeChartSubItem('scatter', 'X Y (Scatter)'));
-    chartSub.appendChild(makeChartSubItem('polar', 'Polar'));
     chartSub.appendChild(makeChartSubItem('funnel', 'Funnel'));
 
     chartItem.appendChild(chartSub);

@@ -3,6 +3,7 @@ import type { ColumnDef } from '../types/column.types';
 import type { DisplayRendererParams } from '../types/renderer.types';
 import type { IconRenderer } from '../icons/icon-renderer';
 import { formatValue } from '../engines/editing/value-parser';
+import { getCellValue, resolveFieldPath, formatCellValue } from '../engines/editing/value-accessor';
 import { createDiv, toggleClass } from './dom-utils';
 import { resolveColumnRenderer } from './renderer-resolver';
 import { SparklineRenderer } from '../chart/sparkline/sparkline-renderer';
@@ -23,7 +24,11 @@ export interface CellRenderContext {
 export class CellRenderer {
   renderCell(ctx: CellRenderContext): HTMLElement {
     const { row, colDef, rowIndex, colIndex, api } = ctx;
-    const rawValue = this.resolveValue(row.data, colDef.field);
+    // Logical value drives display; rawValue exposes the underlying field value
+    // so custom renderers can access both (they differ only when a valueGetter
+    // is configured — otherwise a single read is shared to avoid extra work).
+    const value = getCellValue(row.data, colDef, api);
+    const rawValue = colDef.valueGetter ? resolveFieldPath(row.data, colDef.field) : value;
 
     const cell = createDiv('pg-cell');
     cell.setAttribute('data-row-index', String(rowIndex));
@@ -40,7 +45,7 @@ export class CellRenderer {
       if (typeof colDef.cellCssClass === 'string') {
         cell.classList.add(colDef.cellCssClass);
       } else {
-        const dynClass = colDef.cellCssClass({ value: rawValue, rawValue, row: row.data, colDef, rowIndex, colIndex, api });
+        const dynClass = colDef.cellCssClass({ value, rawValue, row: row.data, colDef, rowIndex, colIndex, api });
         if (dynClass) cell.classList.add(dynClass);
       }
     }
@@ -49,7 +54,7 @@ export class CellRenderer {
 
     const displayFn = resolveColumnRenderer(colDef, 'display');
     if (displayFn) {
-      const params: DisplayRendererParams = { value: rawValue, rawValue, row: row.data, colDef, rowIndex, colIndex, api };
+      const params: DisplayRendererParams = { value, rawValue, row: row.data, colDef, rowIndex, colIndex, api };
       const rendered = displayFn(params);
       if (typeof rendered === 'string') {
         inner.innerHTML = rendered;
@@ -57,9 +62,9 @@ export class CellRenderer {
         inner.appendChild(rendered);
       }
     } else if (colDef.renderHtml) {
-      inner.innerHTML = String(rawValue ?? '');
+      inner.innerHTML = String(value ?? '');
     } else {
-      inner.appendChild(this.renderDefaultCell(rawValue, colDef, ctx));
+      inner.appendChild(this.renderDefaultCell(value, colDef, ctx));
     }
 
     cell.appendChild(inner);
@@ -126,6 +131,21 @@ export class CellRenderer {
   ): HTMLElement {
     const span = document.createElement('span');
     span.className = 'pg-cell__value';
+
+    // A column-level valueFormatter owns the textual presentation for every
+    // data type: honour it first so authors get full, predictable control over
+    // the displayed string (badges/icons/images remain opt-in via renderers).
+    if (colDef.valueFormatter) {
+      const formatted = formatCellValue(ctx.row.data, colDef, value, {
+        locale: ctx.locale,
+        dateFormat: ctx.dateFormat,
+        timeZone: ctx.timeZone,
+        currencySymbol: ctx.currencySymbol,
+      });
+      span.textContent = formatted;
+      span.title = formatted;
+      return span;
+    }
 
     switch (colDef.type) {
       case 'boolean': {
@@ -233,16 +253,6 @@ export class CellRenderer {
     }
 
     return span;
-  }
-
-  private resolveValue(data: Record<string, unknown>, path: string): unknown {
-    const parts = path.split('.');
-    let current: unknown = data;
-    for (const part of parts) {
-      if (current == null) return undefined;
-      current = (current as Record<string, unknown>)[part];
-    }
-    return current;
   }
 
   private resolveObjectKey(value: unknown, colDef: ColumnDef): unknown {

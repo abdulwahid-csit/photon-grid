@@ -43,6 +43,16 @@
   background: #ffffff;
 }
 
+// Formula Playground: a fixed, compact height sized for its ~9 rows so the
+// grid never stretches to the full viewport like the main demo grid.
+.page__header--formula {
+  margin-top: 1.5rem;
+}
+
+.grid-wrapper--formula {
+  height: 480px;
+}
+
 .country-cell {
   display: inline-flex;
   align-items: center;

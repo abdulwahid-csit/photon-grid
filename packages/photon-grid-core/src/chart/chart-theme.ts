@@ -9,14 +9,56 @@
  * cached by the renderer for the duration of a render pass.
  */
 
-/** Fallback series palette used when no `--pg-chart-series-*` tokens are defined. */
-const FALLBACK_PALETTE: readonly string[] = [
-  '#008FFB', '#00E396', '#FEB019', '#FF4560', '#775DD0',
-  '#3F51B5', '#03A9F4', '#4CAF50', '#F9CE1D', '#FF9800',
+/**
+ * Default series palette — an AG Grid-inspired, low-saturation categorical set
+ * tuned to read well on light surfaces and stay distinct across many series /
+ * pie slices. Used whenever a theme defines no `--pg-chart-series-N` overrides.
+ */
+const LIGHT_PALETTE: readonly string[] = [
+  '#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de',
+  '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc', '#48b3a5',
+];
+
+/**
+ * Dark-mode variant of {@link LIGHT_PALETTE}. The same hues, lifted in
+ * lightness/saturation so slices and bars keep enough contrast against a dark
+ * surface (and against the white slice separators the pie renderer draws).
+ */
+const DARK_PALETTE: readonly string[] = [
+  '#7a8fe0', '#a5d98d', '#ffd569', '#f47f7f', '#8dd1ec',
+  '#5cbf95', '#ff9a6b', '#b47fce', '#f2a0da', '#63c9bb',
 ];
 
 /** Number of `--pg-chart-series-N` slots probed from the theme. */
 const PALETTE_SLOTS = 10;
+
+/**
+ * Relative luminance (0–1) of a CSS color, used to decide whether a surface is
+ * dark. Handles `#rgb`, `#rrggbb`, and `rgb()/rgba()`; anything unparseable
+ * resolves to a mid value so the light palette is chosen by default.
+ */
+function luminance(color: string): number {
+  const c = color.trim();
+  let r = 0, g = 0, b = 0;
+  if (c.startsWith('#')) {
+    const hex = c.slice(1);
+    const full = hex.length === 3 ? hex.split('').map((h) => h + h).join('') : hex;
+    if (full.length >= 6) {
+      r = parseInt(full.slice(0, 2), 16);
+      g = parseInt(full.slice(2, 4), 16);
+      b = parseInt(full.slice(4, 6), 16);
+    } else {
+      return 0.5;
+    }
+  } else {
+    const m = c.match(/rgba?\(([^)]+)\)/i);
+    if (!m) return 0.5;
+    const parts = m[1].split(',').map((p) => parseFloat(p));
+    [r, g, b] = parts;
+  }
+  // Perceptual luminance (sRGB-weighted), normalized to 0–1.
+  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+}
 
 /**
  * The fully-resolved set of colors and fonts a {@link ChartRenderer} draws with.
@@ -52,18 +94,30 @@ export function resolveChartTheme(el: HTMLElement): ResolvedChartTheme {
     return value.length > 0 ? value : fallback;
   };
 
-  const palette: string[] = [];
+  // Explicit per-series overrides win over the built-in palettes.
+  const overrides: string[] = [];
   for (let i = 1; i <= PALETTE_SLOTS; i++) {
     const token = cs.getPropertyValue(`--pg-chart-series-${i}`).trim();
-    if (token.length > 0) palette.push(token);
+    if (token.length > 0) overrides.push(token);
   }
 
+  const textColor = read('--pg-colors-text-primary', '#374151');
+  const background = read('--pg-colors-surface', 'transparent');
+
+  // Choose the palette that best contrasts the surface. Prefer the surface
+  // token; when it's transparent/unset, infer from the (inverted) text color.
+  const isDark =
+    background !== 'transparent'
+      ? luminance(background) < 0.5
+      : luminance(textColor) > 0.5;
+  const basePalette = isDark ? DARK_PALETTE : LIGHT_PALETTE;
+
   return {
-    textColor: read('--pg-colors-text-primary', '#374151'),
+    textColor,
     mutedColor: read('--pg-colors-text-secondary', '#6b7280'),
     gridColor: read('--pg-colors-border', '#e5e7eb'),
-    background: read('--pg-colors-surface', 'transparent'),
+    background,
     fontFamily: read('--pg-typography-font-family', 'system-ui, sans-serif'),
-    palette: palette.length > 0 ? palette : FALLBACK_PALETTE,
+    palette: overrides.length > 0 ? overrides : basePalette,
   };
 }

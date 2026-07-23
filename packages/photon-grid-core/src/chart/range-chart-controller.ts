@@ -31,6 +31,12 @@ export class RangeChartController implements ChartPanelHost, ChartToolPanelHost 
   private readonly panel: ChartPanel;
   private toolPanel: ChartToolPanel | null = null;
   private unsubscribeRows: (() => void) | null = null;
+  /**
+   * Unsubscribers for the grid-data events that drive live refresh
+   * (`CELL_VALUE_CHANGED`, `DATA_CHANGED`). Held alongside {@link unsubscribeRows}
+   * so unlink/dispose can release every subscription.
+   */
+  private eventUnsubscribers: Array<() => void> = [];
   private refreshRaf: number | null = null;
   private disposed = false;
 
@@ -162,8 +168,10 @@ export class RangeChartController implements ChartPanelHost, ChartToolPanelHost 
     this.openToolPanel('customize');
   }
 
-  onUnlink(): void {
-    this.unlink();
+  onToggleLink(): void {
+    // Re-linking flips `unlinked` back to false; updateModel re-subscribes and
+    // immediately rebuilds from the current grid data.
+    this.updateModel({ unlinked: !this.model.unlinked });
   }
 
   onMove(_rect: DOMRect): void {
@@ -239,13 +247,24 @@ export class RangeChartController implements ChartPanelHost, ChartToolPanelHost 
   }
 
   private subscribe(): void {
-    if (this.unsubscribeRows) return;
+    if (this.unsubscribeRows || this.eventUnsubscribers.length > 0) return;
+    // Sort/filter/group/pagination rebuild `visibleRows` into a new array, so a
+    // reference watch catches structural changes.
     this.unsubscribeRows = this.ctx.store.watch('visibleRows', () => this.scheduleRefresh());
+    // In-place cell edits mutate `rowNode.data` without changing the
+    // `visibleRows` reference, so the watch above would miss them. Subscribe to
+    // the value/data events directly so a linked chart reflects edits live.
+    this.eventUnsubscribers.push(
+      this.ctx.eventBus.on(GridEventType.CELL_VALUE_CHANGED, () => this.scheduleRefresh()),
+      this.ctx.eventBus.on(GridEventType.DATA_CHANGED, () => this.scheduleRefresh()),
+    );
   }
 
   private teardownSubscription(): void {
     this.unsubscribeRows?.();
     this.unsubscribeRows = null;
+    for (const off of this.eventUnsubscribers) off();
+    this.eventUnsubscribers = [];
   }
 
   /** Coalesces multiple grid updates in a frame into a single rebuild. */

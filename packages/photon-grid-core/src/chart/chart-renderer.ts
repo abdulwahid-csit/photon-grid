@@ -117,10 +117,69 @@ const DEFAULTS: Required<ChartRenderOptions> = {
   compact: false,
 };
 
-const APEX_COLORS = [
-  '#008FFB', '#00E396', '#FEB019', '#FF4560', '#775DD0',
-  '#3F51B5', '#03A9F4', '#4CAF50', '#F9CE1D', '#FF9800',
+/**
+ * Fallback series palette used when a dataset has no resolved color yet (e.g.
+ * before {@link assignColors} runs, or a defensive `?? DEFAULT_SERIES_PALETTE[i]`
+ * at a draw site). Kept in sync with the light palette in `chart-theme.ts` so
+ * every code path — bars, lines, and pie slices — draws from one coherent set.
+ */
+const DEFAULT_SERIES_PALETTE = [
+  '#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de',
+  '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc', '#48b3a5',
 ];
+
+/** One slice of a laid-out pie/doughnut, retained for hover hit-testing. */
+interface PieSlice {
+  /** Start angle in radians (canvas convention, −π/2 = 12 o'clock). */
+  readonly start: number;
+  /** End angle in radians. */
+  readonly end: number;
+  /** Mid angle in radians (used to anchor labels/tooltips). */
+  readonly mid: number;
+  /** Original data index this slice was built from. */
+  readonly index: number;
+  readonly label: string;
+  readonly value: number;
+  /** Share of the total, 0–1. */
+  readonly pct: number;
+  readonly color: string;
+}
+
+/** Cached geometry of a drawn pie/doughnut for {@link ChartRenderer} hover. */
+interface PieLayout {
+  readonly cx: number;
+  readonly cy: number;
+  readonly radius: number;
+  readonly innerRadius: number;
+  readonly slices: readonly PieSlice[];
+}
+
+/** One laid-out funnel row rectangle, retained for hover hit-testing. */
+interface FunnelRow {
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+  readonly h: number;
+  readonly index: number;
+  readonly label: string;
+  readonly value: number;
+  readonly color: string;
+}
+
+/** Cached geometry of a drawn funnel for {@link ChartRenderer} hover. */
+interface FunnelLayout {
+  readonly rows: readonly FunnelRow[];
+}
+
+/** Cached geometry of a drawn polar chart for {@link ChartRenderer} hover. */
+interface PolarLayout {
+  readonly cx: number;
+  readonly cy: number;
+  readonly radius: number;
+  readonly labels: readonly string[];
+  /** Per-spoke absolute value totalled across datasets, index-aligned to `labels`. */
+  readonly totals: readonly number[];
+}
 
 /**
  * Assigns a concrete color to every dataset. Precedence: an explicit override
@@ -136,7 +195,7 @@ function assignColors(
   palette: readonly string[],
   seriesColors: Readonly<Record<string, string>>,
 ): ChartData {
-  const pal = palette.length > 0 ? palette : APEX_COLORS;
+  const pal = palette.length > 0 ? palette : DEFAULT_SERIES_PALETTE;
   return {
     labels: data.labels,
     datasets: data.datasets.map((ds, i) => ({
@@ -174,6 +233,16 @@ export class ChartRenderer {
    */
   private theme: ResolvedChartTheme | null = null;
 
+  /**
+   * Geometry of the most recently drawn pie/doughnut, cached so the hover layer
+   * can hit-test slices without recomputing angles. `null` until a pie is drawn.
+   */
+  private lastPieLayout: PieLayout | null = null;
+  /** Row rectangles of the most recently drawn funnel, for hover hit-testing. */
+  private lastFunnelLayout: FunnelLayout | null = null;
+  /** Spoke geometry of the most recently drawn polar chart, for hover hit-testing. */
+  private lastPolarLayout: PolarLayout | null = null;
+
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
     const ctx = canvas.getContext('2d');
@@ -197,7 +266,7 @@ export class ChartRenderer {
 
   /** Theme palette color for a given series/slice index, cycling as needed. */
   private paletteColor(i: number): string {
-    const pal = this.theme?.palette ?? APEX_COLORS;
+    const pal = this.theme?.palette ?? DEFAULT_SERIES_PALETTE;
     return pal[i % pal.length];
   }
 
@@ -346,8 +415,10 @@ export class ChartRenderer {
   private drawHover(data: ChartData, opts: Required<ChartRenderOptions>): void {
     const type = opts.type as string;
     const isHBar = type.startsWith('bar-') || type === 'bar';
-    const skip = ['pie', 'doughnut', 'polar', 'funnel'];
-    if (skip.includes(type)) return;
+
+    if (type === 'pie' || type === 'doughnut') { this.drawPieHover(data, opts); return; }
+    if (type === 'funnel') { this.drawFunnelHover(data, opts); return; }
+    if (type === 'polar') { this.drawPolarHover(data, opts); return; }
 
     if (isHBar) {
       this.drawBarHover(data, opts);
@@ -410,7 +481,7 @@ export class ChartRenderer {
         ctx.save();
         ctx.beginPath();
         ctx.arc(dotX, dotY, 5, 0, Math.PI * 2);
-        ctx.fillStyle = ds.color ?? APEX_COLORS[0];
+        ctx.fillStyle = ds.color ?? DEFAULT_SERIES_PALETTE[0];
         ctx.fill();
         ctx.strokeStyle = '#fff';
         ctx.lineWidth = 2.5;
@@ -495,7 +566,7 @@ export class ChartRenderer {
     const rows: Row[] = data.datasets
       .filter((_, i) => (this.seriesScales[i] ?? 1) > 0.05)
       .map((ds) => ({
-        color: ds.color ?? APEX_COLORS[0],
+        color: ds.color ?? DEFAULT_SERIES_PALETTE[0],
         label: ds.label,
         value: this.formatNum(ds.data[idx] ?? 0),
       }));
@@ -829,7 +900,7 @@ export class ChartRenderer {
         const barX = groupX + di * barW;
         const barY = plotBottom - barH;
 
-        ctx.fillStyle = data.datasets[di].color ?? APEX_COLORS[di % APEX_COLORS.length];
+        ctx.fillStyle = data.datasets[di].color ?? DEFAULT_SERIES_PALETTE[di % DEFAULT_SERIES_PALETTE.length];
         ctx.beginPath();
         ctx.roundRect(barX, barY, Math.max(barW - 1, 1), Math.max(barH, 0), [3, 3, 0, 0]);
         ctx.fill();
@@ -900,7 +971,7 @@ export class ChartRenderer {
           : (value / maxVal) * plotH) * progress;
         const segY = currentY - segH;
 
-        ctx.fillStyle = data.datasets[di].color ?? APEX_COLORS[di % APEX_COLORS.length];
+        ctx.fillStyle = data.datasets[di].color ?? DEFAULT_SERIES_PALETTE[di % DEFAULT_SERIES_PALETTE.length];
         ctx.beginPath();
         if (di === nD - 1) {
           ctx.roundRect(barX, segY, Math.max(barW, 1), Math.max(segH, 0), [3, 3, 0, 0]);
@@ -956,7 +1027,7 @@ export class ChartRenderer {
         const segH = (shares[di] / total) * plotH * progress;
         const segY = currentY - segH;
 
-        ctx.fillStyle = data.datasets[di].color ?? APEX_COLORS[di % APEX_COLORS.length];
+        ctx.fillStyle = data.datasets[di].color ?? DEFAULT_SERIES_PALETTE[di % DEFAULT_SERIES_PALETTE.length];
         ctx.beginPath();
         if (di === nD - 1) {
           ctx.roundRect(barX, segY, Math.max(barW, 1), Math.max(segH, 0), [3, 3, 0, 0]);
@@ -1035,7 +1106,7 @@ export class ChartRenderer {
         const seriesScale = this.seriesScales[di] ?? 1;
         const barW = (value / maxForSeries) * plotW * progress * seriesScale;
         const barY = groupY + di * barH;
-        ctx.fillStyle = data.datasets[di].color ?? APEX_COLORS[di % APEX_COLORS.length];
+        ctx.fillStyle = data.datasets[di].color ?? DEFAULT_SERIES_PALETTE[di % DEFAULT_SERIES_PALETTE.length];
         ctx.beginPath();
         ctx.roundRect(plotLeft, barY, Math.max(barW, 0), Math.max(barH - 1, 1), [0, 3, 3, 0]);
         ctx.fill();
@@ -1110,7 +1181,7 @@ export class ChartRenderer {
         const segW = (usePerSeries
           ? (value / (seriesMaxes[di] || 1)) * band
           : (value / maxVal) * plotW) * progress;
-        ctx.fillStyle = data.datasets[di].color ?? APEX_COLORS[di % APEX_COLORS.length];
+        ctx.fillStyle = data.datasets[di].color ?? DEFAULT_SERIES_PALETTE[di % DEFAULT_SERIES_PALETTE.length];
         ctx.beginPath();
         if (di === nD - 1) {
           ctx.roundRect(currentX, barY, Math.max(segW, 0), Math.max(barH, 1), [0, 3, 3, 0]);
@@ -1186,7 +1257,7 @@ export class ChartRenderer {
       let currentX = plotLeft;
       for (let di = 0; di < nD; di++) {
         const segW = (shares[di] / total) * plotW * progress;
-        ctx.fillStyle = data.datasets[di].color ?? APEX_COLORS[di % APEX_COLORS.length];
+        ctx.fillStyle = data.datasets[di].color ?? DEFAULT_SERIES_PALETTE[di % DEFAULT_SERIES_PALETTE.length];
         ctx.beginPath();
         if (di === data.datasets.length - 1) {
           ctx.roundRect(currentX, barY, Math.max(segW, 0), Math.max(barH, 1), [0, 3, 3, 0]);
@@ -1228,7 +1299,7 @@ export class ChartRenderer {
     for (const ds of data.datasets) {
       ctx.save();
       ctx.beginPath(); ctx.rect(plotLeft, plotTop, plotW, plotH + 1); ctx.clip();
-      ctx.strokeStyle = ds.color ?? APEX_COLORS[0];
+      ctx.strokeStyle = ds.color ?? DEFAULT_SERIES_PALETTE[0];
       ctx.lineWidth = opts.strokeWidth > 0 ? opts.strokeWidth : opts.lineWidth;
       ctx.lineCap = 'round'; ctx.lineJoin = 'round';
       ctx.beginPath();
@@ -1240,7 +1311,7 @@ export class ChartRenderer {
       for (let i = 0; i < Math.min(visibleCount, nPoints); i++) {
         ctx.beginPath();
         ctx.arc(getX(i), getY(ds.data[i] ?? 0), 3, 0, Math.PI * 2);
-        ctx.fillStyle = ds.color ?? APEX_COLORS[0];
+        ctx.fillStyle = ds.color ?? DEFAULT_SERIES_PALETTE[0];
         ctx.fill();
         ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.stroke();
       }
@@ -1279,7 +1350,7 @@ export class ChartRenderer {
     for (const ds of data.datasets) {
       ctx.save();
       ctx.beginPath(); ctx.rect(plotLeft, plotTop, plotW, plotH + 1); ctx.clip();
-      const color = ds.color ?? APEX_COLORS[0];
+      const color = ds.color ?? DEFAULT_SERIES_PALETTE[0];
       ctx.beginPath();
       for (let i = 0; i < Math.min(visibleCount, nPoints); i++) {
         const x = getX(i); const y = getY(ds.data[i] ?? 0);
@@ -1313,59 +1384,253 @@ export class ChartRenderer {
 
   // ── Pie / Doughnut ──────────────────────────────────────────────────────────
 
+  /**
+   * Computes the full-circle geometry of a pie/doughnut (progress-independent),
+   * so both {@link drawPie} and {@link drawPieHover} share one source of truth
+   * for slice angles, colors and the label/value each slice represents. Negative
+   * values are treated as zero (they have no meaningful slice).
+   */
+  private computePieLayout(data: ChartData, opts: Required<ChartRenderOptions>, isDoughnut: boolean): PieLayout {
+    const legendH = opts.showLegend ? 40 : 0;
+    const titleH = this.titleBandHeight(opts);
+    const availH = opts.height - legendH - titleH;
+    const cx = opts.width / 2;
+    const cy = titleH + availH / 2;
+    // Reserve a margin for the callout labels drawn just outside the arc.
+    const margin = opts.compact ? opts.padding : 34;
+    const radius = Math.max(10, Math.min(opts.width, availH) / 2 - margin);
+    const innerRadius = isDoughnut ? radius * 0.58 : 0;
+
+    const values = data.datasets[0]?.data ?? [];
+    const total = values.reduce((a, b) => a + (b > 0 ? b : 0), 0) || 1;
+
+    const slices: PieSlice[] = [];
+    let a = -Math.PI / 2;
+    for (let i = 0; i < values.length; i++) {
+      const v = values[i] > 0 ? values[i] : 0;
+      const frac = v / total;
+      const ang = frac * Math.PI * 2;
+      slices.push({
+        start: a,
+        end: a + ang,
+        mid: a + ang / 2,
+        index: i,
+        label: data.labels[i] ?? '',
+        value: values[i] ?? 0,
+        pct: frac,
+        color: this.paletteColor(i),
+      });
+      a += ang;
+    }
+    return { cx, cy, radius, innerRadius, slices };
+  }
+
+  /** Slice separator color: the theme surface when opaque, else white. */
+  private sliceStroke(opts: Required<ChartRenderOptions>): string {
+    const bg = opts.backgroundColor !== 'transparent'
+      ? opts.backgroundColor
+      : (this.theme?.background && this.theme.background !== 'transparent' ? this.theme.background : '#ffffff');
+    return bg;
+  }
+
   private drawPie(data: ChartData, opts: Required<ChartRenderOptions>, progress: number, isDoughnut: boolean): void {
     const { ctx } = this;
-    const legendH = opts.showLegend ? 40 : 0;
-    const cx = opts.width / 2;
-    const cy = this.titleBandHeight(opts) + (opts.height - legendH - this.titleBandHeight(opts)) / 2;
-    const radius = Math.min(opts.width, opts.height - legendH - this.titleBandHeight(opts)) / 2 - (opts.compact ? opts.padding : 20);
-    const innerRadius = isDoughnut ? radius * 0.5 : 0;
-    const values = data.datasets[0]?.data ?? [];
-    const total = values.reduce((a, b) => a + b, 0) || 1;
+    const layout = this.computePieLayout(data, opts, isDoughnut);
+    this.lastPieLayout = layout;
+    const { cx, cy, radius, innerRadius, slices } = layout;
+    const stroke = this.sliceStroke(opts);
 
+    // ── Slices — animated sweep from the 12 o'clock position ──
     let startAngle = -Math.PI / 2;
-    for (let i = 0; i < values.length; i++) {
-      const sliceAngle = (values[i] / total) * Math.PI * 2 * progress;
-      const color = this.paletteColor(i);
+    for (const s of slices) {
+      const sliceAngle = (s.end - s.start) * progress;
       ctx.beginPath();
       ctx.moveTo(cx, cy);
       ctx.arc(cx, cy, radius, startAngle, startAngle + sliceAngle);
       if (innerRadius > 0) ctx.arc(cx, cy, innerRadius, startAngle + sliceAngle, startAngle, true);
       ctx.closePath();
-      ctx.fillStyle = color; ctx.fill();
-      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
-      if (progress === 1 && values[i] / total > 0.05) {
-        const mid = startAngle + sliceAngle / 2;
-        const lr = isDoughnut ? (radius + innerRadius) / 2 : radius * 0.65;
-        ctx.fillStyle = '#fff';
-        ctx.font = `bold ${opts.fontSize}px ${opts.fontFamily}`;
-        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(`${Math.round((values[i] / total) * 100)}%`, cx + Math.cos(mid) * lr, cy + Math.sin(mid) * lr);
-        ctx.textBaseline = 'alphabetic';
-      }
+      ctx.fillStyle = s.color; ctx.fill();
+      ctx.strokeStyle = stroke; ctx.lineWidth = 2; ctx.stroke();
       startAngle += sliceAngle;
     }
 
-    if (progress > 0.9 && opts.showLegend && data.labels.length <= 8) {
-      const alpha = (progress - 0.9) / 0.1;
-      ctx.globalAlpha = alpha;
-      startAngle = -Math.PI / 2;
-      for (let i = 0; i < values.length; i++) {
-        const sliceAngle = (values[i] / total) * Math.PI * 2;
-        const mid = startAngle + sliceAngle / 2;
-        const lx = cx + Math.cos(mid) * (radius + 16);
-        const ly = cy + Math.sin(mid) * (radius + 16);
-        ctx.fillStyle = opts.textColor;
-        ctx.font = `${opts.fontSize}px ${opts.fontFamily}`;
-        ctx.textAlign = Math.cos(mid) > 0 ? 'left' : 'right';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(this.truncate(data.labels[i], 12), lx, ly);
+    // Labels/callouts only once the sweep has settled, to avoid churn mid-anim.
+    if (progress < 1) return;
+
+    // Outer callout labels get cluttered with many slices; past a threshold the
+    // HTML legend carries the category names and only inside-% labels remain.
+    const showCallouts = slices.filter((s) => s.pct > 0).length <= 8;
+
+    for (const s of slices) {
+      if (s.pct <= 0.03) continue;
+      const cos = Math.cos(s.mid);
+      const sin = Math.sin(s.mid);
+
+      // Inside percentage label (contrasting text on the slice fill).
+      if (s.pct > 0.05) {
+        const lr = isDoughnut ? (radius + innerRadius) / 2 : radius * 0.62;
+        ctx.fillStyle = '#ffffff';
+        ctx.font = `bold ${opts.fontSize}px ${opts.fontFamily}`;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(`${Math.round(s.pct * 100)}%`, cx + cos * lr, cy + sin * lr);
         ctx.textBaseline = 'alphabetic';
-        startAngle += sliceAngle;
       }
-      ctx.globalAlpha = 1;
+
+      if (!showCallouts) continue;
+
+      // Outer callout: short leader line in the slice color + the category name.
+      const ox = cx + cos * radius;
+      const oy = cy + sin * radius;
+      const ex = cx + cos * (radius + 12);
+      const ey = cy + sin * (radius + 12);
+      const towardRight = cos >= 0;
+      const tx = ex + (towardRight ? 4 : -4);
+      ctx.save();
+      ctx.strokeStyle = s.color; ctx.globalAlpha = 0.55; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(ox, oy); ctx.lineTo(ex, ey); ctx.lineTo(tx, ey); ctx.stroke();
+      ctx.restore();
+      ctx.fillStyle = opts.textColor;
+      ctx.font = `${opts.fontSize}px ${opts.fontFamily}`;
+      ctx.textAlign = towardRight ? 'left' : 'right';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(this.truncate(s.label, 14), tx + (towardRight ? 2 : -2), ey);
+      ctx.textBaseline = 'alphabetic';
     }
   }
+
+  // ── Pie / doughnut / funnel / polar hover ─────────────────────────────────
+
+  /** Hit-tests the hovered slice against the cached pie layout and draws a tooltip. */
+  private drawPieHover(_data: ChartData, opts: Required<ChartRenderOptions>): void {
+    const layout = this.lastPieLayout;
+    if (!layout || this.hoverX === null || this.hoverY === null) return;
+    const dx = this.hoverX - layout.cx;
+    const dy = this.hoverY - layout.cy;
+    const dist = Math.hypot(dx, dy);
+    if (dist > layout.radius || dist < layout.innerRadius) return;
+
+    // Slice angles run from −π/2 upward; map atan2's −π..π into that range.
+    let ang = Math.atan2(dy, dx);
+    if (ang < -Math.PI / 2) ang += Math.PI * 2;
+    const slice = layout.slices.find((s) => s.pct > 0 && ang >= s.start && ang < s.end);
+    if (!slice) return;
+
+    // Emphasise the hovered slice with a translucent overlay ring.
+    const { ctx } = this;
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(layout.cx, layout.cy);
+    ctx.arc(layout.cx, layout.cy, layout.radius + 3, slice.start, slice.end);
+    if (layout.innerRadius > 0) ctx.arc(layout.cx, layout.cy, layout.innerRadius, slice.end, slice.start, true);
+    ctx.closePath();
+    ctx.fillStyle = slice.color; ctx.globalAlpha = 0.22; ctx.fill();
+    ctx.restore();
+
+    this.drawCategoricalTooltip(opts, slice.label, slice.value, slice.pct, slice.color, this.hoverX, this.hoverY);
+  }
+
+  /** Hit-tests the hovered funnel row and draws a tooltip. */
+  private drawFunnelHover(_data: ChartData, opts: Required<ChartRenderOptions>): void {
+    const layout = this.lastFunnelLayout;
+    if (!layout || this.hoverX === null || this.hoverY === null) return;
+    const hy = this.hoverY;
+    const row = layout.rows.find((r) => hy >= r.y && hy <= r.y + r.h);
+    if (!row) return;
+
+    const { ctx } = this;
+    ctx.save();
+    ctx.fillStyle = row.color; ctx.globalAlpha = 0.18;
+    ctx.beginPath(); ctx.roundRect(row.x, row.y, row.w, row.h, 3); ctx.fill();
+    ctx.restore();
+
+    this.drawCategoricalTooltip(opts, row.label, row.value, null, row.color, this.hoverX, this.hoverY);
+  }
+
+  /** Hit-tests the nearest polar spoke and draws a tooltip. */
+  private drawPolarHover(_data: ChartData, opts: Required<ChartRenderOptions>): void {
+    const layout = this.lastPolarLayout;
+    if (!layout || this.hoverX === null || this.hoverY === null) return;
+    const dx = this.hoverX - layout.cx;
+    const dy = this.hoverY - layout.cy;
+    if (Math.hypot(dx, dy) > layout.radius + 16) return;
+
+    const n = layout.labels.length;
+    if (n === 0) return;
+    // Spoke i sits at angle (i/n)·2π − π/2; snap the cursor angle to the nearest.
+    let ang = Math.atan2(dy, dx) + Math.PI / 2;
+    if (ang < 0) ang += Math.PI * 2;
+    const idx = Math.round((ang / (Math.PI * 2)) * n) % n;
+
+    const spokeAngle = (idx / n) * Math.PI * 2 - Math.PI / 2;
+    const { ctx } = this;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(100,116,139,0.45)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(layout.cx, layout.cy);
+    ctx.lineTo(layout.cx + Math.cos(spokeAngle) * layout.radius, layout.cy + Math.sin(spokeAngle) * layout.radius);
+    ctx.stroke();
+    ctx.restore();
+
+    this.drawCategoricalTooltip(opts, layout.labels[idx], layout.totals[idx] ?? 0, null, this.paletteColor(0), this.hoverX, this.hoverY);
+  }
+
+  /**
+   * Draws a compact category tooltip (header + colored value row) near the
+   * cursor. Shared by pie/doughnut/funnel/polar. `pct` is appended when non-null.
+   */
+  private drawCategoricalTooltip(
+    opts: Required<ChartRenderOptions>,
+    label: string,
+    value: number,
+    pct: number | null,
+    color: string,
+    anchorX: number,
+    anchorY: number,
+  ): void {
+    const { ctx } = this;
+    const PAD = 10, LINE = 18, SW = 8, GAP = 7;
+    const valueStr = this.formatNum(value) + (pct !== null ? `   ${Math.round(pct * 100)}%` : '');
+
+    ctx.font = `600 ${opts.fontSize}px ${opts.fontFamily}`;
+    const headerW = ctx.measureText(this.truncate(label, 22)).width;
+    ctx.font = `600 ${opts.fontSize}px ${opts.fontFamily}`;
+    const valueW = SW + GAP + ctx.measureText(valueStr).width;
+
+    const tooltipW = Math.max(headerW, valueW) + PAD * 2;
+    const tooltipH = PAD * 2 + LINE * 2;
+
+    let tx = anchorX + 14;
+    if (tx + tooltipW > opts.width - 8) tx = anchorX - tooltipW - 14;
+    tx = Math.max(4, tx);
+    let ty = anchorY - tooltipH - 8;
+    if (ty < 4) ty = anchorY + 14;
+    ty = Math.min(ty, opts.height - tooltipH - 4);
+    ty = Math.max(4, ty);
+
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.12)'; ctx.shadowBlur = 12; ctx.shadowOffsetY = 3;
+    ctx.fillStyle = opts.backgroundColor === 'transparent' ? '#ffffff' : opts.backgroundColor;
+    ctx.strokeStyle = 'rgba(0,0,0,0.08)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.roundRect(tx, ty, tooltipW, tooltipH, 6); ctx.fill();
+    ctx.shadowColor = 'transparent'; ctx.stroke();
+    ctx.restore();
+
+    ctx.save();
+    ctx.textBaseline = 'middle';
+    // Header (category)
+    ctx.font = `600 ${opts.fontSize}px ${opts.fontFamily}`;
+    ctx.fillStyle = opts.textColor;
+    ctx.textAlign = 'left';
+    ctx.fillText(this.truncate(label, 22), tx + PAD, ty + PAD + LINE / 2);
+    // Value row: swatch + value
+    const ry = ty + PAD + LINE + LINE / 2;
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.roundRect(tx + PAD, ry - SW / 2, SW, SW, 2); ctx.fill();
+    ctx.fillStyle = opts.textColor;
+    ctx.fillText(valueStr, tx + PAD + SW + GAP, ry);
+    ctx.textBaseline = 'alphabetic';
+    ctx.restore();
+  }
+
 
   // ── Scatter ─────────────────────────────────────────────────────────────────
 
@@ -1387,7 +1652,7 @@ export class ChartRenderer {
 
     for (let di = 0; di < data.datasets.length; di++) {
       const ds = data.datasets[di];
-      const color = ds.color ?? APEX_COLORS[di % APEX_COLORS.length];
+      const color = ds.color ?? DEFAULT_SERIES_PALETTE[di % DEFAULT_SERIES_PALETTE.length];
       for (let i = 0; i < Math.min(visibleCount, nPoints); i++) {
         ctx.beginPath();
         ctx.arc(getX(i), getY(ds.data[i] ?? 0), 5, 0, Math.PI * 2);
@@ -1451,7 +1716,7 @@ export class ChartRenderer {
 
     for (let di = 0; di < data.datasets.length; di++) {
       const ds = data.datasets[di];
-      const color = ds.color ?? APEX_COLORS[di % APEX_COLORS.length];
+      const color = ds.color ?? DEFAULT_SERIES_PALETTE[di % DEFAULT_SERIES_PALETTE.length];
       ctx.beginPath();
       for (let i = 0; i < nSpokes; i++) {
         const angle = (i / nSpokes) * Math.PI * 2 - Math.PI / 2;
@@ -1463,6 +1728,10 @@ export class ChartRenderer {
       ctx.fillStyle = color + '33'; ctx.fill();
       ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.stroke();
     }
+
+    // Cache geometry (+ per-spoke totals across datasets) for hover hit-testing.
+    const totals = labels.map((_, i) => data.datasets.reduce((sum, ds) => sum + (ds.data[i] ?? 0), 0));
+    this.lastPolarLayout = { cx, cy, radius, labels: [...labels], totals };
   }
 
   // ── Funnel ──────────────────────────────────────────────────────────────────
@@ -1485,6 +1754,7 @@ export class ChartRenderer {
     const cx = plotLeft + plotWidth / 2;
     const labelAlpha = Math.min(1, progress * 2.5);
 
+    const rows: FunnelRow[] = [];
     for (let i = 0; i < n; i++) {
       const pct = (values[i] ?? 0) / maxVal;
       const barW = pct * plotWidth * progress;
@@ -1503,7 +1773,11 @@ export class ChartRenderer {
         ctx.fillStyle = '#fff'; ctx.textAlign = 'center';
         ctx.fillText(this.formatNum(values[i] ?? 0), cx, barY + itemH / 2 + opts.fontSize / 3);
       }
+      // Cache the full-width row band (not the animated barW) so hover hit-testing
+      // stays stable and forgiving across the whole row.
+      rows.push({ x: plotLeft, y: barY, w: plotWidth, h: itemH, index: i, label: labels[i] ?? '', value: values[i] ?? 0, color });
     }
+    this.lastFunnelLayout = { rows };
   }
 
   // ── Grid Lines ──────────────────────────────────────────────────────────────

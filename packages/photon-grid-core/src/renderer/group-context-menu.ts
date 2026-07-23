@@ -2,6 +2,8 @@ import type { IconRenderer } from '../icons/icon-renderer';
 import type { DisplayGroupNode } from '../column-groups/display-group.types';
 import type { DisplayGroupEngine } from '../column-groups/display-group-engine';
 import { createDiv } from './dom-utils';
+import { MenuKeyboardController } from './menu-keyboard-controller';
+import type { MenuKeyboardHost } from './menu-keyboard-controller';
 
 // ── Interfaces ────────────────────────────────────────────────────────────────
 
@@ -64,6 +66,7 @@ export class GroupContextMenu {
   private anchorEl:        HTMLElement | null = null;
   private outsideClickFn:  ((e: MouseEvent) => void) | null = null;
   private escKeyFn:        ((e: KeyboardEvent) => void) | null = null;
+  private keyboardController: MenuKeyboardController | null = null;
   private callbacks:       GroupContextMenuCallbacks = {};
 
   constructor(
@@ -109,16 +112,41 @@ export class GroupContextMenu {
       this.outsideClickFn = (e: MouseEvent) => {
         if (!this.el?.contains(e.target as Node)) this.hide();
       };
+      // Fallback Escape for when focus has left the menu; while focus is inside,
+      // the keyboard controller (capture phase) handles Escape and stops it.
       this.escKeyFn = (e: KeyboardEvent) => {
         if (e.key === 'Escape') this.hide();
       };
       document.addEventListener('mousedown', this.outsideClickFn);
       document.addEventListener('keydown',   this.escKeyFn);
+
+      // Keyboard navigation — focuses the first item and drives arrow/enter/
+      // typeahead/escape handling. This menu is flat (no submenus).
+      this.keyboardController = new MenuKeyboardController(this.buildKeyboardHost());
+      this.keyboardController.attach();
     });
+  }
+
+  /** Build the {@link MenuKeyboardHost} adapter — a flat menu with no submenus. */
+  private buildKeyboardHost(): MenuKeyboardHost {
+    return {
+      getRootEl:          () => this.el,
+      getActiveSubmenuEl: () => null,
+      openSubmenu:        () => null,
+      closeSubmenu:       () => { /* no submenus */ },
+      getSubmenuParent:   () => null,
+      closeAll: (restoreFocus) => {
+        const opener = this.anchorEl;
+        this.hide();
+        if (restoreFocus) opener?.focus();
+      },
+    };
   }
 
   /** Hide and remove the menu from the DOM. */
   hide(): void {
+    this.keyboardController?.destroy();
+    this.keyboardController = null;
     if (this.outsideClickFn) {
       document.removeEventListener('mousedown', this.outsideClickFn);
       this.outsideClickFn = null;
@@ -235,7 +263,10 @@ export class GroupContextMenu {
     el.setAttribute('role', 'menuitem');
     el.setAttribute('tabindex', '-1');
 
-    if (item.disabled) el.classList.add('pg-col-ctx-menu__item--disabled');
+    if (item.disabled) {
+      el.classList.add('pg-col-ctx-menu__item--disabled');
+      el.setAttribute('aria-disabled', 'true');
+    }
 
     const iconEl = createDiv('pg-col-ctx-menu__item-icon');
     iconEl.innerHTML = this.iconRenderer.renderToString(item.icon, 14);

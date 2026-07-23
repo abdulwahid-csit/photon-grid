@@ -6,6 +6,7 @@ import type { CellClickedEvent } from '../types/event.types';
 import type { DisplayRendererParams, EditorRendererParams } from '../types/renderer.types';
 import { injectBaseStyles } from '../styles/base-styles';
 import { formatValue } from '../engines/editing/value-parser';
+import { getCellValue, formatCellValue, resolveFieldPath } from '../engines/editing/value-accessor';
 import { resolveColumnRenderer } from '../renderer/renderer-resolver';
 import { CustomDropdownEditor } from '../engines/editing/custom-dropdown-editor';
 import { EventBus } from '../event-bus/event-bus';
@@ -45,6 +46,8 @@ import { DisplayGroupEngine } from '../column-groups/display-group-engine';
 import type { CellValueChangedEvent } from '../types/event.types';
 import { PhotonAIService } from '../photon-ai/photon-ai-service';
 import { createAIProvider } from '../photon-ai/provider';
+import { FormulaEngine } from '../formula/formula-engine';
+import { GridFormulaAdapter } from './formula-grid-adapter-impl';
 
 /** Recursively collects leaf `ColumnDef` entries, skipping group wrappers. */
 function collectLeaves(cols: ColumnDef[]): ColumnDef[] {
@@ -69,6 +72,9 @@ export class GridCore {
   private displayGroupEngine: DisplayGroupEngine | null = null;
   /** Set in `initialize` when `photonAI.enabled` — needs the live `GridApi`, so it cannot be built in `buildContext`. */
   private photonAIService: PhotonAIService | null = null;
+
+  /** The concrete formula adapter, retained so the clipboard/fill bridge can map ids ↔ data-model indices. */
+  private formulaAdapter!: GridFormulaAdapter;
 
   /**
    * The author-supplied columns fully normalized to `ColumnDef` (colId / header
@@ -106,6 +112,12 @@ export class GridCore {
     const treeExpansionService = new TreeExpansionService(store, eventBus);
     const treeDataService = new TreeDataService(store, eventBus, filterEngine, sortEngine, treeExpansionService);
     const treeSelectionService = new TreeSelectionService(rowSelectionEngine, treeDataService);
+    const formulaAdapter = new GridFormulaAdapter(store, columnModel);
+    const formulaEngine = new FormulaEngine(
+      formulaAdapter,
+      options.formula,
+    );
+    this.formulaAdapter = formulaAdapter;
     const themeManager = new ThemeManager(eventBus);
     const iconRegistry = new IconRegistry();
     const iconRenderer = new IconRenderer(iconRegistry);
@@ -217,6 +229,7 @@ export class GridCore {
       treeDataService,
       treeExpansionService,
       treeSelectionService,
+      formulaEngine,
       renderer,
     };
   }
@@ -542,13 +555,18 @@ export class GridCore {
         return;
       }
 
-      const value = row.data[colDef.field];
+      const value = getCellValue(row.data, colDef, this.api);
+      // When the cell holds a formula, the editor shows its source (`=A1+B1`)
+      // rather than the computed value; committing re-stores/updates the formula.
+      const editValue = colDef.allowFormula && ctx.formulaEngine.isEnabled()
+        ? ctx.formulaEngine.getFormula(row.nodeId, colDef.colId) ?? value
+        : value;
 
       // Column-supplied custom editor takes priority over every built-in editor.
       const customEditorFn = resolveColumnRenderer(colDef, 'editor');
       if (customEditorFn) {
         const params: EditorRendererParams = {
-          value,
+          value: editValue,
           row: row.data,
           colDef,
           rowIndex: row.rowIndex,
@@ -559,6 +577,12 @@ export class GridCore {
         innerEl.appendChild(editorEl);
         const session = ctx.cellEditorEngine.getActiveSession();
         if (session) session.editorEl = editorEl;
+      } else if (colDef.allowFormula && ctx.formulaEngine.isEnabled()) {
+        // Formula-enabled columns always use a text editor so the user can type a
+        // leading `=` (even on a number column) and see an existing formula's
+        // source. Literal entries are still parsed against the column's real type
+        // at commit time (stopEditing reads the original colDef).
+        ctx.cellEditorEngine.buildNativeEditor({ ...colDef, type: 'string' }, editValue, innerEl);
       } else if (colDef.type === 'dropdown' || colDef.type === 'object') {
         // dropdown / object → custom accessible dropdown with virtual scrolling
         // Prefer explicit dropdownOptions; fall back to enumOptions (string array → ColumnDropdownOption[])
@@ -634,11 +658,63 @@ export class GridCore {
         changes: [{
           nodeId: p.row.nodeId,
           field:  p.colDef.field,
+          colId:  p.colDef.colId,
           oldValue: p.oldValue,
           newValue: p.newValue,
         }],
       });
+      // A literal edit on a formula-enabled column drops any prior formula on the
+      // cell, then feeds the change through the engine so dependent formula cells
+      // (and volatiles) recompute before the repaint.
+      if (ctx.formulaEngine.isEnabled() && p.colDef.allowFormula) {
+        ctx.formulaEngine.clearFormula(p.row.nodeId, p.colDef.colId);
+      }
+      if (ctx.formulaEngine.isEnabled()) {
+        ctx.formulaEngine.onCellsChanged([{ nodeId: p.row.nodeId, colId: p.colDef.colId }]);
+      }
       this.api.refresh();
+    });
+
+    // Formula commit: a `=`-prefixed entry on a formula-enabled column is stored
+    // as a formula. A fresh row-data object is installed *before* setFormula so
+    // the engine's write of the computed value lands on the new reference
+    // (preserving the immutable-update contract), then dependents recompute.
+    ctx.cellEditorEngine.setFormulaCommitHandler((rowNode: RowNode, colDef: ColumnDef, source: string): boolean => {
+      const oldValue = getCellValue(rowNode.data, colDef, this.api);
+      const oldFormula = ctx.formulaEngine.getFormula(rowNode.nodeId, colDef.colId);
+      const nextData = { ...rowNode.data };
+      rowNode.data = nextData;
+      ctx.formulaEngine.setFormula(rowNode.nodeId, colDef.colId, source);
+      const newValue = getCellValue(rowNode.data, colDef, this.api);
+      ctx.undoRedoEngine.record({
+        type: 'edit',
+        changes: [{
+          nodeId: rowNode.nodeId,
+          field: colDef.field,
+          colId: colDef.colId,
+          oldValue,
+          newValue,
+          oldFormula,
+          newFormula: source,
+        }],
+      });
+      this.api.refresh();
+      return true;
+    });
+
+    // Wire the formula bridge so copy/paste/fill and undo/redo become
+    // formula-aware (transpose relative refs, recompute dependents). A no-op when
+    // the engine is disabled.
+    ctx.cellSelectionEngine.setFormulaBridge({
+      isEnabled: () => ctx.formulaEngine.isEnabled(),
+      allowsFormula: (colId) => ctx.columnModel.getColumn(colId)?.allowFormula === true,
+      getFormula: (nodeId, colId) => ctx.formulaEngine.getFormula(nodeId, colId),
+      setFormula: (nodeId, colId, src) => ctx.formulaEngine.setFormula(nodeId, colId, src).changedNodeIds,
+      clearFormula: (nodeId, colId) => ctx.formulaEngine.removeFormula(nodeId, colId).changedNodeIds,
+      transpose: (src, dRow, dCol) => ctx.formulaEngine.transposeFormula(src, { deltaRow: dRow, deltaCol: dCol }),
+      dataRowIndex: (nodeId) => this.formulaAdapter.getRowIndex(nodeId),
+      dataColIndex: (colId) => this.formulaAdapter.getColIndex(colId),
+      onCellsChanged: (cells) => ctx.formulaEngine.onCellsChanged(cells).changedNodeIds,
     });
 
     // Tab while editing → commit current edit, move to the adjacent cell, and
@@ -701,7 +777,7 @@ export class GridCore {
    */
   private renderCellValue(innerEl: HTMLElement, row: RowNode, colDef: ColumnDef): void {
     innerEl.innerHTML = '';
-    const value = row.data[colDef.field];
+    const value = getCellValue(row.data, colDef, this.api);
 
     const displayFn = resolveColumnRenderer(colDef, 'display');
     if (displayFn) {
@@ -709,7 +785,7 @@ export class GridCore {
       const colIndex = cols.findIndex((c) => c.colId === colDef.colId);
       const params: DisplayRendererParams = {
         value,
-        rawValue: value,
+        rawValue: colDef.valueGetter ? resolveFieldPath(row.data, colDef.field) : value,
         row: row.data,
         colDef,
         rowIndex: row.rowIndex,
@@ -727,6 +803,22 @@ export class GridCore {
 
     if (colDef.renderHtml) {
       innerEl.innerHTML = String(value ?? '');
+      return;
+    }
+
+    // A column-level valueFormatter owns the textual presentation across all
+    // types — keep it consistent with CellRenderer's default-cell path.
+    if (colDef.valueFormatter) {
+      const span = document.createElement('span');
+      span.className = 'pg-cell__value';
+      const formatted = formatCellValue(row.data, colDef, value, {
+        locale: this.ctx.options.locale,
+        dateFormat: this.ctx.options.dateFormat,
+        timeZone: this.ctx.options.timeZone,
+        currencySymbol: this.ctx.options.currencySymbol,
+      }, this.api);
+      span.textContent = formatted || '—';
+      innerEl.appendChild(span);
       return;
     }
 

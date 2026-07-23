@@ -1,6 +1,7 @@
 import type { SparklineConfig } from '../chart/sparkline/sparkline.types';
 import type { ColumnGroupResizeStrategy } from '../column-groups/column-group.types';
 import type { ColumnRendererMap, DisplayRendererParams } from './renderer.types';
+import type { ValueGetterFn, ValueSetterFn, ValueFormatterFn } from './value.types';
 
 export type ColumnPinPosition = 'left' | 'right' | null;
 
@@ -108,6 +109,83 @@ export interface ColumnDef {
   header: string;
   type: ColumnDataType;
 
+  /**
+   * Derives this column's logical value from the raw row `data`, instead of
+   * reading `data[field]` directly. The returned value is what every downstream
+   * feature sees — cell rendering, sorting, filtering, grouping, aggregation and
+   * export — so a single getter keeps the derived value consistent everywhere.
+   *
+   * Leave unset to read the field directly (dot-notation paths such as
+   * `"address.city"` are supported out of the box).
+   *
+   * @example
+   * ```ts
+   * // Combine first + last name into a single "Full Name" column.
+   * {
+   *   colId: 'fullName', field: 'fullName', header: 'Full Name', type: 'string',
+   *   valueGetter: ({ data }) => `${data.firstName ?? ''} ${data.lastName ?? ''}`.trim(),
+   * }
+   * ```
+   *
+   * @remarks
+   * Invoked once per cell per read on the hot render/sort path — keep it pure and
+   * cheap (no I/O, no allocations in tight loops) to preserve scroll performance.
+   *
+   * @see {@link ValueGetterParams}
+   */
+  valueGetter?: ValueGetterFn;
+
+  /**
+   * Commits an edited value back into the row `data`, instead of the grid's
+   * default `data[field] = newValue` assignment. Use it to write derived,
+   * nested or multi-field targets — for example splitting an edited full name
+   * back into `firstName`/`lastName`.
+   *
+   * Mutate the provided `data` object and (optionally) return `false` to signal
+   * that nothing effectively changed, which suppresses the change event and
+   * refresh. Returning `true`/`undefined` applies the edit normally.
+   *
+   * Leave unset to write the field directly (dot-notation paths supported).
+   *
+   * @example
+   * ```ts
+   * {
+   *   colId: 'fullName', field: 'fullName', header: 'Full Name', type: 'string',
+   *   editable: true,
+   *   valueSetter: ({ data, newValue }) => {
+   *     const [first, ...rest] = String(newValue).trim().split(' ');
+   *     data.firstName = first ?? '';
+   *     data.lastName = rest.join(' ');
+   *     return true;
+   *   },
+   * }
+   * ```
+   *
+   * @see {@link ValueSetterParams}
+   */
+  valueSetter?: ValueSetterFn;
+
+  /**
+   * Formats this column's value into the string shown to the user. Applied to
+   * the logical value ({@link valueGetter} output, or the raw field value) and
+   * takes precedence over the grid's built-in type formatting for display.
+   *
+   * Presentation only: the formatted string is never used for sorting,
+   * filtering or editing — those always operate on the underlying value.
+   *
+   * @example
+   * ```ts
+   * {
+   *   colId: 'salary', field: 'salary', header: 'Salary', type: 'number',
+   *   valueFormatter: ({ value }) =>
+   *     value == null ? '—' : `$${Number(value).toLocaleString('en-US')}`,
+   * }
+   * ```
+   *
+   * @see {@link ValueFormatterParams}
+   */
+  valueFormatter?: ValueFormatterFn;
+
   width?: number;
   minWidth?: number;
   maxWidth?: number;
@@ -125,6 +203,17 @@ export interface ColumnDef {
    * of {@link ColumnDef.editable}. Toggled by the column menu's "Lock Column".
    */
   locked?: boolean;
+  /**
+   * Opts this column into the Formula Engine. When `true`, a cell value typed
+   * with a leading `=` (e.g. `=SUM(A1:A10)`) is stored as a formula: the editor
+   * shows the formula source, while the cell displays the evaluated result and
+   * `data[field]` holds the computed value. Typed columns (date/dropdown/number)
+   * that leave this unset keep their normal editors and treat a leading `=` as
+   * literal text. Requires `GridOptions.formula.enabled`.
+   *
+   * @default false
+   */
+  allowFormula?: boolean;
   groupable?: boolean;
   rowDrag?: boolean;
   alwaysVisible?: boolean;
@@ -150,6 +239,17 @@ export interface ColumnDef {
   menuIconDisplay?: HeaderIconDisplay;
 
   renderHtml?: boolean;
+
+  /**
+   * Per-column overrides for the column header context menu — which sections and
+   * items appear, items to suppress, and custom items to inject. Layered over the
+   * grid-wide `GridOptions.columnMenu`: `sections`/`enableRightClick` from the
+   * column win, `suppressItems` sets are unioned, and `customItems` are
+   * concatenated (grid first) and de-duplicated by `id`.
+   *
+   * @see {@link import('./column-menu.types').ColumnMenuConfig}
+   */
+  menu?: import('./column-menu.types').ColumnMenuConfig;
 
   /**
    * Per-column rendering overrides, grouped by concern (display, editor,

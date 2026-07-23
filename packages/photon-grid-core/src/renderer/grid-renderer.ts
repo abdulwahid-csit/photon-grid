@@ -32,6 +32,7 @@ import { CellSelectionEngine } from '../cell-selection/cell-selection-engine';
 import { RowAnimator } from './row-animator';
 import { FilterPanel } from '../engines/filter/filter-panel';
 import type { FilterSetOption } from '../engines/filter/filter-panel';
+import { FiltersToolPanel } from './filters-tool-panel';
 import { createDiv } from './dom-utils';
 import type { MasterDetailEngine } from '../engines/master-detail/master-detail-engine';
 import type { TreeExpansionService } from '../engines/tree/tree-expansion-service';
@@ -101,6 +102,8 @@ export class GridRenderer {
   private treeToggleColumnId: string | null = null;
   /** Floating Photon AI command bar — only created when `photonAI.enabled`. */
   private photonAIPanel: PhotonAIPanel | null = null;
+  /** Floating Filters Tool Panel — only created when `filtersToolPanel.enabled`. */
+  private filtersToolPanel: FiltersToolPanel | null = null;
   /** Shows a custom floating tooltip for columns with `renderer.tooltip`; a no-op for every other column. */
   private tooltipController: TooltipController;
 
@@ -197,6 +200,21 @@ export class GridRenderer {
 
     if (options.photonAI?.enabled) {
       this.photonAIPanel = new PhotonAIPanel(iconRenderer);
+    }
+
+    if (options.filtersToolPanel?.enabled) {
+      // Deps read `this.filterEngine`/`this.filterRefreshFn` lazily because both
+      // are wired after construction (via setFilterEngine / setFilterRefreshCallback).
+      this.filtersToolPanel = new FiltersToolPanel({
+        iconRenderer,
+        getColumns: () => this.columnModel.getAllColumns(),
+        getFilterModel: () => this.filterEngine?.getFilterModel() ?? {},
+        getUniqueOptions: (colDef) => this.extractUniqueOptions(colDef),
+        onFilterChange: (colId, filter) => {
+          this.filterEngine?.setColumnFilter(colId, filter);
+          this.filterRefreshFn?.();
+        },
+      });
     }
 
     this.tooltipController = new TooltipController(store, columnModel, null);
@@ -443,6 +461,21 @@ export class GridRenderer {
     this.activeFilterPanel.open();
   }
 
+  /** Opens the Filters Tool Panel, if the feature is enabled. No-op otherwise. */
+  openFiltersToolPanel(): void {
+    this.filtersToolPanel?.open();
+  }
+
+  /** Closes the Filters Tool Panel, if the feature is enabled. No-op otherwise. */
+  closeFiltersToolPanel(): void {
+    this.filtersToolPanel?.close();
+  }
+
+  /** Toggles the Filters Tool Panel open/closed, if the feature is enabled. No-op otherwise. */
+  toggleFiltersToolPanel(): void {
+    this.filtersToolPanel?.toggle();
+  }
+
   /**
    * Applies a live, per-column text filter from an inline filter-row input.
    *
@@ -578,6 +611,9 @@ export class GridRenderer {
    */
   setParentApiForDetail(api: unknown): void {
     this.detailRowRenderer?.setParentApi(api);
+    // The same GridApi backs the column menu's custom-item context. Wired here
+    // (rather than in buildLayout) because the API is created after mount().
+    this.headerRenderer.setMenuApi(api);
   }
 
   /** The nested grid's `GridApi` for an expanded master row, or `undefined`. Backs `GridApi.getDetailGridApi`. */
@@ -819,6 +855,7 @@ export class GridRenderer {
     this.overlayRenderer.destroy();
     this.detailRowRenderer?.destroy();
     this.photonAIPanel?.destroy();
+    this.filtersToolPanel?.destroy();
     this.tooltipController.destroy();
     this.scrollController.destroy();
     this.groupDropZone?.destroy();
@@ -1057,6 +1094,14 @@ export class GridRenderer {
       this.photonAIPanel.mount(bodyWrapEl, this.options.photonAI!);
     }
 
+    // Mount the Filters Tool Panel into the grid wrapper (not the body) so its
+    // launcher floats over the top-right of the header band. Absolute
+    // positioning keeps it out of the flex layout, so it never affects
+    // row/column virtualization or the header measurements.
+    if (this.filtersToolPanel && this.wrapperEl) {
+      this.filtersToolPanel.mount(this.wrapperEl, this.options.filtersToolPanel!);
+    }
+
     this.tooltipController.mount(bodyWrapEl);
 
     // Attach cell selection to center content
@@ -1122,6 +1167,11 @@ export class GridRenderer {
     // Re-run the pipeline after an aggregate function change so grouped
     // aggregations recompute. filterRefreshFn is GridApi.refresh (set post-construction).
     this.headerRenderer.setColumnDataRefreshCallback(() => this.filterRefreshFn?.());
+
+    // Column context-menu configuration + keyboard header navigation support.
+    this.headerRenderer.setMenuOptions(this.options.columnMenu ?? {});
+    this.headerRenderer.setColumnMenuItemsCallback(this.options.getColumnMenuItems);
+    this.headerRenderer.setEnsureColumnVisibleCallback((colId) => this.ensureColumnVisible(colId));
 
     // ── Edge auto-scroller ───────────────────────────────────────────────────
     // A single RAF-based AutoScroller handles both cell-range selection drag
@@ -1755,6 +1805,7 @@ export class GridRenderer {
       this.store.watch('filterModel', (model) => {
         const activeColIds = new Set(Object.keys(model as FilterModel));
         this.headerRenderer.updateFilterIndicators(activeColIds);
+        this.filtersToolPanel?.syncFromModel(model as FilterModel);
       }),
 
       this.store.watch('scrollTop', () => this.scheduleRender()),

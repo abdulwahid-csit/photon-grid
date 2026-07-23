@@ -5,6 +5,8 @@ import type { GridStore } from '../../core/grid-store';
 import type { EventBus } from '../../event-bus/event-bus';
 import { GridEventType } from '../../types/event.types';
 import { parseValue, validateValue } from './value-parser';
+import { getCellValue, setCellValue } from './value-accessor';
+import { isFormulaSource } from '../../formula/compile';
 
 export interface EditSession {
   rowNode: RowNode;
@@ -34,6 +36,20 @@ export class CellEditorEngine {
     this.tabHandler = fn;
   }
 
+  /**
+   * Optional hook invoked when a formula (`=`-prefixed) value is committed on a
+   * formula-enabled column. When present and it returns `true`, the editor
+   * delegates the entire commit to it (storing the formula and writing the
+   * computed value) and skips its own literal parse/set path. Registered by
+   * `wireEditing` in `GridCore`; absent when the formula engine is disabled.
+   */
+  private formulaCommit: ((rowNode: RowNode, colDef: ColumnDef, source: string) => boolean) | null = null;
+
+  /** Register the formula-commit delegate (see {@link formulaCommit}). */
+  setFormulaCommitHandler(fn: (rowNode: RowNode, colDef: ColumnDef, source: string) => boolean): void {
+    this.formulaCommit = fn;
+  }
+
   constructor(
     private store: GridStore,
     private eventBus: EventBus,
@@ -48,7 +64,7 @@ export class CellEditorEngine {
     if (!colDef.editable || colDef.locked) return false;
     if (this.activeSession) this.stopEditing(true);
 
-    const originalValue = rowNode.data[colDef.field];
+    const originalValue = getCellValue(rowNode.data, colDef);
     this.activeSession = {
       rowNode,
       colDef,
@@ -93,6 +109,30 @@ export class CellEditorEngine {
     this.store.set('editingCellId', null);
 
     if (!cancel) {
+      // Formula entry: on a formula-enabled column, a `=`-prefixed string is
+      // stored as a formula (not parsed as a literal). The delegate owns the
+      // data write, recalculation and its own change event, so we simply close
+      // the session afterwards.
+      if (
+        typeof currentValue === 'string' &&
+        colDef.allowFormula === true &&
+        this.formulaCommit &&
+        isFormulaSource(currentValue)
+      ) {
+        const handled = this.formulaCommit(rowNode, colDef, currentValue);
+        if (handled) {
+          this.flashCell(cellEl);
+          this.eventBus.emit(GridEventType.CELL_EDIT_STOP, {
+            row: rowNode,
+            field: colDef.field,
+            oldValue: originalValue,
+            newValue: currentValue,
+          });
+          this.activeSession = null;
+          return;
+        }
+      }
+
       const parsed = parseValue(currentValue, colDef);
       const error = validateValue(parsed, colDef);
 
@@ -109,23 +149,25 @@ export class CellEditorEngine {
       }
 
       if (parsed !== originalValue) {
-        rowNode.data = { ...rowNode.data, [colDef.field]: parsed };
-        this.eventBus.emit(GridEventType.CELL_VALUE_CHANGED, {
-          row: rowNode,
-          colDef,
-          oldValue: originalValue,
-          newValue: parsed,
-          rowIndex: rowNode.rowIndex,
-        });
-        // Flash the edited cell with the same fill-flash animation so the user
-        // gets clear visual confirmation that the new value was committed.
-        if (cellEl) {
-          setTimeout(() => {
-            cellEl.classList.remove('pg-cell--fill-flash');
-            void (cellEl as HTMLElement).offsetWidth; // force reflow to restart animation
-            cellEl.classList.add('pg-cell--fill-flash');
-            setTimeout(() => cellEl.classList.remove('pg-cell--fill-flash'), 700);
-          }, 0);
+        // Write through the value pipeline: a column-level valueSetter (if any)
+        // owns the assignment — supporting derived / nested / multi-field
+        // targets — otherwise the field is set directly. A fresh data object
+        // preserves the grid's immutable-update contract (new reference per
+        // committed edit) while still honouring custom setters.
+        const nextData = { ...rowNode.data };
+        const applied = setCellValue(nextData, colDef, parsed, undefined);
+        if (applied) {
+          rowNode.data = nextData;
+          this.eventBus.emit(GridEventType.CELL_VALUE_CHANGED, {
+            row: rowNode,
+            colDef,
+            oldValue: originalValue,
+            newValue: parsed,
+            rowIndex: rowNode.rowIndex,
+          });
+          // Flash the edited cell with the same fill-flash animation so the user
+          // gets clear visual confirmation that the new value was committed.
+          this.flashCell(cellEl);
         }
       }
     }
@@ -142,6 +184,20 @@ export class CellEditorEngine {
 
   isEditing(): boolean {
     return this.activeSession !== null;
+  }
+
+  /**
+   * Plays the fill-flash confirmation animation on a committed cell. Restarts
+   * cleanly if the class is still present from a prior flash.
+   */
+  private flashCell(cellEl: HTMLElement | null): void {
+    if (!cellEl) return;
+    setTimeout(() => {
+      cellEl.classList.remove('pg-cell--fill-flash');
+      void cellEl.offsetWidth; // force reflow to restart animation
+      cellEl.classList.add('pg-cell--fill-flash');
+      setTimeout(() => cellEl.classList.remove('pg-cell--fill-flash'), 700);
+    }, 0);
   }
 
   getActiveSession(): EditSession | null {

@@ -23,6 +23,12 @@
 /**
  * A before-and-after snapshot of a single cell value mutation.
  * `nodeId` + `field` uniquely identify the cell across renders.
+ *
+ * When the mutation involves a **formula** (entry, fill or paste of a `=` cell),
+ * the optional `colId`/`oldFormula`/`newFormula` fields let undo/redo restore the
+ * formula *source* rather than just its last computed value. A `*Formula` of
+ * `null` means "no formula" (a literal); `undefined` means the change is not
+ * formula-aware at all and only the value is restored.
  */
 export interface CellChange {
   /** Stable row identity — survives sort/filter/group operations. */
@@ -33,6 +39,12 @@ export interface CellChange {
   oldValue: unknown;
   /** Value after the mutation (re-applied on redo). */
   newValue: unknown;
+  /** Immutable column identity — present on formula-aware changes. */
+  colId?: string;
+  /** Formula source before the mutation (`null` = was a literal). */
+  oldFormula?: string | null;
+  /** Formula source after the mutation (`null` = became a literal). */
+  newFormula?: string | null;
 }
 
 /** Discriminated label for what kind of operation produced the action. */
@@ -167,12 +179,16 @@ export class UndoRedoEngine {
     this.redoStack.push(action);
 
     // Inverse: swap oldValue ↔ newValue so applying `newValue` restores the
-    // original cell state.
+    // original cell state. Formula fields are swapped too — on undo the cell's
+    // target formula is whatever it had *before* the change (`oldFormula`).
     return action.changes.map((c) => ({
       nodeId: c.nodeId,
       field: c.field,
       oldValue: c.newValue,   // not used by the caller — kept for symmetry
       newValue: c.oldValue,   // caller writes this into row.data[field]
+      colId: c.colId,
+      oldFormula: c.newFormula,
+      newFormula: c.oldFormula, // caller restores this formula (null = clear)
     }));
   }
 

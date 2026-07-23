@@ -1,7 +1,15 @@
 import type { ChartData } from './chart-data-transformer';
 import type { ChartRenderOptions } from './chart-renderer';
 import { ChartRenderer } from './chart-renderer';
+import { resolveChartTheme } from './chart-theme';
 import type { ChartToolbarItem } from '../types/grid.types';
+
+/**
+ * Chart types whose single dataset is drawn as one colored mark per category
+ * (slice / row / spoke). Their legend and toggle are **per-category**, unlike
+ * cartesian charts whose legend is per-series.
+ */
+const CATEGORICAL_TYPES = new Set<ChartPanelType>(['pie', 'doughnut', 'polar', 'funnel']);
 
 export type ChartPanelType =
   | 'column-grouped' | 'column-stacked' | 'column-100stacked'
@@ -26,8 +34,11 @@ export interface ChartPanelHost {
   onEditChart(): void;
   /** "Advanced Settings" — open the tool panel on the Customize tab. */
   onAdvancedSettings(): void;
-  /** "Unlink from Grid" — freeze the chart as a snapshot. */
-  onUnlink(): void;
+  /**
+   * Toggle the grid link: unlink freezes the chart as a snapshot, re-link
+   * resumes live updates and immediately refreshes from the grid.
+   */
+  onToggleLink(): void;
   /** Fired as the panel card moves (drag / fullscreen / recenter) so the tool panel can re-dock. */
   onMove(rect: DOMRect): void;
   /** Fired when the panel closes so the host can dispose its chart. */
@@ -43,6 +54,7 @@ const ICON_DOWNLOAD = `<svg width="13" height="13" viewBox="0 0 24 24" fill="non
 const ICON_EDIT = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`;
 const ICON_SETTINGS = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>`;
 const ICON_UNLINK = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 5.64a5 5 0 0 1 0 7.07l-1.5 1.5"/><path d="M7.14 18.36a5 5 0 0 1 0-7.07l1.5-1.5"/><line x1="2" y1="2" x2="22" y2="22"/></svg>`;
+const ICON_LINK = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`;
 
 /** Toolbar-menu descriptor for the `⋮` dropdown. */
 interface ChartMenuEntry {
@@ -74,8 +86,10 @@ export class ChartPanel {
   private currentData: ChartData | null = null;
   private currentType: ChartPanelType = 'column-grouped';
   private currentTitle = '';
-  /** Dataset indices the user has toggled off via the legend. */
+  /** Dataset indices the user has toggled off via the legend (cartesian charts). */
   private hiddenSeries = new Set<number>();
+  /** Category/slice indices toggled off via the legend (categorical charts). */
+  private hiddenSlices = new Set<number>();
 
   /** Current top-left position of the card within the backdrop. */
   private panelX = 0;
@@ -99,7 +113,7 @@ export class ChartPanel {
    */
   update(data: ChartData | null): void {
     this.currentData = data;
-    if (data && data.datasets.length > 1) this.buildLegend(data);
+    if (data && this.shouldShowLegend(data)) this.buildLegend(data);
     else if (this.legendEl) this.legendEl.innerHTML = '';
     this.renderChart();
   }
@@ -132,6 +146,12 @@ export class ChartPanel {
 
   /** Updates the chart type used for subsequent renders. */
   setChartType(type: ChartPanelType): void {
+    // A genuine type change invalidates legend toggles (a hidden series index in
+    // a bar chart is meaningless once the chart becomes a pie, and vice versa).
+    if (type !== this.currentType) {
+      this.hiddenSeries.clear();
+      this.hiddenSlices.clear();
+    }
     this.currentType = type;
   }
 
@@ -153,9 +173,10 @@ export class ChartPanel {
     this.currentData = data;
     this.isFullscreen = false;
     this.hiddenSeries = new Set();
+    this.hiddenSlices = new Set();
     this.buildDom(title, data === null);
     if (data !== null) {
-      if (data.datasets.length > 1) this.buildLegend(data);
+      if (this.shouldShowLegend(data)) this.buildLegend(data);
       this.renderChart();
     }
   }
@@ -303,10 +324,6 @@ export class ChartPanel {
     for (const entry of this.resolveMenuEntries(items)) {
       const btn = document.createElement('button');
       btn.className = 'pg-chart-panel__dots-item';
-      if (entry.item === 'unlink' && this.host?.isUnlinked()) {
-        btn.classList.add('pg-chart-panel__dots-item--disabled');
-        btn.disabled = true;
-      }
       btn.innerHTML = `${entry.icon} ${entry.label}`;
       btn.addEventListener('click', () => { entry.action(); this.closeDotsMenu(); });
       dotsMenu.appendChild(btn);
@@ -341,9 +358,17 @@ export class ChartPanel {
         case 'advancedSettings':
           entries.push({ item, label: 'Advanced Settings', icon: ICON_SETTINGS, action: () => this.host?.onAdvancedSettings() });
           break;
-        case 'unlink':
-          entries.push({ item, label: 'Unlink from Grid', icon: ICON_UNLINK, action: () => this.host?.onUnlink() });
+        case 'unlink': {
+          // A reversible toggle: show the inverse action for the current state.
+          const unlinked = this.host?.isUnlinked() ?? false;
+          entries.push({
+            item,
+            label: unlinked ? 'Link to Grid' : 'Unlink from Grid',
+            icon: unlinked ? ICON_LINK : ICON_UNLINK,
+            action: () => this.host?.onToggleLink(),
+          });
           break;
+        }
         case 'download':
           entries.push({ item, label: 'Download PNG', icon: ICON_DOWNLOAD, action: () => this.downloadChart('png') });
           entries.push({ item, label: 'Download JPEG', icon: ICON_DOWNLOAD, action: () => this.downloadChart('jpeg') });
@@ -484,7 +509,10 @@ export class ChartPanel {
       this.renderer = new ChartRenderer(this.canvasEl);
     }
 
-    this.renderer.render(this.currentData, this.resolveRenderOptions(w, h));
+    // Apply any hidden-slice toggles so a reflow/resize repaint doesn't resurrect
+    // slices the user hid (cartesian series toggles are held in the renderer).
+    const data = this.isCategorical() ? this.applyHiddenSlices(this.currentData) : this.currentData;
+    this.renderer.render(data, this.resolveRenderOptions(w, h));
   }
 
   /**
@@ -501,26 +529,56 @@ export class ChartPanel {
   }
 
   /**
-   * Populates the HTML legend bar with one clickable button per dataset.
-   * Each button acts as a toggle: clicking animates the corresponding bars
-   * in or out and dims the legend entry to signal its state.
+   * Whether the HTML legend below the canvas should be shown for `data`:
+   * multi-series cartesian charts (one item per series) OR any categorical
+   * chart with at least one category (one item per slice/row/spoke).
+   */
+  private shouldShowLegend(data: ChartData): boolean {
+    if (this.isCategorical()) return data.labels.length > 0;
+    return data.datasets.length > 1;
+  }
+
+  /** Whether the current chart type draws one colored mark per category. */
+  private isCategorical(): boolean {
+    return CATEGORICAL_TYPES.has(this.currentType);
+  }
+
+  /** The resolved theme series palette, used to color per-slice legend swatches. */
+  private palette(): readonly string[] {
+    return this.canvasEl ? resolveChartTheme(this.canvasEl).palette : [];
+  }
+
+  /**
+   * Populates the HTML legend bar. For categorical charts each item is a
+   * category (slice); for cartesian charts each item is a series. Clicking an
+   * item toggles that slice/series in or out with an animation and dims the
+   * entry.
    */
   private buildLegend(data: ChartData): void {
     if (!this.legendEl) return;
     this.legendEl.innerHTML = '';
 
-    data.datasets.forEach((ds, i) => {
+    const categorical = this.isCategorical();
+    const pal = categorical ? this.palette() : [];
+    const entries: Array<{ label: string; color: string }> = categorical
+      ? data.labels.map((label, i) => ({ label, color: pal[i % Math.max(pal.length, 1)] ?? '#5470c6' }))
+      : data.datasets.map((ds, i) => ({ label: ds.label, color: ds.color ?? '#5470c6' }));
+
+    const hidden = categorical ? this.hiddenSlices : this.hiddenSeries;
+
+    entries.forEach((entry, i) => {
       const item = document.createElement('button');
       item.type = 'button';
       item.className = 'pg-chart-panel__legend-item';
+      if (hidden.has(i)) item.classList.add('pg-chart-panel__legend-item--hidden');
 
       const swatch = document.createElement('span');
       swatch.className = 'pg-chart-panel__legend-swatch';
-      swatch.style.background = ds.color ?? '#008FFB';
+      swatch.style.background = entry.color;
 
       const label = document.createElement('span');
       label.className = 'pg-chart-panel__legend-label';
-      label.textContent = ds.label;
+      label.textContent = entry.label;
 
       item.appendChild(swatch);
       item.appendChild(label);
@@ -530,8 +588,9 @@ export class ChartPanel {
   }
 
   /**
-   * Toggles a dataset's visibility with a smooth bar-height animation.
-   * The legend item is dimmed while its series is hidden.
+   * Toggles a legend entry. For categorical charts this hides/shows a single
+   * slice (its value is zeroed so sibling colors stay stable); for cartesian
+   * charts it animates a whole series in/out.
    */
   private handleLegendToggle(index: number): void {
     if (!this.renderer || !this.currentData || !this.canvasEl) return;
@@ -541,17 +600,37 @@ export class ChartPanel {
     const h = body.clientHeight - 16;
     if (w <= 0 || h <= 0) return;
 
-    const nowVisible = this.hiddenSeries.has(index); // toggling TO visible if currently hidden
-    if (nowVisible) {
-      this.hiddenSeries.delete(index);
-    } else {
-      this.hiddenSeries.add(index);
-    }
+    const hidden = this.isCategorical() ? this.hiddenSlices : this.hiddenSeries;
+    const nowVisible = hidden.has(index); // toggling TO visible if currently hidden
+    if (nowVisible) hidden.delete(index);
+    else hidden.add(index);
 
     const item = this.legendEl?.children[index] as HTMLElement | undefined;
     item?.classList.toggle('pg-chart-panel__legend-item--hidden', !nowVisible);
 
-    this.renderer.toggleSeries(index, nowVisible, this.currentData, this.resolveRenderOptions(w, h));
+    if (this.isCategorical()) {
+      // Re-render from a copy with hidden slices zeroed — keeps slice→color
+      // stable (drawPie colors by original index) and recomputes the total.
+      this.renderer.render(this.applyHiddenSlices(this.currentData), this.resolveRenderOptions(w, h));
+    } else {
+      this.renderer.toggleSeries(index, nowVisible, this.currentData, this.resolveRenderOptions(w, h));
+    }
+  }
+
+  /**
+   * Returns a shallow copy of `data` with hidden categorical slices zeroed, so
+   * they collapse to nothing while every remaining slice keeps its palette color
+   * (which is assigned by original index).
+   */
+  private applyHiddenSlices(data: ChartData): ChartData {
+    if (this.hiddenSlices.size === 0 || data.datasets.length === 0) return data;
+    return {
+      labels: data.labels,
+      datasets: data.datasets.map((ds) => ({
+        ...ds,
+        data: ds.data.map((v, i) => (this.hiddenSlices.has(i) ? 0 : v)),
+      })),
+    };
   }
 
   private downloadChart(format: 'png' | 'jpeg'): void {

@@ -18,14 +18,7 @@ export interface ChartTransformOptions {
   aggregation?: 'sum' | 'avg' | 'count' | 'min' | 'max';
   limit?: number;
   sortByValue?: boolean;
-  colors?: string[];
 }
-
-const DEFAULT_COLORS = [
-  '#2563eb', '#16a34a', '#d97706', '#dc2626',
-  '#7c3aed', '#0284c7', '#db2777', '#65a30d',
-  '#c2410c', '#0891b2',
-];
 
 export class ChartDataTransformer {
   transform(
@@ -33,7 +26,7 @@ export class ChartDataTransformer {
     options: ChartTransformOptions,
   ): ChartData {
     const dataRows = rows.filter((r) => r.type === 'data');
-    const { labelField, valueFields, aggregation = 'sum', limit, sortByValue, colors = DEFAULT_COLORS } = options;
+    const { labelField, valueFields, aggregation = 'sum', limit, sortByValue } = options;
 
     const grouped = new Map<string, Record<string, number[]>>();
 
@@ -52,17 +45,17 @@ export class ChartDataTransformer {
     }
 
     let labels = Array.from(grouped.keys());
-    const datasets: ChartDataset[] = valueFields.map((field, fi) => {
+    // Datasets intentionally carry NO color here: color is assigned centrally by
+    // the renderer from the resolved theme palette, so every chart type (bars,
+    // lines, pie slices) draws from one coherent, theme-aware set. Pre-coloring
+    // here would shadow the theme palette and desync bar colors from pie colors.
+    const datasets: ChartDataset[] = valueFields.map((field) => {
       const data = labels.map((label) => {
         const values = grouped.get(label)![field] ?? [];
         return this.aggregate(values, aggregation);
       });
 
-      return {
-        label: field,
-        data,
-        color: colors[fi % colors.length],
-      };
+      return { label: field, data };
     });
 
     if (sortByValue && datasets.length > 0) {

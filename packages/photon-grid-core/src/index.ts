@@ -19,6 +19,10 @@ export { ColumnGroupNodeType, ColumnGroupResizeStrategy } from './column-groups/
 
 export { SortEngine } from './engines/sort/sort-engine';
 export { FilterEngine } from './engines/filter/filter-engine';
+export { FilterEditor } from './engines/filter/filter-editor';
+export type { FilterEditorConfig } from './engines/filter/filter-editor';
+export { FilterPanel } from './engines/filter/filter-panel';
+export type { FilterPanelConfig } from './engines/filter/filter-panel';
 export { PaginationEngine } from './engines/pagination/pagination-engine';
 export { GroupingEngine } from './engines/grouping/grouping-engine';
 export { AggregationEngine } from './engines/aggregation/aggregation-engine';
@@ -48,6 +52,8 @@ export { coreIcons } from './icons/icon-sets/core-icons';
 
 export { GridRenderer } from './renderer/grid-renderer';
 export { ColumnChooser } from './renderer/column-chooser';
+export { FiltersToolPanel } from './renderer/filters-tool-panel';
+export type { FiltersToolPanelDeps } from './renderer/filters-tool-panel';
 export { HeaderRenderer } from './renderer/header-renderer';
 export { BodyRenderer } from './renderer/body-renderer';
 export { FooterRenderer } from './renderer/footer-renderer';
@@ -61,6 +67,13 @@ export { ChartDataTransformer } from './chart/chart-data-transformer';
 export { SparklineRenderer } from './chart/sparkline/sparkline-renderer';
 
 export { formatValue, parseValue, validateValue } from './engines/editing/value-parser';
+export {
+  getCellValue,
+  setCellValue,
+  formatCellValue,
+  resolveFieldPath,
+  assignFieldPath,
+} from './engines/editing/value-accessor';
 export { getComparator, stringComparator, numberComparator, dateComparator } from './engines/sort/sort-comparator';
 
 // ── Photon AI ────────────────────────────────────────────────────────────────
@@ -98,9 +111,72 @@ export type {
 export type { PhotonAIConfig, PhotonAIProviderConfig } from './types/photon-ai.types';
 export { PhotonAIProviderType } from './types/photon-ai.types';
 
-export type { GridOptions, GridState, GridDimensions, SortConfig, PaginationConfig, SelectionConfig, EditingConfig, CellRange, ColumnGroupConfig, HeaderIconsConfig } from './types/grid.types';
+// ── Formula Engine ─────────────────────────────────────────────────────────────
+export {
+  FormulaEngine,
+  FormulaError,
+  FormulaErrorCode,
+  isFormulaError,
+  FunctionRegistry,
+  FunctionCategory,
+  UNLIMITED_ARGS,
+  ConfigurationManager,
+  FormulaStore,
+  AstNodeType,
+  BinaryOperator,
+  UnaryOperator,
+  TokenType,
+  makeCellId,
+  splitCellId,
+  columnLabelToIndex,
+  columnIndexToLabel,
+  parseCellRef,
+  encodeCellRef,
+  isRangeRef,
+} from './formula';
+export type {
+  FormulaFunction,
+  FormulaGridAdapter,
+  FormulaCellChange,
+  RecalculationResult,
+  ResolvedFormulaConfig,
+  EvalContext,
+  FormulaCell,
+  CellId,
+  FormulaScalar,
+  FormulaValue,
+  FormulaMatrix,
+  FormulaArgument,
+  FormulaState,
+  FormulaStateEntry,
+  CellRef,
+  RangeRef,
+  Reference,
+  AstNode,
+  Token,
+} from './formula';
+export type { FormulaConfig } from './types/formula.types';
+
+export type { GridOptions, GridState, GridDimensions, SortConfig, PaginationConfig, SelectionConfig, EditingConfig, CellRange, ColumnGroupConfig, HeaderIconsConfig, FiltersToolPanelConfig } from './types/grid.types';
 export type { ColumnDef, ColumnDefInput, Column, ColumnState, ColumnGroup, ColumnDropdownOption, ColumnDataType, ColumnPinPosition, AggFunc } from './types/column.types';
 export { HeaderIconDisplay } from './types/column.types';
+export { ColumnMenuSection, AggregateFunction } from './types/column-menu.types';
+export type {
+  ColumnMenuConfig,
+  ColumnMenuCustomItem,
+  ColumnMenuItem,
+  ColumnMenuItemId,
+  ColumnMenuItemContext,
+  GetColumnMenuItems,
+} from './types/column-menu.types';
+export type {
+  ValueGetterParams,
+  ValueSetterParams,
+  ValueFormatterParams,
+  ValueGetterFn,
+  ValueSetterFn,
+  ValueFormatterFn,
+} from './types/value.types';
 export { RendererSlot } from './types/renderer.types';
 export type {
   RendererOutput,

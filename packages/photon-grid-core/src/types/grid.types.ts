@@ -5,6 +5,7 @@ import type { BuiltInThemeName, ThemeMode, ThemeVariant } from './theme.types';
 import type { MasterDetailConfig } from './master-detail.types';
 import type { PhotonAIConfig } from './photon-ai.types';
 import type { TreeDataConfig } from './tree-data.types';
+import type { FormulaConfig } from './formula.types';
 import type { ChartPanelType } from '../chart/chart-panel';
 import type { ChartModel, ChartModelPatch } from '../chart/model/chart-model';
 import type {
@@ -266,6 +267,30 @@ export interface GridOptions {
    */
   headerIcons?: HeaderIconsConfig;
 
+  /**
+   * Grid-wide default configuration for the column header context menu — the
+   * sections and items shown, items to suppress, custom items, and whether
+   * right-click opens the menu. Override or extend per column via
+   * {@link ColumnDef.menu}.
+   *
+   * @see {@link import('./column-menu.types').ColumnMenuConfig}
+   */
+  columnMenu?: import('./column-menu.types').ColumnMenuConfig;
+
+  /**
+   * AG-Grid-style hook to fully control the column menu's item list. Receives
+   * the resolved, post-suppression list of built-in item ids for the column and
+   * the column definition, and returns the exact ordered items to render (built-in
+   * ids, `'separator'`, or custom items). Return an empty array to hide the menu.
+   *
+   * Runs once per menu open — never during hover, scroll, or drag.
+   *
+   * @param defaultItems - The built-in item ids Photon would show, in order.
+   * @param colDef        - The column the menu is opening for.
+   * @returns The items to render.
+   */
+  getColumnMenuItems?: import('./column-menu.types').GetColumnMenuItems;
+
   selection?: Partial<SelectionConfig>;
   editing?: Partial<EditingConfig>;
   pagination?: Partial<PaginationConfig>;
@@ -336,6 +361,16 @@ export interface GridOptions {
   photonAI?: PhotonAIConfig;
 
   /**
+   * Filters Tool Panel — an opt-in filter funnel button at the grid's
+   * top-right corner that opens a floating panel for managing every column
+   * filter in one place (add via a searchable column picker, expand/collapse
+   * each filter, remove with ✕). Writes through the same filter engine as the
+   * header funnel, so both entry points stay consistent.
+   * @see {@link FiltersToolPanelConfig}
+   */
+  filtersToolPanel?: FiltersToolPanelConfig;
+
+  /**
    * Tree Data — self-referential row hierarchy (org charts, file trees,
    * bills of materials) driven by a `parentId`/`id` pair, nested `children`
    * arrays, a `getDataPath()` callback, or a custom hierarchy provider.
@@ -343,6 +378,16 @@ export interface GridOptions {
    * column-value-grouped, never both at once. @see {@link TreeDataConfig}
    */
   treeData?: TreeDataConfig;
+
+  /**
+   * Formula Engine — Excel/Sheets-style expressions in opt-in columns
+   * (`ColumnDef.allowFormula`). Enables cells like `=SUM(A1:A10)` or
+   * `=IF(B1>5,"Yes","No")`, with incremental recalculation, circular-reference
+   * detection and an extensible function registry. References are positional
+   * (`A1` = first column, first data row) and bound to the data model, so they
+   * stay correct across sort/filter/pagination. @see {@link FormulaConfig}
+   */
+  formula?: FormulaConfig;
 
   enableStateManagement?: boolean;
   stateKey?: string;
@@ -373,6 +418,17 @@ export interface GridOptions {
   onChartOptionsChanged?: (event: ChartOptionsChangedEvent) => void;
   /** Fired when a chart is destroyed. */
   onChartDestroyed?: (event: ChartDestroyedEvent) => void;
+}
+
+/**
+ * Configuration for the Filters Tool Panel (`GridOptions.filtersToolPanel`).
+ * The feature is disabled unless {@link enabled} is `true`.
+ */
+export interface FiltersToolPanelConfig {
+  /** Master switch — when `true`, the top-right filter button and panel are mounted. */
+  enabled: boolean;
+  /** When `true`, the panel starts open on grid initialization. @default false */
+  defaultOpen?: boolean;
 }
 
 export interface GridState {

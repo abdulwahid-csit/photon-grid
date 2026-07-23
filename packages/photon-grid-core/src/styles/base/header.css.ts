@@ -234,4 +234,13 @@ export const headerCss = `/* ─────────────────
   box-shadow: 0 0 0 2px var(--pg-colors-primary-soft, rgba(37, 99, 235, 0.16));
 }
 
+/* Keyboard focus ring for the roving header cell (see HeaderRenderer roving
+   tabindex). :focus-visible keeps the ring keyboard-only so mouse clicks on a
+   header don't paint it. Inset so it never overflows the pinned-panel clip. */
+.pg-th:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--pg-colors-primary, #2563eb);
+  z-index: 1;
+}
+
 `;

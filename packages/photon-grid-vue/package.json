@@ -1,6 +1,6 @@
 {
   "name": "photon-grid-vue",
-  "version": "2.0.7",
+  "version": "2.0.8",
   "description": "Vue 3 wrapper for Photon Grid — an enterprise-grade, framework-agnostic TypeScript data grid.",
   "author": "Abdul Wahid",
   "license": "MIT",
@@ -28,13 +28,13 @@
     "preview": "vite preview"
   },
   "peerDependencies": {
-    "photon-grid-core": "^2.0.7",
+    "photon-grid-core": "^2.0.8",
     "vue": "^3.4.0"
   },
   "devDependencies": {
     "@types/node": "^24.13.2",
     "@vue/tsconfig": "^0.9.1",
-    "photon-grid-core": "^2.0.7",
+    "photon-grid-core": "^2.0.8",
     "rimraf": "^6.0.1",
     "typescript": "~6.0.3",
     "vite": "^8.1.3",

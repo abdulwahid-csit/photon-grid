@@ -3,6 +3,7 @@ import type { ColumnDef, ColumnDefInput, ColumnState, ColumnPinPosition } from '
 import type { RowNode } from '../types/row.types';
 import type { FilterModel, ColumnFilter } from '../types/filter.types';
 import type { SortConfig, GridState, CellRange } from '../types/grid.types';
+import { normalizeRange } from '../cell-selection/selection-range';
 import type {
   RowTransaction,
   RowVerticalScrollPosition,
@@ -10,6 +11,15 @@ import type {
   FlashCellsParams,
 } from '../types/grid.types';
 import type { GridEventType } from '../types/event.types';
+import type {
+  GridImportSink,
+  ImportOptions,
+  ImportResult,
+} from '../types/import.types';
+import { ImportSourceType } from '../types/import.types';
+import type { Workbook } from '../engines/import/model/workbook';
+import type { WorkbookParser } from '../engines/import/parser/workbook-parser';
+import type { ToastService } from '../toast/toast-service';
 import type { EventHandler } from '../event-bus/event-bus';
 import type { ChartConfig } from '../chart/chart-engine';
 import type { ChartModel } from '../chart/model/chart-model';
@@ -54,21 +64,46 @@ export class GridApi {
     this.ctx.rowModel.setRowData(data, rowHeight);
     // History from the old dataset is meaningless after a full data swap.
     this.ctx.undoRedoEngine.clear();
+    // Discover declarative formulas (column-level + row-data) for the new rows;
+    // computed values are written into row data before the first paint, so a
+    // plain refresh renders them (rows are freshly built, nothing cached).
+    this.ctx.formulaInitializer.onLoad(
+      this.ctx.columnModel.getAllColumns(),
+      this.ctx.store.get('allRows') as RowNode[],
+    );
     this.refresh();
   }
 
   appendData(data: Record<string, unknown>[]): void {
+    const before = (this.ctx.store.get('allRows') as RowNode[]).length;
     this.ctx.rowModel.appendRowData(data);
+    const all = this.ctx.store.get('allRows') as RowNode[];
+    const changed = this.ctx.formulaInitializer.onRowsAdded(
+      this.ctx.columnModel.getAllColumns(),
+      all.slice(before),
+    );
+    if (changed.size > 0) this.ctx.renderer.invalidateBodyRowsByIds(new Set(changed));
     this.refresh();
   }
 
   updateRow(nodeId: string, data: Partial<Record<string, unknown>>): void {
     this.ctx.rowModel.updateRow(nodeId, data);
+    const row = this.ctx.rowModel.getRowNode(nodeId);
+    if (row) {
+      const changed = this.ctx.formulaInitializer.onRowDataChanged(
+        this.ctx.columnModel.getAllColumns(),
+        row,
+        Object.keys(data),
+      );
+      if (changed.size > 0) this.ctx.renderer.invalidateBodyRowsByIds(new Set(changed));
+    }
     this.refresh();
   }
 
   removeRows(nodeIds: string[]): void {
     this.ctx.rowModel.removeRows(nodeIds);
+    const changed = this.ctx.formulaInitializer.onRowsRemoved(new Set(nodeIds));
+    if (changed.size > 0) this.ctx.renderer.invalidateBodyRowsByIds(new Set(changed));
     this.refresh();
   }
 
@@ -290,6 +325,40 @@ export class GridApi {
 
   getCellRanges(): CellRange[] {
     return this.ctx.store.get('cellRanges');
+  }
+
+  /**
+   * Runs an intelligent AutoFill from a source range, continuing its detected
+   * pattern (numeric/date/name series, `Item001 → Item002`, alphabet, booleans,
+   * or a copy fallback) — the programmatic equivalent of dragging the fill
+   * handle. Formula cells transpose their relative references.
+   *
+   * @param params.range     - The source range whose pattern is continued.
+   * @param params.direction - Fill direction (`'down' | 'up' | 'left' | 'right'`).
+   * @param params.count     - Number of cells to extend beyond the source
+   *                           (`>= 1`).
+   *
+   * @example
+   * // Continue A1:A3 (1,2,3) down four more rows → 4,5,6,7
+   * api.fill({ range: { startRowIndex: 0, endRowIndex: 2, startColIndex: 0, endColIndex: 0 }, direction: 'down', count: 4 });
+   */
+  fill(params: {
+    range: CellRange;
+    direction: 'down' | 'up' | 'left' | 'right';
+    count: number;
+  }): void {
+    const { range, direction, count } = params;
+    if (count < 1) return;
+    const src = normalizeRange(range);
+    let target: number;
+    switch (direction) {
+      case 'down':  target = src.endRowIndex + count; break;
+      case 'up':    target = src.startRowIndex - count; break;
+      case 'right': target = src.endColIndex + count; break;
+      case 'left':  target = src.startColIndex - count; break;
+      default: return;
+    }
+    this.ctx.cellSelectionEngine.fillRange(range, direction, target);
   }
 
   // ──────────────────── Editing ────────────────────
@@ -590,6 +659,146 @@ export class GridApi {
     );
   }
 
+  // ──────────────────── Import ────────────────────
+  /**
+   * The grid write/read port handed to the {@link import('../engines/import/import-engine').ImportEngine}.
+   * Thin adapter over the public data seams so the engine never touches
+   * `GridCore` internals. Lazily built and cached on first import.
+   */
+  private _importSink: GridImportSink | null = null;
+
+  /** Returns (building once) the import sink over this API. */
+  private getImportSink(): GridImportSink {
+    if (!this._importSink) {
+      this._importSink = {
+        getColumns: () => this.ctx.columnModel.getAllColumns(),
+        getRowData: () => (this.ctx.store.get('allRows') as RowNode[]).map((r) => r.data),
+        setColumns: (defs) => this.setColumns(defs),
+        setData: (rows) => this.setData(rows),
+        appendData: (rows) => this.appendData(rows),
+      };
+    }
+    return this._importSink;
+  }
+
+  /** Merges per-call import options over the grid-level `GridOptions.import` defaults. */
+  private resolveImportOptions(options?: ImportOptions): ImportOptions {
+    const cfg = this.ctx.options.import;
+    return {
+      mode: options?.mode ?? cfg?.mode,
+      defineColumns: options?.defineColumns ?? cfg?.defineColumns,
+      ...options,
+    };
+  }
+
+  /**
+   * Registers the workbook parser used for binary Excel files (e.g. the optional
+   * SheetJS adapter). Additive — call once before importing `.xlsx`/`.xls`.
+   *
+   * @param parser - The parser implementation.
+   */
+  registerImportParser(parser: WorkbookParser): void {
+    this.ctx.importEngine.registerWorkbookParser(parser);
+  }
+
+  /**
+   * Imports a file, inferring the source from its extension
+   * (`.xlsx`/`.xls` → Excel, `.tsv` → TSV, else CSV).
+   *
+   * @param file    - The file to import.
+   * @param options - Optional per-call overrides.
+   * @returns The import result.
+   */
+  importFile(file: File, options?: ImportOptions): Promise<ImportResult> {
+    return this.ctx.importEngine.importFile(file, this.getImportSink(), this.resolveImportOptions(options));
+  }
+
+  /**
+   * Imports a binary Excel workbook. Requires a parser registered via
+   * {@link registerImportParser}.
+   *
+   * @param file    - The `.xlsx`/`.xls` file.
+   * @param options - Optional per-call overrides.
+   * @returns The import result.
+   */
+  importExcel(file: File, options?: ImportOptions): Promise<ImportResult> {
+    return this.ctx.importEngine.importFileAs(
+      file,
+      ImportSourceType.Excel,
+      this.getImportSink(),
+      this.resolveImportOptions(options),
+    );
+  }
+
+  /**
+   * Imports a CSV file.
+   *
+   * @param file    - The `.csv` file.
+   * @param options - Optional per-call overrides.
+   * @returns The import result.
+   */
+  importCsv(file: File, options?: ImportOptions): Promise<ImportResult> {
+    return this.ctx.importEngine.importFileAs(
+      file,
+      ImportSourceType.Csv,
+      this.getImportSink(),
+      this.resolveImportOptions(options),
+    );
+  }
+
+  /**
+   * Imports a TSV file.
+   *
+   * @param file    - The `.tsv` file.
+   * @param options - Optional per-call overrides.
+   * @returns The import result.
+   */
+  importTsv(file: File, options?: ImportOptions): Promise<ImportResult> {
+    return this.ctx.importEngine.importFileAs(
+      file,
+      ImportSourceType.Tsv,
+      this.getImportSink(),
+      this.resolveImportOptions(options),
+    );
+  }
+
+  /**
+   * Imports the current clipboard contents (TSV, as emitted by Excel/Sheets).
+   *
+   * @param options - Optional per-call overrides.
+   * @returns The import result.
+   */
+  importFromClipboard(options?: ImportOptions): Promise<ImportResult> {
+    return this.ctx.importEngine.importFromClipboard(this.getImportSink(), this.resolveImportOptions(options));
+  }
+
+  /**
+   * Imports an already-parsed {@link Workbook} (from a custom importer).
+   *
+   * @param workbook - The workbook to import.
+   * @param options  - Optional per-call overrides.
+   * @returns The import result.
+   */
+  importWorkbook(workbook: Workbook, options?: ImportOptions): Promise<ImportResult> {
+    return this.ctx.importEngine.importWorkbook(workbook, this.getImportSink(), this.resolveImportOptions(options));
+  }
+
+  // ──────────────────── Toasts ────────────────────
+
+  /**
+   * The grid's toast notification service — show transient success/error/
+   * warning/info messages.
+   *
+   * @example
+   * ```ts
+   * api.toasts.success('Saved!');
+   * api.toasts.error('Upload failed', { action: { label: 'Retry', onClick: retry } });
+   * ```
+   */
+  get toasts(): ToastService {
+    return this.ctx.toastService;
+  }
+
   // ──────────────────── Clipboard ────────────────────
 
   copySelectedRowsToClipboard(): Promise<void> {
@@ -816,7 +1025,7 @@ export class GridApi {
    */
   setCellFormula(nodeId: string, colId: string, source: string): void {
     const result = this.ctx.formulaEngine.setFormula(nodeId, colId, source);
-    if (result.changedNodeIds.size > 0) this.refresh();
+    this.repaintFormulaChanges(result.changedNodeIds);
   }
 
   /**
@@ -846,9 +1055,29 @@ export class GridApi {
    * @returns `true` if a formula was removed.
    */
   clearCellFormula(nodeId: string, colId: string): boolean {
-    const removed = this.ctx.formulaEngine.clearFormula(nodeId, colId);
-    if (removed) this.refresh();
-    return removed;
+    const had = this.ctx.formulaEngine.hasFormula(nodeId, colId);
+    const result = this.ctx.formulaEngine.removeFormula(nodeId, colId);
+    this.repaintFormulaChanges(result.changedNodeIds);
+    return had;
+  }
+
+  /**
+   * Repaints exactly the rows a formula operation recomputed.
+   *
+   * Formula recomputation writes new values into the existing row *data* objects
+   * without swapping the `RowNode` reference, so `refresh()`'s cached-row path
+   * (`BodyRenderer.updatePanelRow`) re-stamps row-level attributes but never
+   * repaints cell content — the dependents would keep their stale DOM. Evicting
+   * the changed rows from the body-render cache forces a full rebuild so their
+   * new values render on the next frame; the subsequent `refresh()` re-runs the
+   * data pipeline so group aggregations reflect the change too.
+   *
+   * @param changedNodeIds - Row node ids whose values the engine just changed.
+   */
+  private repaintFormulaChanges(changedNodeIds: ReadonlySet<string>): void {
+    if (changedNodeIds.size === 0) return;
+    this.ctx.renderer.invalidateBodyRowsByIds(new Set(changedNodeIds));
+    this.refresh();
   }
 
   /**
@@ -858,7 +1087,7 @@ export class GridApi {
    */
   recalculateFormulas(force = false): void {
     const result = this.ctx.formulaEngine.recalculate(force);
-    if (result.changedNodeIds.size > 0) this.refresh();
+    this.repaintFormulaChanges(result.changedNodeIds);
   }
 
   /**
@@ -869,7 +1098,7 @@ export class GridApi {
    */
   setNamedRange(name: string, target: string): void {
     const result = this.ctx.formulaEngine.setNamedRange(name, target);
-    if (result.changedNodeIds.size > 0) this.refresh();
+    this.repaintFormulaChanges(result.changedNodeIds);
   }
 
   /**
@@ -879,7 +1108,7 @@ export class GridApi {
    */
   removeNamedRange(name: string): void {
     const result = this.ctx.formulaEngine.removeNamedRange(name);
-    if (result.changedNodeIds.size > 0) this.refresh();
+    this.repaintFormulaChanges(result.changedNodeIds);
   }
 
   /** @returns The registered custom + built-in formula function names. */
@@ -968,6 +1197,7 @@ export class GridApi {
    */ 
   applyTransaction(txn: RowTransaction): RowNode[] {
     const result = this.ctx.rowModel.applyTransaction(txn);
+    this.discoverTransactionFormulas(result);
     this.refresh();
     return [...result.add, ...result.update];
   }
@@ -987,9 +1217,41 @@ export class GridApi {
       this._txnFlushHandle = null;
       const merged = this.mergeTransactions(this._pendingTransactions);
       this._pendingTransactions = [];
-      this.ctx.rowModel.applyTransaction(merged);
+      const result = this.ctx.rowModel.applyTransaction(merged);
+      this.discoverTransactionFormulas(result);
       this.refresh();
     });
+  }
+
+  /**
+   * Runs declarative formula discovery for a transaction's result: purges removed
+   * rows, seeds added rows, and re-discovers/recomputes updated rows, then evicts
+   * exactly the changed rows so their new values repaint.
+   */
+  private discoverTransactionFormulas(result: {
+    add: RowNode[];
+    update: RowNode[];
+    remove: RowNode[];
+  }): void {
+    const init = this.ctx.formulaInitializer;
+    const cols = this.ctx.columnModel.getAllColumns();
+    const changed = new Set<string>();
+
+    if (result.remove.length > 0) {
+      for (const id of init.onRowsRemoved(new Set(result.remove.map((r) => r.nodeId)))) changed.add(id);
+    }
+    if (result.add.length > 0) {
+      for (const id of init.onRowsAdded(cols, result.add)) changed.add(id);
+    }
+    if (result.update.length > 0) {
+      // Field-level diffs aren't retained per row, so recompute each updated row
+      // conservatively across all its columns (idempotent for formulas).
+      const allFields = cols.map((c) => c.field);
+      for (const node of result.update) {
+        for (const id of init.onRowDataChanged(cols, node, allFields)) changed.add(id);
+      }
+    }
+    if (changed.size > 0) this.ctx.renderer.invalidateBodyRowsByIds(new Set(changed));
   }
 
   /** Concatenates several transactions into one, preserving operation order. */

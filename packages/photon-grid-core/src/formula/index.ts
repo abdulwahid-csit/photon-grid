@@ -13,6 +13,14 @@ export { FormulaEngine } from './formula-engine';
 export type { FormulaCellChange, RecalculationResult } from './formula-engine';
 export type { FormulaGridAdapter } from './formula-grid-adapter';
 
+// ── Declarative discovery (column-level + row-data formulas) ──────────────────
+export { FormulaInitializer } from './formula-initializer';
+export type {
+  FormulaColumnInfo,
+  FormulaRowInfo,
+  FormulaInitializerOptions,
+} from './formula-initializer';
+
 // ── Calculation pipeline (dependency graph, ordering, recompute) ──────────────
 export { CalculationEngine, SYSTEM_CLOCK } from './calc/calculation-engine';
 export type { FormulaClock } from './calc/calculation-engine';
@@ -98,7 +106,7 @@ export {
   isFormulaSource,
 } from './compile';
 export type { CompileResult } from './compile';
-export { extractReferences, containsVolatileFunction } from './reference-extractor';
+export { extractReferences, containsVolatileFunction, extractNames } from './reference-extractor';
 
 // ── Serialization / copy / fill / named ranges ───────────────────────────────
 export { serializeFormula, serializeFormulaWithEquals } from './formula-serializer';

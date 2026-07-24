@@ -6,6 +6,9 @@ import type { MasterDetailConfig } from './master-detail.types';
 import type { PhotonAIConfig } from './photon-ai.types';
 import type { TreeDataConfig } from './tree-data.types';
 import type { FormulaConfig } from './formula.types';
+import type { AutoFillConfig } from './autofill.types';
+import type { ImportConfig } from './import.types';
+import type { ToastServiceConfigInput } from '../toast/toast.types';
 import type { ChartPanelType } from '../chart/chart-panel';
 import type { ChartModel, ChartModelPatch } from '../chart/model/chart-model';
 import type {
@@ -388,6 +391,34 @@ export interface GridOptions {
    * stay correct across sort/filter/pagination. @see {@link FormulaConfig}
    */
   formula?: FormulaConfig;
+
+  /**
+   * AutoFill Engine — intelligent drag-to-fill. When the user drags a range's
+   * fill handle, the engine continues the detected pattern instead of copying:
+   * numeric/date series, month & weekday names, `Item001 → Item002`, alphabet,
+   * booleans, and a copy fallback. Pure and framework-independent; the fill
+   * handle is the only integration point. @see {@link AutoFillConfig}
+   */
+  autofill?: AutoFillConfig;
+
+  /**
+   * Import Engine — an opt-in **Import ▾** button at the grid's top-right
+   * corner that ingests Excel / CSV / TSV / Clipboard data through a single
+   * unified pipeline and feeds it in via the same public seams as
+   * {@link GridApi.setData}/{@link GridApi.setColumns}. `.xlsx` support requires
+   * registering a workbook parser (the optional SheetJS adapter). Formulas in
+   * imported cells are registered with the Formula Engine, never evaluated by
+   * the importer. @see {@link ImportConfig}
+   */
+  import?: ImportConfig;
+
+  /**
+   * Toast notifications — configures the grid's built-in transient message
+   * system (position, duration, max visible, animation…). Access the live
+   * service via `GridApi.toasts` to show success/error/warning/info toasts.
+   * @see {@link ToastServiceConfigInput}
+   */
+  toast?: ToastServiceConfigInput;
 
   enableStateManagement?: boolean;
   stateKey?: string;

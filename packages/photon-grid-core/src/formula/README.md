@@ -56,6 +56,81 @@ grid.api.setCellFormula('row-0', 'total', '=A1*B1'); // total displays 30
 
 ---
 
+## Declaring formulas (three ways)
+
+Formulas can be supplied three ways; you never have to call `setCellFormula` just
+to seed them. Precedence, **lowest → highest**: column formula → row-data formula
+→ runtime API / manual edit (last write wins).
+
+**1. Column formula** — one formula, applied to every row of the column:
+
+```ts
+const grid = new GridCore(container, {
+  columns: [
+    { field: 'quantity' },
+    { field: 'unitPrice' },
+    { field: 'total',      type: 'currency', formula: '=quantity * unitPrice' },
+    { field: 'taxRate' },
+    { field: 'grandTotal', type: 'currency', formula: '=total * (1 + taxRate)' },
+  ],
+  data: [{ quantity: 12, unitPrice: 25, taxRate: 0.08 }],
+  formula: { enabled: true },
+});
+// `total` = 300 and `grandTotal` = 324 on every row — no API call.
+```
+
+Declaring `formula` implicitly sets `allowFormula: true` on that column.
+
+**2. Row-data formula** — a `=`-prefixed value embedded in a row overrides the
+column formula for that one row:
+
+```ts
+data: [
+  { quantity: 12, unitPrice: 25, taxRate: 0.08 },                    // uses column formula
+  { quantity: 7,  unitPrice: 89, taxRate: 0.08, total: '=quantity * unitPrice * 0.9' }, // per-row override
+  { product: 'TOTAL', total: '=SUM(D1:D8)', grandTotal: '=SUM(F1:F8)' }, // aggregate row
+]
+```
+
+By default, a `=`-value auto-opts its column into the engine even without
+`allowFormula`. Disable with `formula: { enabled: true, autoDetectDataFormulas: false }`.
+
+**3. Runtime API** — unchanged, and always wins:
+
+```ts
+grid.api.setCellFormula(nodeId, 'total', '=quantity * unitPrice * 1.2');
+```
+
+Declarative formulas are discovered automatically on initial load, on row
+insertion (`appendData`/`applyTransaction`), on row-data updates (`updateRow`), and
+purged on removal — so the dependency graph stays correct as data changes.
+
+### Row-relative reference syntax
+
+Declarative formulas are **row-relative**: they resolve against the row each cell
+lives in. Two input syntaxes are accepted and normalized to the same internal
+(stable `colId`) representation:
+
+| Syntax | Example | Means |
+|---|---|---|
+| Field name | `=quantity * unitPrice` | this row's `quantity` × `unitPrice` |
+| Column letter | `=B * C` | this row's column B × column C |
+
+Resolution precedence for a bare name: **named range → column `field` → column
+letter → `#NAME?`**. Absolute A1 references (`=D2`, `=SUM(D1:D8)`) keep their exact
+existing meaning and may be mixed in freely.
+
+> **Limitation:** a field whose name is A1-shaped — letters immediately followed by
+> digits, e.g. `q1` or `col2` — tokenizes as an absolute cell reference and cannot
+> be used as a field-name reference. Use the column-letter form for those, or rename
+> the field. Names like `quantity`, `unitPrice`, `taxRate`, `total` are unaffected.
+
+> **Not yet supported:** declarative *summary-row* formulas that aggregate a column
+> by name (`=SUM(total)`). Use an explicit range in a row-data formula
+> (`=SUM(D1:D8)`) or a whole-column range (`=SUM(D:D)`) instead.
+
+---
+
 ## Architecture
 
 Each module has a single responsibility; no file is a "God class". Business logic
@@ -172,6 +247,8 @@ always means "first column of the first data row" regardless of view state.
 | Whole row | `1:10` |
 | Sheet-qualified (parsed; multi-sheet reserved) | `Sheet1!A1` |
 | Named range | `TaxRate`, `Region` |
+| Row-relative field name | `quantity`, `unitPrice` |
+| Row-relative column letter | `B`, `C` (no row number) |
 
 **Literals**: numbers (`42`, `3.14`, `.5`, `2E-4`), strings (`"a""b"` escapes a
 quote), booleans (`TRUE`/`FALSE`), error literals (`#N/A`).

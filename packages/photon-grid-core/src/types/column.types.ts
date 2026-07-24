@@ -214,6 +214,23 @@ export interface ColumnDef {
    * @default false
    */
   allowFormula?: boolean;
+  /**
+   * Declares a formula applied to **every row** of this column, so the column's
+   * cells compute automatically without any `GridApi.setCellFormula` call. The
+   * formula is row-relative: references resolve against the row each cell lives
+   * in. Both field-name syntax (`'=quantity * unitPrice'`) and spreadsheet
+   * column-letter syntax (`'=B * C'`) are accepted and normalized internally.
+   *
+   * Precedence: a `=`-prefixed value embedded in a row's data overrides this
+   * column formula for that row, and a later `GridApi.setCellFormula` overrides
+   * both. Declaring `formula` implicitly opts the column into the Formula Engine
+   * (sets {@link ColumnDef.allowFormula} to `true` unless explicitly `false`).
+   * Requires `GridOptions.formula.enabled`.
+   *
+   * @example
+   * { field: 'total', type: 'currency', formula: '=quantity * unitPrice' }
+   */
+  formula?: string;
   groupable?: boolean;
   rowDrag?: boolean;
   alwaysVisible?: boolean;

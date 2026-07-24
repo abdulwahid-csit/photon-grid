@@ -78,6 +78,14 @@ export class GridFormulaAdapter implements FormulaGridAdapter {
     return this.columnModel.getColumn(colId)?.field ?? null;
   }
 
+  getColIdForField(field: string): string | null {
+    const cols = this.columnModel.getAllColumns();
+    for (let i = 0; i < cols.length; i++) {
+      if (cols[i].field === field) return cols[i].colId;
+    }
+    return null;
+  }
+
   readCell(nodeId: string, colId: string): unknown {
     const row = this.findRow(nodeId);
     if (!row) return undefined;

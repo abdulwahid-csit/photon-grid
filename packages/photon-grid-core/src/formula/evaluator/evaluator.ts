@@ -84,11 +84,16 @@ export class Evaluator {
     return arg;
   }
 
-  /** Resolves a bare name to a named range/cell value (or `#NAME?`). */
+  /**
+   * Resolves a bare name. A named range/cell wins first (backward compatible);
+   * otherwise the name is treated as a **row-relative** reference — a column by
+   * data `field` or spreadsheet letter, read from the current row. Yields
+   * `#NAME?` only when it is neither.
+   */
   private evalName(name: string, ctx: EvalContext): FormulaArgument {
     const ref = ctx.resolveName(name);
-    if (ref === null) return FormulaError.nameError(`unknown name '${name}'`);
-    return isRangeRef(ref) ? ctx.resolveRange(ref) : ctx.resolveCell(ref);
+    if (ref !== null) return isRangeRef(ref) ? ctx.resolveRange(ref) : ctx.resolveCell(ref);
+    return ctx.resolveRowRelative(name, ctx.currentRowIndex);
   }
 
   // ── Operators ──────────────────────────────────────────────────────────────

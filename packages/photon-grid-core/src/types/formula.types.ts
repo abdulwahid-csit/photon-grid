@@ -25,6 +25,16 @@ export interface FormulaConfig {
   enabled?: boolean;
 
   /**
+   * When `true` (default), a `=`-prefixed value found in a column's row data
+   * automatically opts that column into the Formula Engine during declarative
+   * discovery — even if it did not set `allowFormula`. Set `false` to require an
+   * explicit `allowFormula` (or `ColumnDef.formula`) before row-data formulas are
+   * recognized.
+   * @defaultValue true
+   */
+  autoDetectDataFormulas?: boolean;
+
+  /**
    * When `true`, circular references are tolerated (the cycle resolves to the
    * last-known values rather than erroring). When `false`, cells in a cycle
    * resolve to `#CIRC!`.

@@ -464,6 +464,15 @@ export class CellSelectionEngine {
     // Pre-normalise all ranges once so the inner cell loop is cheap.
     const norms = hasRanges ? ranges.map(normalizeRange) : [];
 
+    // A "single-cell selection" is one 1×1 range (a plain focus click). It is
+    // rendered as a lone focus cell — border only, no selection fill — rather
+    // than as a filled range, so the marker class below lets CSS distinguish it
+    // without re-deriving the range size per cell.
+    const isSingleCellSelection =
+      norms.length === 1 &&
+      norms[0].startRowIndex === norms[0].endRowIndex &&
+      norms[0].startColIndex === norms[0].endColIndex;
+
     for (const panel of this.bodyPanels) {
       for (const el of panel.querySelectorAll<HTMLElement>('.pg-cell[data-row-index][data-col-index]')) {
         const ri = Number(el.getAttribute('data-row-index'));
@@ -474,6 +483,7 @@ export class CellSelectionEngine {
 
         el.classList.toggle('pg-cell--in-selection', inRange);
         el.classList.toggle('pg-cell--active-cell', isActive);
+        el.classList.toggle('pg-cell--single-cell-selection', isSingleCellSelection && isActive);
 
         if (inRange) {
           // Union edges from every range that contains this cell so each

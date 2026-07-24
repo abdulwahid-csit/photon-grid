@@ -19,3 +19,10 @@ examples/angular/src/environments/
 # Optional: ignore only secret environment files
 # examples/angular/src/environments/environment.ts
 # examples/angular/src/environments/environment.prod.ts
+
+dist/
+coverage/
+.cache/
+.turbo/
+node_modules/
+docs/build/

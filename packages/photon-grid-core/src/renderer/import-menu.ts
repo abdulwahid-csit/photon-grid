@@ -80,15 +80,17 @@ export class ImportMenu {
    * Builds the launcher, dropdown and hidden file input and appends them to the
    * grid wrapper. Call once per grid instance.
    *
-   * @param wrapperEl - The `.pg-grid` root element the UI floats over.
+   * @param wrapperEl  - The `.pg-grid` root element the dropdown floats over.
+   * @param toolsBarEl - The shared `.pg-grid__tools` bar the launcher docks into
+   *                     so it lays out beside other launchers instead of stacking.
    */
-  mount(wrapperEl: HTMLElement): void {
+  mount(wrapperEl: HTMLElement, toolsBarEl: HTMLElement): void {
     this.wrapperEl = wrapperEl;
     this.launcherEl = this.buildLauncher();
     this.menuEl = this.buildMenu();
     this.fileInputEl = this.buildFileInput();
 
-    wrapperEl.appendChild(this.launcherEl);
+    toolsBarEl.appendChild(this.launcherEl);
     wrapperEl.appendChild(this.menuEl);
     wrapperEl.appendChild(this.fileInputEl);
   }

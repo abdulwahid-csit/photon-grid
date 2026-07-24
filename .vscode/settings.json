@@ -1,3 +1,26 @@
 {
-    "angular.enable-strict-mode-prompt": false
+  "files.watcherExclude": {
+    "**/node_modules/**": true,
+    "**/dist/**": true,
+    "**/.turbo/**": true,
+    "**/.next/**": true,
+    "**/.cache/**": true,
+    "**/coverage/**": true,
+    "**/docs/build/**": true,
+    "**/examples/**/dist/**": true
+  },
+
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/dist": true,
+    "**/.turbo": true,
+    "**/.cache": true,
+    "**/coverage": true
+  },
+
+  "files.exclude": {
+    "**/.turbo": true,
+    "**/coverage": true,
+    "**/dist": true
+  }
 }

@@ -196,10 +196,15 @@ export class AppComponent implements OnInit {
         showVerticalBorders: true,
         rowHeight: 36,
         headerRowHeight: 44,
+        showGroupingBar: true,
+        showFilterRow: true,
         formula: {
             enabled: true,
             autoRecalculate: true,
             enableCaching: true,
+        },
+        filtersToolPanel: {
+            enabled: true,
         },
         // With the Formula Engine on, imported =A1+B1 cells register and compute
         // through the one Formula Engine — the importer never evaluates them.
@@ -407,18 +412,19 @@ setTimeout(() => {
         return [
             // A — label column, referenced by nothing but keeps the sheet readable.
             { colId: 'product', field: 'product', header: 'Product (A)', type: 'string', minWidth: 160, flex: 1 },
+            { colId: 'days', field: 'day', header: 'Days (B)', type: 'string', minWidth: 160, flex: 1, editable: true, },
             // B — quantity input.
-            { colId: 'quantity', field: 'quantity', header: 'Qty (B)', type: 'number', width: 110, editable: true, flex: 1 },
+            { colId: 'quantity', field: 'quantity', header: 'Qty (C)', type: 'number', width: 110, editable: true, flex: 1 },
             // C — unit price input.
-            { colId: 'unitPrice', field: 'unitPrice', header: 'Unit Price (C)', type: 'currency', width: 140, editable: true, flex: 1 },
+            { colId: 'unitPrice', field: 'unitPrice', header: 'Unit Price (D)', type: 'currency', width: 140, editable: true, flex: 1 },
             // D — computed line total. Declared once as a COLUMN FORMULA (field-name
             // syntax) so every row computes automatically — no setCellFormula needed.
             // Still editable, so a user can retype a formula on any cell.
-            { colId: 'total', field: 'total', header: 'Total (D)', type: 'currency', width: 150, editable: true, allowFormula: true, formula: '=quantity * unitPrice', flex: 1,  },
+            { colId: 'total', field: 'total', header: 'Total (E)', type: 'currency', width: 150, editable: true, allowFormula: true, formula: '=quantity * unitPrice', flex: 1,  },
             // E — tax rate input (e.g. 0.08 = 8%).
-            { colId: 'taxRate', field: 'taxRate', header: 'Tax Rate (E)', type: 'number', width: 120, editable: true, flex: 1 },
+            { colId: 'taxRate', field: 'taxRate', header: 'Tax Rate (F)', type: 'number', width: 120, editable: true, flex: 1 },
             // F — computed grand total. Column formula referencing the computed `total`.
-            { colId: 'grandTotal', field: 'grandTotal', header: 'Grand Total (F)', type: 'currency', width: 160, editable: true, allowFormula: true, formula: '=total * (1 + taxRate)', flex: 1 },
+            { colId: 'grandTotal', field: 'grandTotal', header: 'Grand Total (G)', type: 'currency', width: 160, editable: true, allowFormula: true, formula: '=total * (1 + taxRate)', flex: 1 },
         ];
     }
 

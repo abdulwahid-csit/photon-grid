@@ -108,6 +108,13 @@ export class GridRenderer {
   private filtersToolPanel: FiltersToolPanel | null = null;
   /** Floating Import menu (launcher + dropdown) — only created when `import.enabled`. */
   private importMenu: ImportMenu | null = null;
+  /**
+   * Shared floating tools bar (`.pg-grid__tools`) hosting every top-right
+   * launcher (Filters funnel, Import, …) so they sit side-by-side instead of
+   * stacking. Created lazily on first use via {@link getOrCreateToolsBar}; null
+   * when no launcher-based feature is enabled.
+   */
+  private toolsBarEl: HTMLElement | null = null;
   /** Host handler run when a file-based import source is chosen. Wired by GridCore. */
   private importFileHandler: ((source: ImportSourceType, file: File) => void) | null = null;
   /** Host handler run when *Paste From Clipboard* is chosen. Wired by GridCore. */
@@ -900,6 +907,8 @@ export class GridRenderer {
     this.photonAIPanel?.destroy();
     this.filtersToolPanel?.destroy();
     this.importMenu?.destroy();
+    this.toolsBarEl?.remove();
+    this.toolsBarEl = null;
     this.tooltipController.destroy();
     this.scrollController.destroy();
     this.groupDropZone?.destroy();
@@ -1143,7 +1152,7 @@ export class GridRenderer {
     // positioning keeps it out of the flex layout, so it never affects
     // row/column virtualization or the header measurements.
     if (this.filtersToolPanel && this.wrapperEl) {
-      this.filtersToolPanel.mount(this.wrapperEl, this.options.filtersToolPanel!);
+      this.filtersToolPanel.mount(this.wrapperEl, this.getOrCreateToolsBar(), this.options.filtersToolPanel!);
     }
 
     // Mount the Import menu (launcher + dropdown) into the grid wrapper, and
@@ -1151,7 +1160,7 @@ export class GridRenderer {
     // sees "Parsing… / Mapping… / Rendering…" without this renderer knowing
     // anything about the import pipeline.
     if (this.importMenu && this.wrapperEl) {
-      this.importMenu.mount(this.wrapperEl);
+      this.importMenu.mount(this.wrapperEl, this.getOrCreateToolsBar());
       this.unsubscribers.push(
         this.eventBus.on<import('../types/import.types').ImportProgressEvent>(
           GridEventType.IMPORT_PROGRESS,
@@ -1360,6 +1369,20 @@ export class GridRenderer {
     };
     document.addEventListener('pointerup', docMouseUp);
     this.unsubscribers.push(() => document.removeEventListener('pointerup', docMouseUp));
+  }
+
+  /**
+   * Returns the shared floating tools bar (`.pg-grid__tools`), creating it once
+   * on first use and appending it to the grid wrapper. Every top-right launcher
+   * (Filters funnel, Import, …) mounts into this bar so they lay out
+   * side-by-side via flex instead of stacking on the same corner.
+   */
+  private getOrCreateToolsBar(): HTMLElement {
+    if (!this.toolsBarEl) {
+      this.toolsBarEl = createDiv('pg-grid__tools');
+      this.wrapperEl?.appendChild(this.toolsBarEl);
+    }
+    return this.toolsBarEl;
   }
 
   /**

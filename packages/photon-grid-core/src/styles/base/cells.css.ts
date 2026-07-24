@@ -68,25 +68,35 @@ export const cellsCss = `/* ─────────────────�
   box-shadow: none !important;
 }
 
-/* Dark-mode overrides */
+/*
+ * Dark-mode overrides — COLORS ONLY.
+ *
+ * The selection outline and the active-cell border reuse the exact same
+ * mechanism as light mode (range edges via ::after, lone active cell via the
+ * inset box-shadow above). Dark mode must never introduce a second, parallel
+ * border system: an earlier attempt drew the active cell's edges with an
+ * offset box-shadow while ::after still drew the range outline underneath,
+ * so the active/last-selected cell rendered every shared edge twice. Keeping
+ * dark identical to light — only swapping the fill/border colors — guarantees
+ * a single border per edge in both modes.
+ */
 [data-pg-mode="dark"] .pg-cell--in-selection {
   background-color: rgba(37,99,235,0.18) !important;
 }
-[data-pg-mode="dark"] .pg-cell--sel-top    { --_t:  2px; }
-[data-pg-mode="dark"] .pg-cell--sel-bottom { --_b: -2px; }
-[data-pg-mode="dark"] .pg-cell--sel-left   { --_l:  2px; }
-[data-pg-mode="dark"] .pg-cell--sel-right  { --_r: -2px; }
-[data-pg-mode="dark"] .pg-cell--active-cell {
-  background-color: rgba(37,99,235,0.25) !important;
-  box-shadow: inset 0 0 0 2px #60a5fa !important;
+/* Lone active cell (focused, no range): border only, NO selection fill
+   (transparent background is inherited from the base .pg-cell--active-cell
+   rule). Scoped to :not(.pg-cell--in-selection) so it never overrides the
+   box-shadow:none on an active cell that sits inside a range — otherwise
+   this rule (equal specificity, later source order) would win and paint a
+   full box on the last-selected cell instead of only its range-edge sides. */
+[data-pg-mode="dark"] .pg-cell--active-cell:not(.pg-cell--in-selection) {
+  box-shadow: inset 0 0 0 2px var(--pg-colors-primary, #60a5fa) !important;
 }
+/* Active cell inside a range: box-shadow:none is inherited from the base
+   rule; only the dark selection fill differs. The ::after range outline is
+   the sole border source, exactly as in light mode. */
 [data-pg-mode="dark"] .pg-cell--in-selection.pg-cell--active-cell {
   background-color: rgba(37,99,235,0.18) !important;
-  box-shadow:
-    inset 0 var(--_t) 0 0 #60a5fa,
-    inset 0 var(--_b) 0 0 #60a5fa,
-    inset var(--_l) 0 0 0 #60a5fa,
-    inset var(--_r) 0 0 0 #60a5fa !important;
 }
 
 /* ─── Group aggregate cells ─── */

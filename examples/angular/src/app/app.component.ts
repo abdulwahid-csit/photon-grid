@@ -5,6 +5,12 @@ import type { ColumnDef, RendererContext } from 'photon-grid-angular';
 import type { CellRange, DisplayRendererParams, GridApi, GridOptions } from 'photon-grid-core';
 import { PhotonAIProviderType, HeaderIconDisplay } from 'photon-grid-core';
 import type { RowClickPayload, RowSelectedEvent } from 'photon-grid-core';
+// Optional SheetJS adapter — enables binary .xlsx/.xls import. `xlsx` is an
+// optional peer dependency (installed in this example). We import it statically
+// here and hand it to the parser so the bundler resolves and includes it; the
+// core barrel never references `xlsx`, so Grid Core stays zero-dependency.
+import { SheetJsWorkbookParser } from 'photon-grid-core/import/sheetjs';
+import * as XLSX from 'xlsx';
 
 import { EmployeeCellComponent } from './employee-cell.component';
 import { CommonModule } from '@angular/common';
@@ -153,6 +159,10 @@ export class AppComponent implements OnInit {
         },
         rowHeight: 42,
         pagination: { enabled: true, pageSize: 1000, },
+        // Import Engine: mounts the top-right "Import ▾" button. CSV/TSV/Clipboard
+        // work out of the box; register a SheetJS parser (see onGridReady) for
+        // .xlsx. Default mode replaces data and defines columns from the file.
+        import: { enabled: true },
         filterRowHeight: 48,
         headerRowHeight: 48,
         selection: { mode: 'multiple', serialColumnSelection: true },
@@ -184,13 +194,16 @@ export class AppComponent implements OnInit {
         showSerialNumber: true,
         rowShading: true,
         showVerticalBorders: true,
-        rowHeight: 40,
+        rowHeight: 36,
         headerRowHeight: 44,
         formula: {
             enabled: true,
             autoRecalculate: true,
             enableCaching: true,
         },
+        // With the Formula Engine on, imported =A1+B1 cells register and compute
+        // through the one Formula Engine — the importer never evaluates them.
+        import: { enabled: true },
     };
 
     ngOnInit(): void {
@@ -202,6 +215,10 @@ export class AppComponent implements OnInit {
     }
 
 onGridReady(api: GridApi): void {
+    // Enable binary Excel (.xlsx/.xls) import by registering the SheetJS-backed
+    // workbook parser, seeded with the statically-imported `xlsx` module so the
+    // bundler includes it. CSV/TSV/Clipboard already work without it.
+    api.registerImportParser(new SheetJsWorkbookParser(XLSX));
 //   console.log('[photon-grid] ready — visible rows:', api.getVisibleRows().length);
 
 //   // Create overlay
@@ -391,64 +408,57 @@ setTimeout(() => {
             // A — label column, referenced by nothing but keeps the sheet readable.
             { colId: 'product', field: 'product', header: 'Product (A)', type: 'string', minWidth: 160, flex: 1 },
             // B — quantity input.
-            { colId: 'quantity', field: 'quantity', header: 'Qty (B)', type: 'number', width: 110, editable: true },
+            { colId: 'quantity', field: 'quantity', header: 'Qty (B)', type: 'number', width: 110, editable: true, flex: 1 },
             // C — unit price input.
-            { colId: 'unitPrice', field: 'unitPrice', header: 'Unit Price (C)', type: 'currency', width: 140, editable: true },
-            // D — computed line total: seeded with `=B*C`, editable so users can retype formulas.
-            { colId: 'total', field: 'total', header: 'Total (D)', type: 'currency', width: 150, editable: true, allowFormula: true },
+            { colId: 'unitPrice', field: 'unitPrice', header: 'Unit Price (C)', type: 'currency', width: 140, editable: true, flex: 1 },
+            // D — computed line total. Declared once as a COLUMN FORMULA (field-name
+            // syntax) so every row computes automatically — no setCellFormula needed.
+            // Still editable, so a user can retype a formula on any cell.
+            { colId: 'total', field: 'total', header: 'Total (D)', type: 'currency', width: 150, editable: true, allowFormula: true, formula: '=quantity * unitPrice', flex: 1,  },
             // E — tax rate input (e.g. 0.08 = 8%).
-            { colId: 'taxRate', field: 'taxRate', header: 'Tax Rate (E)', type: 'number', width: 120, editable: true },
-            // F — computed grand total: seeded with `=D*(1+E)`.
-            { colId: 'grandTotal', field: 'grandTotal', header: 'Grand Total (F)', type: 'currency', width: 160, editable: true, allowFormula: true },
+            { colId: 'taxRate', field: 'taxRate', header: 'Tax Rate (E)', type: 'number', width: 120, editable: true, flex: 1 },
+            // F — computed grand total. Column formula referencing the computed `total`.
+            { colId: 'grandTotal', field: 'grandTotal', header: 'Grand Total (F)', type: 'currency', width: 160, editable: true, allowFormula: true, formula: '=total * (1 + taxRate)', flex: 1 },
         ];
     }
 
     /**
-     * Seed rows for the Formula Playground. `total` and `grandTotal` are left
-     * empty here — they are populated with actual formulas in
-     * {@link onFormulaGridReady} once the grid has assigned row node ids.
+     * Seed rows for the Formula Playground. `total`/`grandTotal` are **not** set
+     * on the product rows — the column formulas fill them automatically. The final
+     * `TOTAL` row carries row-data formulas (`=SUM(D1:D8)` / `=SUM(F1:F8)`) that
+     * override the column formula for that one row, aggregating the eight rows
+     * above. The second row demonstrates a per-row override via a `=`-value in data.
      */
     private buildFormulaData(): Record<string, unknown>[] {
         return [
             { product: 'Wireless Mouse',     quantity: 12, unitPrice: 25,  taxRate: 0.08 },
-            { product: 'Mechanical Keyboard', quantity: 7,  unitPrice: 89,  taxRate: 0.08 },
+            // Row-data formula: overrides the column formula for THIS row only.
+            { product: 'Mechanical Keyboard', quantity: 7,  unitPrice: 89,  taxRate: 0.08, total: '=quantity * unitPrice * 0.9' },
             { product: '27" Monitor',        quantity: 4,  unitPrice: 240, taxRate: 0.05 },
             { product: 'USB-C Dock',         quantity: 9,  unitPrice: 130, taxRate: 0.08 },
             { product: 'Laptop Stand',       quantity: 15, unitPrice: 45,  taxRate: 0.05 },
             { product: 'Webcam 1080p',       quantity: 6,  unitPrice: 60,  taxRate: 0.08 },
             { product: 'Noise-cancel Headset', quantity: 8, unitPrice: 150, taxRate: 0.08 },
             { product: 'Desk Lamp',          quantity: 20, unitPrice: 30,  taxRate: 0.05 },
-            // Totals row — its formulas aggregate the eight product rows above.
-            { product: 'TOTAL' },
+            // Totals row — row-data formulas aggregate the eight product rows above.
+            { product: 'TOTAL', total: '=SUM(D1:D8)', grandTotal: '=SUM(F1:F8)' },
         ];
     }
 
     /**
-     * Seeds formulas into the Formula Playground once its grid is ready.
+     * Nothing to seed anymore. Formulas are declared entirely in the column
+     * definitions (`ColumnDef.formula`) and row data (`=`-prefixed values), and the
+     * grid discovers and registers them automatically at load. `GridApi.setCellFormula`
+     * still works for runtime changes and overrides any declared formula — e.g.:
      *
-     * Formulas are assigned via {@link GridApi.setCellFormula} rather than baked
-     * into `buildFormulaData`, because A1 references need concrete row node ids
-     * which only exist after the grid has ingested its data. Each product row
-     * gets `Total = Qty × Unit Price` and `Grand Total = Total × (1 + Tax Rate)`;
-     * the final TOTAL row sums both computed columns with `SUM`, demonstrating
-     * range functions and chained recalculation.
+     * ```ts
+     * // api.setCellFormula(api.getAllRows()[0].nodeId, 'total', '=quantity * unitPrice * 1.2');
+     * ```
      */
     onFormulaGridReady(api: GridApi): void {
-        const rows = api.getAllRows();
-        const productCount = rows.length - 1; // last row is the TOTAL row
-
-        rows.forEach((row, i) => {
-            const r = i + 1; // A1 rows are 1-based
-
-            if (i < productCount) {
-                api.setCellFormula(row.nodeId, 'total', `=B${r}*C${r}`);
-                api.setCellFormula(row.nodeId, 'grandTotal', `=D${r}*(1+E${r})`);
-            } else {
-                // Totals row: aggregate the product rows (D1:D8 and F1:F8).
-                api.setCellFormula(row.nodeId, 'total', `=SUM(D1:D${productCount})`);
-                api.setCellFormula(row.nodeId, 'grandTotal', `=SUM(F1:F${productCount})`);
-            }
-        });
+        // Enable .xlsx import for the formula playground too — imported =A1+B1
+        // cells register with the Formula Engine and compute automatically.
+        api.registerImportParser(new SheetJsWorkbookParser(XLSX));
     }
 
 

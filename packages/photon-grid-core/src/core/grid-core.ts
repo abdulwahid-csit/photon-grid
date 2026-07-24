@@ -22,6 +22,10 @@ import { RowSelectionEngine } from '../engines/selection/row-selection-engine';
 import { CellEditorEngine } from '../engines/editing/cell-editor-engine';
 import { SummaryEngine } from '../engines/summary/summary-engine';
 import { ExportEngine } from '../engines/export/export-engine';
+import { ImportEngine } from '../engines/import/import-engine';
+import { ImportSourceType } from '../types/import.types';
+import type { ImportCompleteEvent, ImportErrorEvent } from '../types/import.types';
+import { ToastService } from '../toast/toast-service';
 import { ClipboardEngine } from '../engines/clipboard/clipboard-engine';
 import { DragDropEngine } from '../drag-drop/drag-drop-engine';
 import { CellSelectionEngine } from '../cell-selection/cell-selection-engine';
@@ -48,6 +52,8 @@ import { PhotonAIService } from '../photon-ai/photon-ai-service';
 import { createAIProvider } from '../photon-ai/provider';
 import { FormulaEngine } from '../formula/formula-engine';
 import { GridFormulaAdapter } from './formula-grid-adapter-impl';
+import { FormulaInitializer } from '../formula/formula-initializer';
+import { AutoFillEngine } from '../autofill/autofill-engine';
 
 /** Recursively collects leaf `ColumnDef` entries, skipping group wrappers. */
 function collectLeaves(cols: ColumnDef[]): ColumnDef[] {
@@ -105,6 +111,11 @@ export class GridCore {
     const summaryEngine = new SummaryEngine();
     const exportEngine = new ExportEngine(eventBus);
     const clipboardEngine = new ClipboardEngine();
+    // Import Engine mirrors ExportEngine (its inverse). It reads the clipboard
+    // through the existing clipboard engine and writes into the grid only via
+    // the public GridApi seams (wired as a sink in GridApi), so GridCore never
+    // couples to any parser.
+    const importEngine = new ImportEngine(eventBus, clipboardEngine);
     const dragDropEngine = new DragDropEngine(eventBus);
     const undoRedoEngine = new UndoRedoEngine();
     const cellSelectionEngine = new CellSelectionEngine(store, eventBus, clipboardEngine, undoRedoEngine);
@@ -118,9 +129,24 @@ export class GridCore {
       options.formula,
     );
     this.formulaAdapter = formulaAdapter;
+    // Declarative-formula discovery (column-level + row-data), framework-independent.
+    // `markFormulaCapable` flips `allowFormula` on the live column when a `=`-value
+    // is auto-detected in a column that did not explicitly opt in.
+    const formulaInitializer = new FormulaInitializer(formulaEngine, {
+      autoDetectDataFormulas: options.formula?.autoDetectDataFormulas,
+      markFormulaCapable: (colId: string) => {
+        const col = columnModel.getColumn(colId);
+        if (col) col.allowFormula = true;
+      },
+    });
+    const autoFillEngine = new AutoFillEngine(options.autofill);
     const themeManager = new ThemeManager(eventBus);
     const iconRegistry = new IconRegistry();
     const iconRenderer = new IconRenderer(iconRegistry);
+    // Toast notifications — shares the grid's icon renderer; the layer mounts to
+    // document.body so toasts overlay the page and inherit the mirrored theme
+    // tokens. Inert until the first toast is shown.
+    const toastService = new ToastService(options.toast, { iconRenderer });
     const chartEngine = new ChartEngine(eventBus);
 
     const renderer = new GridRenderer(
@@ -218,6 +244,8 @@ export class GridCore {
       cellEditorEngine,
       summaryEngine,
       exportEngine,
+      importEngine,
+      toastService,
       clipboardEngine,
       dragDropEngine,
       cellSelectionEngine,
@@ -230,6 +258,8 @@ export class GridCore {
       treeExpansionService,
       treeSelectionService,
       formulaEngine,
+      formulaInitializer,
+      autoFillEngine,
       renderer,
     };
   }
@@ -346,6 +376,40 @@ export class GridCore {
     });
 
     ctx.renderer.setSearchCallback((term) => this.api.setQuickFilter(term));
+
+    // Import wiring: the Import menu is pure UI — GridCore owns the bridge to the
+    // engine (via the public GridApi), and fans the engine's completion/error
+    // events out to the user-supplied config callbacks.
+    if (options.import?.enabled) {
+      ctx.renderer.setImportHandlers(
+        (source, file) => {
+          const run =
+            source === ImportSourceType.Excel
+              ? this.api.importExcel(file)
+              : source === ImportSourceType.Tsv
+                ? this.api.importTsv(file)
+                : this.api.importCsv(file);
+          // Errors are already reported via IMPORT_ERROR + onError; swallow the
+          // rejection here so it never surfaces as an unhandled promise.
+          void run.catch(() => undefined);
+        },
+        () => {
+          void this.api.importFromClipboard().catch(() => undefined);
+        },
+      );
+
+      const cfg = options.import;
+      // Surface import outcomes as toasts (in addition to any user callbacks).
+      ctx.eventBus.on<ImportCompleteEvent>(GridEventType.IMPORT_COMPLETE, (e) => {
+        const n = e.result.rowCount;
+        ctx.toastService.success(`Imported ${n} row${n === 1 ? '' : 's'} from ${e.source.toUpperCase()}.`);
+        cfg.onComplete?.(e.result);
+      });
+      ctx.eventBus.on<ImportErrorEvent>(GridEventType.IMPORT_ERROR, (e) => {
+        ctx.toastService.error(e.message, { title: 'Import failed', duration: 8000 });
+        cfg.onError?.(e);
+      });
+    }
 
     // Wire column-group model into the public API if groups are present (legacy path)
     if (this.columnGroupModel) {
@@ -666,11 +730,22 @@ export class GridCore {
       // A literal edit on a formula-enabled column drops any prior formula on the
       // cell, then feeds the change through the engine so dependent formula cells
       // (and volatiles) recompute before the repaint.
-      if (ctx.formulaEngine.isEnabled() && p.colDef.allowFormula) {
-        ctx.formulaEngine.clearFormula(p.row.nodeId, p.colDef.colId);
-      }
       if (ctx.formulaEngine.isEnabled()) {
-        ctx.formulaEngine.onCellsChanged([{ nodeId: p.row.nodeId, colId: p.colDef.colId }]);
+        if (p.colDef.allowFormula) {
+          ctx.formulaEngine.clearFormula(p.row.nodeId, p.colDef.colId);
+        }
+        const { changedNodeIds } = ctx.formulaEngine.onCellsChanged([
+          { nodeId: p.row.nodeId, colId: p.colDef.colId },
+        ]);
+        // Dependent formula cells (e.g. `C1 = A1 + B1` when A1 changes) recompute
+        // by mutating their row *data* in place — the owning `RowNode` reference is
+        // unchanged. `refresh()`'s cached-row path (`updatePanelRow`) only re-stamps
+        // row-level attributes, never cell content, so those dependents would keep
+        // their stale DOM. Evict exactly the changed rows so their new values
+        // repaint on the next frame.
+        if (changedNodeIds.size > 0) {
+          ctx.renderer.invalidateBodyRowsByIds(new Set(changedNodeIds));
+        }
       }
       this.api.refresh();
     });
@@ -684,7 +759,7 @@ export class GridCore {
       const oldFormula = ctx.formulaEngine.getFormula(rowNode.nodeId, colDef.colId);
       const nextData = { ...rowNode.data };
       rowNode.data = nextData;
-      ctx.formulaEngine.setFormula(rowNode.nodeId, colDef.colId, source);
+      const { changedNodeIds } = ctx.formulaEngine.setFormula(rowNode.nodeId, colDef.colId, source);
       const newValue = getCellValue(rowNode.data, colDef, this.api);
       ctx.undoRedoEngine.record({
         type: 'edit',
@@ -698,6 +773,12 @@ export class GridCore {
           newFormula: source,
         }],
       });
+      // The committed cell plus every downstream dependent recomputed in place
+      // (row data mutated, `RowNode` reference kept), which `refresh()`'s cached-row
+      // path does not repaint. Evict the changed rows so their values render.
+      if (changedNodeIds.size > 0) {
+        ctx.renderer.invalidateBodyRowsByIds(new Set(changedNodeIds));
+      }
       this.api.refresh();
       return true;
     });
@@ -716,6 +797,11 @@ export class GridCore {
       dataColIndex: (colId) => this.formulaAdapter.getColIndex(colId),
       onCellsChanged: (cells) => ctx.formulaEngine.onCellsChanged(cells).changedNodeIds,
     });
+
+    // Intelligent drag-to-fill: the fill handle asks this engine to continue the
+    // source pattern instead of copying. A no-op fallback to copy/cycle when the
+    // engine is disabled via `GridOptions.autofill`.
+    ctx.cellSelectionEngine.setAutoFillEngine(ctx.autoFillEngine);
 
     // Tab while editing → commit current edit, move to the adjacent cell, and
     // start editing it (dropdown cells open the dropdown directly).

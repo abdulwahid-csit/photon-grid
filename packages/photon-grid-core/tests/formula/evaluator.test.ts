@@ -60,6 +60,8 @@ function evaluate(src: string, opts: EvalOptions = {}): FormulaValue {
       return out;
     },
     resolveName: (name: string) => opts.names?.[name.toUpperCase()] ?? null,
+    currentRowIndex: 0,
+    resolveRowRelative: (name: string) => FormulaError.nameError(`unknown name '${name}'`),
     now: () => opts.now ?? 0,
     random: () => opts.random ?? 0,
   };

@@ -8,6 +8,8 @@ import { isCellInRanges, normalizeRange, type NormalizedRange } from './selectio
 import { ClipboardEngine } from '../engines/clipboard/clipboard-engine';
 import { UndoRedoEngine } from '../engines/undo-redo/undo-redo-engine';
 import type { CellChange } from '../engines/undo-redo/undo-redo-engine';
+import type { AutoFillEngine } from '../autofill/autofill-engine';
+import type { AutoFillValue } from '../autofill/types/autofill.types';
 import { activeGridRegistry } from './active-grid-registry';
 
 /**
@@ -77,6 +79,14 @@ export class CellSelectionEngine {
    * dependents; when `null` the engine behaves as a pure value grid.
    */
   private formulaBridge: FormulaBridge | null = null;
+
+  /**
+   * Optional AutoFill engine (see {@link AutoFillEngine}). When set and enabled,
+   * a fill-handle drag continues the detected pattern (numeric/date/month/weekday/
+   * text-number/alphabet/boolean series) instead of merely copying source values.
+   * When `null` or disabled, fill falls back to the legacy copy/cycle behavior.
+   */
+  private autoFillEngine: AutoFillEngine | null = null;
 
   /**
    * Internal formula clipboard captured on copy: the values grid and a parallel
@@ -239,6 +249,52 @@ export class CellSelectionEngine {
   /** The active formula bridge when the engine is enabled, else `null`. */
   private activeFormulaBridge(): FormulaBridge | null {
     return this.formulaBridge && this.formulaBridge.isEnabled() ? this.formulaBridge : null;
+  }
+
+  /**
+   * Registers the AutoFill engine so fill-handle drags generate intelligent
+   * series. Passing `null` (or never calling this) keeps the legacy copy/cycle
+   * fill behavior.
+   *
+   * @param engine - The AutoFill engine, or `null` to disable.
+   */
+  setAutoFillEngine(engine: AutoFillEngine | null): void {
+    this.autoFillEngine = engine;
+  }
+
+  /** The active AutoFill engine when present and enabled, else `null`. */
+  private activeAutoFillEngine(): AutoFillEngine | null {
+    return this.autoFillEngine && this.autoFillEngine.isEnabled() ? this.autoFillEngine : null;
+  }
+
+  /**
+   * Programmatically fills from a source range in a direction, extending it to a
+   * target row/column index, using the same intelligent AutoFill pipeline as the
+   * interactive fill handle. Powers {@link GridApi.fill}.
+   *
+   * @param source    - The source range whose pattern is continued.
+   * @param direction - Fill direction.
+   * @param target    - Inclusive last row index (`down`/`up`) or column index
+   *                    (`left`/`right`) to fill up to.
+   */
+  fillRange(
+    source: CellRange,
+    direction: 'down' | 'up' | 'left' | 'right',
+    target: number,
+  ): void {
+    const vertical = direction === 'down' || direction === 'up';
+    this.fillSourceRange = normalizeRange(source);
+    this.fillDirection = direction;
+    this.fillTargetRow = vertical ? target : null;
+    this.fillTargetCol = vertical ? null : target;
+    try {
+      this.applyFill();
+    } finally {
+      this.fillSourceRange = null;
+      this.fillDirection = null;
+      this.fillTargetRow = null;
+      this.fillTargetCol = null;
+    }
   }
 
   /**
@@ -701,16 +757,130 @@ export class CellSelectionEngine {
   }
 
   /**
-   * Copies source cell values into the fill target area.
+   * Collects the ordered source values of a single column vector for intelligent
+   * fill, or `null` if the vector is not eligible (a non-data row or a
+   * formula-bearing cell within the source), in which case the caller keeps the
+   * legacy per-cell path so formulas still transpose correctly.
    *
-   * Cycling semantics:
-   * - Vertical fill: each column in the fill area copies from the same
-   *   column in the source range, cycling rows (`srcH` modulo).
-   * - Horizontal fill: each row copies from the same row in the source
-   *   range, cycling columns (`srcW` modulo).
+   * @param visRows  - The visible row nodes.
+   * @param startRow - First source row index (inclusive).
+   * @param endRow   - Last source row index (inclusive).
+   * @param col      - The column being gathered.
+   * @param bridge   - Active formula bridge, or `null`.
+   */
+  private collectColumnSource(
+    visRows: RowNode[],
+    startRow: number,
+    endRow: number,
+    col: ColumnDef,
+    bridge: FormulaBridge | null,
+  ): AutoFillValue[] | null {
+    const values: AutoFillValue[] = [];
+    for (let r = startRow; r <= endRow; r++) {
+      const row = visRows[r];
+      if (!row || row.type !== 'data') return null;
+      if (bridge && col.allowFormula && bridge.getFormula(row.nodeId, col.colId) !== null) return null;
+      values.push(row.data[col.field] as AutoFillValue);
+    }
+    return values;
+  }
+
+  /**
+   * Collects the ordered source values of a single row vector for intelligent
+   * fill, or `null` if any cell holds a formula (keeping the legacy per-cell
+   * path).
    *
-   * The operation is recorded in the undo/redo engine and triggers an
-   * immediate renderer refresh via `dataChangedCallback`.
+   * @param row      - The row node being gathered.
+   * @param columns  - The visible columns.
+   * @param startCol - First source column index (inclusive).
+   * @param endCol   - Last source column index (inclusive).
+   * @param bridge   - Active formula bridge, or `null`.
+   */
+  private collectRowSource(
+    row: RowNode,
+    columns: ColumnDef[],
+    startCol: number,
+    endCol: number,
+    bridge: FormulaBridge | null,
+  ): AutoFillValue[] | null {
+    const values: AutoFillValue[] = [];
+    for (let c = startCol; c <= endCol; c++) {
+      const col = columns[c];
+      if (!col) return null;
+      if (bridge && col.allowFormula && bridge.getFormula(row.nodeId, col.colId) !== null) return null;
+      values.push(row.data[col.field] as AutoFillValue);
+    }
+    return values;
+  }
+
+  /**
+   * Builds the generated value array for every eligible fill vector by asking the
+   * {@link AutoFillEngine} to continue each vector's detected pattern.
+   *
+   * A "vector" is one column (vertical fill) or one row (horizontal fill). Each
+   * generated array is ordered to match the grid's natural iteration over the
+   * fill target, so the fill loop indexes it directly by cell offset. Vectors
+   * containing formulas are omitted (they fall back to per-cell transposition).
+   *
+   * @param engine  - The active AutoFill engine.
+   * @param visRows - The visible row nodes.
+   * @param columns - The visible columns.
+   * @param src     - The normalized source range.
+   * @param geom    - Fill geometry (target bounds, orientation, direction) and
+   *                  the active formula bridge.
+   * @returns A map keyed by column index (vertical) or row index (horizontal).
+   */
+  private buildFillSeries(
+    engine: AutoFillEngine,
+    visRows: RowNode[],
+    columns: ColumnDef[],
+    src: NormalizedRange,
+    geom: {
+      fillStartRow: number; fillEndRow: number;
+      fillStartCol: number; fillEndCol: number;
+      vertical: boolean; reverse: boolean;
+      bridge: FormulaBridge | null;
+    },
+  ): Map<number, AutoFillValue[]> {
+    const { fillStartRow, fillEndRow, fillStartCol, fillEndCol, vertical, reverse, bridge } = geom;
+    const series = new Map<number, AutoFillValue[]>();
+
+    if (vertical) {
+      const count = fillEndRow - fillStartRow + 1;
+      for (let c = fillStartCol; c <= fillEndCol; c++) {
+        const col = columns[c];
+        if (!col) continue;
+        const values = this.collectColumnSource(visRows, src.startRowIndex, src.endRowIndex, col, bridge);
+        if (values) {
+          series.set(c, engine.generateSeries(values, count, { columnType: col.type ?? 'string', reverse }));
+        }
+      }
+    } else {
+      const count = fillEndCol - fillStartCol + 1;
+      for (let r = fillStartRow; r <= fillEndRow; r++) {
+        const row = visRows[r];
+        if (!row || row.type !== 'data') continue;
+        const values = this.collectRowSource(row, columns, src.startColIndex, src.endColIndex, bridge);
+        if (values) {
+          series.set(r, engine.generateSeries(values, count, { reverse }));
+        }
+      }
+    }
+    return series;
+  }
+
+  /**
+   * Writes the fill target area, continuing the source pattern.
+   *
+   * For each fill vector (a column for a vertical fill, a row for a horizontal
+   * one) the {@link AutoFillEngine} detects the source pattern and generates the
+   * continuation — numeric/date/name series, `Item001 → Item002`, alphabet,
+   * booleans, or a cyclic copy fallback. Formula source cells are instead
+   * transposed via the {@link FormulaBridge}. When the engine is absent or
+   * disabled, every cell uses the legacy modulo copy/cycle.
+   *
+   * The operation is recorded in the undo/redo engine and triggers an immediate
+   * renderer refresh via `dataChangedCallback`.
    */
   private applyFill(): void {
     if (!this.fillSourceRange || !this.fillDirection) return;
@@ -753,6 +923,21 @@ export class CellSelectionEngine {
     const bridge = this.activeFormulaBridge();
     const affectedNodeIds = new Set<string>();
 
+    // Pre-compute an intelligent fill series per vector — one per column for a
+    // vertical fill, one per row for a horizontal fill. Only formula-free vectors
+    // are smart-filled; a vector containing any formula keeps the per-cell
+    // transpose path below. When the engine is absent or disabled the map is
+    // `null` and every cell uses the legacy copy/cycle mapping.
+    const dir = this.fillDirection;
+    const vertical = dir === 'down' || dir === 'up';
+    const reverse = dir === 'up' || dir === 'left';
+    const engine = this.activeAutoFillEngine();
+    const vectorSeries = engine
+      ? this.buildFillSeries(engine, visRows, columns, src, {
+          fillStartRow, fillEndRow, fillStartCol, fillEndCol, vertical, reverse, bridge,
+        })
+      : null;
+
     for (let r = fillStartRow; r <= fillEndRow; r++) {
       const row = visRows[r];
       if (!row || row.type !== 'data') continue;
@@ -763,7 +948,6 @@ export class CellSelectionEngine {
 
         // Map the fill cell back to its corresponding source cell.
         let srcR: number, srcC: number;
-        const dir = this.fillDirection!;
         if (dir === 'down') {
           srcR = src.startRowIndex + ((r - fillStartRow) % srcH);
           srcC = c;
@@ -808,15 +992,23 @@ export class CellSelectionEngine {
         }
 
         // ── Literal fill ─────────────────────────────────────────────────────
-        const rawValue = srcRow.data[srcCol.field];
-        const srcType  = srcCol.type ?? 'string';
-        const dstType  = col.type   ?? 'string';
-        // Coerce to the destination column's data type when source and
-        // destination types differ.  Same-type copies skip coercion so that
-        // exact values are preserved (avoids spurious Date re-creation).
-        const newValue = srcType !== dstType
-          ? this.coerceToColumnType(rawValue, dstType)
-          : rawValue;
+        const dstType = col.type ?? 'string';
+        const smart = vectorSeries?.get(vertical ? c : r);
+        let newValue: unknown;
+        if (smart) {
+          // Intelligent series: index by this cell's offset within its vector.
+          const pos = vertical ? r - fillStartRow : c - fillStartCol;
+          newValue = this.coerceToColumnType(smart[pos], dstType);
+        } else {
+          // Legacy copy/cycle. Coerce only when source and destination types
+          // differ; same-type copies preserve exact values (avoids spurious
+          // Date re-creation).
+          const rawValue = srcRow.data[srcCol.field];
+          const srcType  = srcCol.type ?? 'string';
+          newValue = srcType !== dstType
+            ? this.coerceToColumnType(rawValue, dstType)
+            : rawValue;
+        }
         const oldValue = row.data[col.field];
         // A literal filled over a formula cell must drop that formula.
         const oldFormula = bridge && col.allowFormula ? bridge.getFormula(row.nodeId, col.colId) : null;

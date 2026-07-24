@@ -10,6 +10,12 @@ import type { FilterModel, QuickFilterConfig } from './filter.types';
 import type { CellRange } from './grid.types';
 import type { ChartModel } from '../chart/model/chart-model';
 import type { TreeNodeToggleClickedPayload, TreeNodeTogglePayload, TreeChildrenLoadedPayload } from './tree-data.types';
+import type {
+  ImportStartEvent,
+  ImportProgressEvent,
+  ImportCompleteEvent,
+  ImportErrorEvent,
+} from './import.types';
 
 export const GridEventType = {
   READY: 'grid:ready',
@@ -63,6 +69,11 @@ export const GridEventType = {
   EXPORT_START: 'export:start',
   EXPORT_COMPLETE: 'export:complete',
   EXPORT_ERROR: 'export:error',
+
+  IMPORT_START: 'import:start',
+  IMPORT_PROGRESS: 'import:progress',
+  IMPORT_COMPLETE: 'import:complete',
+  IMPORT_ERROR: 'import:error',
 
   DRAG_STARTED: 'drag:started',
   DRAG_OVER: 'drag:over',
@@ -246,6 +257,10 @@ export type GridEventMap = {
   [GridEventType.THEME_CHANGED]: ThemeChangedEvent;
   [GridEventType.EXPORT_START]: ExportEvent;
   [GridEventType.EXPORT_COMPLETE]: ExportEvent;
+  [GridEventType.IMPORT_START]: ImportStartEvent;
+  [GridEventType.IMPORT_PROGRESS]: ImportProgressEvent;
+  [GridEventType.IMPORT_COMPLETE]: ImportCompleteEvent;
+  [GridEventType.IMPORT_ERROR]: ImportErrorEvent;
   [GridEventType.ROW_EDIT_START]: RowEditPayload;
   [GridEventType.CELL_VALUE_CHANGED]: CellValueChangedEvent;
   [GridEventType.COLUMN_GROUP_HEADER_COLLAPSED]: ColumnGroupHeaderCollapsedEvent;

@@ -33,6 +33,8 @@ import { RowAnimator } from './row-animator';
 import { FilterPanel } from '../engines/filter/filter-panel';
 import type { FilterSetOption } from '../engines/filter/filter-panel';
 import { FiltersToolPanel } from './filters-tool-panel';
+import { ImportMenu } from './import-menu';
+import { ImportSourceType } from '../types/import.types';
 import { createDiv } from './dom-utils';
 import type { MasterDetailEngine } from '../engines/master-detail/master-detail-engine';
 import type { TreeExpansionService } from '../engines/tree/tree-expansion-service';
@@ -104,6 +106,12 @@ export class GridRenderer {
   private photonAIPanel: PhotonAIPanel | null = null;
   /** Floating Filters Tool Panel — only created when `filtersToolPanel.enabled`. */
   private filtersToolPanel: FiltersToolPanel | null = null;
+  /** Floating Import menu (launcher + dropdown) — only created when `import.enabled`. */
+  private importMenu: ImportMenu | null = null;
+  /** Host handler run when a file-based import source is chosen. Wired by GridCore. */
+  private importFileHandler: ((source: ImportSourceType, file: File) => void) | null = null;
+  /** Host handler run when *Paste From Clipboard* is chosen. Wired by GridCore. */
+  private importClipboardHandler: (() => void) | null = null;
   /** Shows a custom floating tooltip for columns with `renderer.tooltip`; a no-op for every other column. */
   private tooltipController: TooltipController;
 
@@ -214,6 +222,24 @@ export class GridRenderer {
           this.filterEngine?.setColumnFilter(colId, filter);
           this.filterRefreshFn?.();
         },
+      });
+    }
+
+    if (options.import?.enabled) {
+      // Pure-UI launcher + dropdown. The actual import runs in the host handlers
+      // (wired via setImportHandlers by GridCore), keeping this renderer free of
+      // any parser/engine dependency.
+      this.importMenu = new ImportMenu({
+        iconRenderer,
+        getFormats: () =>
+          options.import?.formats ?? [
+            ImportSourceType.Excel,
+            ImportSourceType.Csv,
+            ImportSourceType.Tsv,
+            ImportSourceType.Clipboard,
+          ],
+        onSelectFile: (source, file) => this.importFileHandler?.(source, file),
+        onSelectClipboard: () => this.importClipboardHandler?.(),
       });
     }
 
@@ -474,6 +500,23 @@ export class GridRenderer {
   /** Toggles the Filters Tool Panel open/closed, if the feature is enabled. No-op otherwise. */
   toggleFiltersToolPanel(): void {
     this.filtersToolPanel?.toggle();
+  }
+
+  /**
+   * Wires the host handlers the Import menu invokes when a source is chosen.
+   * Called by {@link import('../core/grid-core').GridCore} once the live
+   * {@link import('../core/grid-api').GridApi} exists — the menu itself carries
+   * no import logic.
+   *
+   * @param onFile      - Runs an import for a picked file + inferred source.
+   * @param onClipboard - Runs a clipboard import.
+   */
+  setImportHandlers(
+    onFile: (source: ImportSourceType, file: File) => void,
+    onClipboard: () => void,
+  ): void {
+    this.importFileHandler = onFile;
+    this.importClipboardHandler = onClipboard;
   }
 
   /**
@@ -856,6 +899,7 @@ export class GridRenderer {
     this.detailRowRenderer?.destroy();
     this.photonAIPanel?.destroy();
     this.filtersToolPanel?.destroy();
+    this.importMenu?.destroy();
     this.tooltipController.destroy();
     this.scrollController.destroy();
     this.groupDropZone?.destroy();
@@ -1100,6 +1144,25 @@ export class GridRenderer {
     // row/column virtualization or the header measurements.
     if (this.filtersToolPanel && this.wrapperEl) {
       this.filtersToolPanel.mount(this.wrapperEl, this.options.filtersToolPanel!);
+    }
+
+    // Mount the Import menu (launcher + dropdown) into the grid wrapper, and
+    // drive the loading overlay from the engine's progress events so the user
+    // sees "Parsing… / Mapping… / Rendering…" without this renderer knowing
+    // anything about the import pipeline.
+    if (this.importMenu && this.wrapperEl) {
+      this.importMenu.mount(this.wrapperEl);
+      this.unsubscribers.push(
+        this.eventBus.on<import('../types/import.types').ImportProgressEvent>(
+          GridEventType.IMPORT_PROGRESS,
+          (e) => this.overlayRenderer.showLoading(e.message),
+        ),
+        this.eventBus.on(GridEventType.IMPORT_COMPLETE, () => this.overlayRenderer.hideLoading()),
+        this.eventBus.on<import('../types/import.types').ImportErrorEvent>(GridEventType.IMPORT_ERROR, (e) => {
+          this.overlayRenderer.hideLoading();
+          this.overlayRenderer.showError(e.message);
+        }),
+      );
     }
 
     this.tooltipController.mount(bodyWrapEl);

@@ -30,6 +30,62 @@ export { RowSelectionEngine } from './engines/selection/row-selection-engine';
 export { CellEditorEngine } from './engines/editing/cell-editor-engine';
 export { SummaryEngine } from './engines/summary/summary-engine';
 export { ExportEngine } from './engines/export/export-engine';
+
+// ── Import Engine ────────────────────────────────────────────────────────────
+export { ImportEngine } from './engines/import/import-engine';
+export {
+  ImportPipeline,
+  DelimitedImporter,
+  ClipboardImporter,
+  ExcelImporter,
+  ExcelParserUnavailableError,
+  TypeDetector,
+  ColumnMapper,
+  ImportValidator,
+  WorkbookMapper,
+  makeCell,
+  matrixToWorkbook,
+  selectSheet,
+} from './engines/import';
+export type {
+  Workbook,
+  WorkbookSheet,
+  WorkbookRow,
+  WorkbookCell,
+  WorkbookCellFormat,
+  WorkbookMergeRegion,
+  WorkbookParser,
+  WorkbookParseOptions,
+  DetectedColumnType,
+  MappedWorkbook,
+  WorkbookMapOptions,
+  ClipboardTextReader,
+  DelimitedParseOptions,
+  ImportPipelineInput,
+  ProgressEmitter,
+} from './engines/import';
+export {
+  ImportSourceType,
+  ImportMode,
+  ImportCellType,
+  ImportStage,
+  ImportValidationSeverity,
+  ImportValidationCode,
+} from './types/import.types';
+export type {
+  ImportConfig,
+  ImportOptions,
+  ImportResult,
+  ImportMapping,
+  ImportValidationIssue,
+  ImportValidationResult,
+  ImportStartEvent,
+  ImportProgressEvent,
+  ImportCompleteEvent,
+  ImportErrorEvent,
+  GridImportSink,
+} from './types/import.types';
+
 export { ClipboardEngine } from './engines/clipboard/clipboard-engine';
 export { UndoRedoEngine } from './engines/undo-redo/undo-redo-engine';
 export type { CellChange, UndoRedoAction, UndoRedoActionType } from './engines/undo-redo/undo-redo-engine';
@@ -156,6 +212,31 @@ export type {
   Token,
 } from './formula';
 export type { FormulaConfig } from './types/formula.types';
+
+// ── AutoFill Engine ────────────────────────────────────────────────────────────
+export {
+  AutoFillEngine,
+  AutoFillDetectorRegistry,
+  AutoFillDetectorName,
+  AutoFillConfigurationManager,
+  createDefaultDetectors,
+  NumericSequenceDetector,
+  DateSequenceDetector,
+  MonthDetector,
+  WeekdayDetector,
+  BooleanDetector,
+  TextNumberDetector,
+  AlphabetDetector,
+  CopyDetector,
+} from './autofill';
+export type {
+  AutoFillValue,
+  AutoFillOptions,
+  AutoFillPatternDetector,
+  AutoFillSeries,
+  ResolvedAutoFillConfig,
+} from './autofill';
+export type { AutoFillConfig } from './types/autofill.types';
 
 export type { GridOptions, GridState, GridDimensions, SortConfig, PaginationConfig, SelectionConfig, EditingConfig, CellRange, ColumnGroupConfig, HeaderIconsConfig, FiltersToolPanelConfig } from './types/grid.types';
 export type { ColumnDef, ColumnDefInput, Column, ColumnState, ColumnGroup, ColumnDropdownOption, ColumnDataType, ColumnPinPosition, AggFunc } from './types/column.types';

@@ -530,6 +530,9 @@ export class ColumnModel {
       // type falls back to plain text, header to the field in Title Case.
       type: col.type ?? 'string',
       header: col.header ?? toTitleCase(col.field),
+      // A declared column formula implicitly opts the column into the Formula
+      // Engine, unless the author explicitly opted out with `allowFormula: false`.
+      allowFormula: col.allowFormula ?? (col.formula != null ? true : undefined),
     };
   }
 

@@ -21,6 +21,26 @@ export const miscCss = `/* ─────────────────�
 .pg-overlay__text { color: var(--pg-colors-text-secondary, #475569); font-size: var(--pg-typography-font-size-md, 13px); }
 .pg-overlay__icon { color: var(--pg-colors-text-disabled, #94a3b8); }
 
+/* Error toast — a compact, bottom-anchored alert (not a full-screen overlay) so
+   an import/validation failure is clearly surfaced instead of failing silently. */
+.pg-overlay--error {
+  inset: auto;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  flex-direction: row;
+  gap: 8px;
+  max-width: min(520px, calc(100% - 32px));
+  padding: 10px 14px;
+  background: var(--pg-colors-surface, #fff);
+  border: 1px solid var(--pg-colors-error, #dc2626);
+  border-radius: var(--pg-borders-radius-md, 6px);
+  box-shadow: var(--pg-shadows-dropdown, 0 16px 48px rgba(15,23,42,0.24));
+  z-index: 30;
+}
+.pg-overlay--error .pg-overlay__icon { color: var(--pg-colors-error, #dc2626); flex: none; }
+.pg-overlay--error .pg-overlay__text { color: var(--pg-colors-text-primary, #0f172a); text-align: left; }
+
 /* ──────────────────── Drag ──────────────────── */
 .pg-dragging { opacity: 0.5; }
 .pg-drop-before { box-shadow: 0 -2px 0 0 var(--pg-colors-primary, #2563eb); }

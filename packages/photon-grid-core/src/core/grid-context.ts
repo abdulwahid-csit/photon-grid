@@ -11,6 +11,8 @@ import type { RowSelectionEngine } from '../engines/selection/row-selection-engi
 import type { CellEditorEngine } from '../engines/editing/cell-editor-engine';
 import type { SummaryEngine } from '../engines/summary/summary-engine';
 import type { ExportEngine } from '../engines/export/export-engine';
+import type { ImportEngine } from '../engines/import/import-engine';
+import type { ToastService } from '../toast/toast-service';
 import type { ClipboardEngine } from '../engines/clipboard/clipboard-engine';
 import type { DragDropEngine } from '../drag-drop/drag-drop-engine';
 import type { CellSelectionEngine } from '../cell-selection/cell-selection-engine';
@@ -26,6 +28,8 @@ import type { TreeDataService } from '../engines/tree/tree-data-service';
 import type { TreeExpansionService } from '../engines/tree/tree-expansion-service';
 import type { TreeSelectionService } from '../engines/tree/tree-selection-service';
 import type { FormulaEngine } from '../formula/formula-engine';
+import type { FormulaInitializer } from '../formula/formula-initializer';
+import type { AutoFillEngine } from '../autofill/autofill-engine';
 
 export interface GridContext {
   options: GridOptions;
@@ -43,6 +47,19 @@ export interface GridContext {
   cellEditorEngine: CellEditorEngine;
   summaryEngine: SummaryEngine;
   exportEngine: ExportEngine;
+  /**
+   * Import Engine — ingests Excel/CSV/TSV/Clipboard data through one unified
+   * pipeline and feeds the grid via the public `setColumns`/`setData` seams.
+   * Inert unless `GridOptions.import.enabled`. `.xlsx` requires a registered
+   * workbook parser (the optional SheetJS adapter).
+   */
+  importEngine: ImportEngine;
+  /**
+   * Toast notification system — transient success/error/warning/info messages.
+   * Framework-agnostic and theme-driven; also used to surface import outcomes.
+   * Exposed publicly via `GridApi.toasts`.
+   */
+  toastService: ToastService;
   clipboardEngine: ClipboardEngine;
   dragDropEngine: DragDropEngine;
   cellSelectionEngine: CellSelectionEngine;
@@ -72,5 +89,19 @@ export interface GridContext {
    * `GridOptions.formula.enabled`.
    */
   formulaEngine: FormulaEngine;
+  /**
+   * Discovers declarative formulas (column-level `ColumnDef.formula` and
+   * `=`-prefixed row-data values) and registers them with `formulaEngine` on
+   * load and on structural row changes — so no `setCellFormula` seeding is needed.
+   */
+  formulaInitializer: FormulaInitializer;
+  /**
+   * Intelligent AutoFill (drag-to-fill) engine. Continues the source pattern —
+   * numeric/date series, month & weekday names, `Item001 → Item002`, alphabet,
+   * booleans — instead of copying. Pure and framework-independent; consumed by
+   * the cell-selection engine's fill handle. Inert unless `GridOptions.autofill`
+   * keeps it enabled (enabled by default).
+   */
+  autoFillEngine: AutoFillEngine;
   renderer: GridRenderer;
 }

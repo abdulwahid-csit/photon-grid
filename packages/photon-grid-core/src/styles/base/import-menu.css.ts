@@ -10,14 +10,11 @@
  */
 export const importMenuCss = `/* ──────────────────── Import Menu ──────────────────── */
 
-/* Launcher — an "Import ▾" pill floating at the grid's top-right corner.
-   Absolute positioning keeps it out of the flex layout so it never affects
-   row/column virtualization. */
+/* Launcher — an "Import" pill living in the shared .pg-grid__tools bar
+   (see filters-tool-panel.css.ts). 'order' places it to the right of the
+   Filters funnel; the bar handles absolute positioning and stacking. */
 .pg-import-launcher {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  z-index: var(--pg-z-index-filter-panel, 200);
+  order: 2;
   display: inline-flex;
   align-items: center;
   gap: 6px;

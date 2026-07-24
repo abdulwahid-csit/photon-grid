@@ -196,27 +196,37 @@ export class AppComponent implements OnInit {
         showVerticalBorders: true,
         rowHeight: 36,
         headerRowHeight: 44,
-        showGroupingBar: true,
-        showFilterRow: true,
+        showGroupingBar: false,
+        showFilterRow: false,
         formula: {
             enabled: true,
             autoRecalculate: true,
             enableCaching: true,
         },
         filtersToolPanel: {
+            enabled: false,
+            
+        },
+        pagination: {
             enabled: true,
+            pageSize: 10000,
+
         },
         // With the Formula Engine on, imported =A1+B1 cells register and compute
         // through the one Formula Engine — the importer never evaluates them.
-        import: { enabled: true },
+        import: { enabled: false },
+        headerIcons: {
+            filter: HeaderIconDisplay.HIDDEN,
+            menu: HeaderIconDisplay.HIDDEN,
+        }
     };
 
     ngOnInit(): void {
         this.data = this.generateData(100000);
         this.columns = this.buildColumns();
 
-        this.formulaColumns = this.buildFormulaColumns();
-        this.formulaData = this.buildFormulaData();
+        this.formulaColumns = this.buildFormulaColumns(50);
+        this.formulaData = this.buildFormulaData(100000);
     }
 
 onGridReady(api: GridApi): void {
@@ -408,25 +418,108 @@ setTimeout(() => {
      * The plain input columns (`quantity`, `unitPrice`, `taxRate`) are editable
      * too — editing them re-evaluates every dependent formula automatically.
      */
-    private buildFormulaColumns(): ColumnDef[] {
-        return [
-            // A — label column, referenced by nothing but keeps the sheet readable.
-            { colId: 'product', field: 'product', header: 'Product (A)', type: 'string', minWidth: 160, flex: 1 },
-            { colId: 'days', field: 'day', header: 'Days (B)', type: 'string', minWidth: 160, flex: 1, editable: true, },
-            // B — quantity input.
-            { colId: 'quantity', field: 'quantity', header: 'Qty (C)', type: 'number', width: 110, editable: true, flex: 1 },
-            // C — unit price input.
-            { colId: 'unitPrice', field: 'unitPrice', header: 'Unit Price (D)', type: 'currency', width: 140, editable: true, flex: 1 },
-            // D — computed line total. Declared once as a COLUMN FORMULA (field-name
-            // syntax) so every row computes automatically — no setCellFormula needed.
-            // Still editable, so a user can retype a formula on any cell.
-            { colId: 'total', field: 'total', header: 'Total (E)', type: 'currency', width: 150, editable: true, allowFormula: true, formula: '=quantity * unitPrice', flex: 1,  },
-            // E — tax rate input (e.g. 0.08 = 8%).
-            { colId: 'taxRate', field: 'taxRate', header: 'Tax Rate (F)', type: 'number', width: 120, editable: true, flex: 1 },
-            // F — computed grand total. Column formula referencing the computed `total`.
-            { colId: 'grandTotal', field: 'grandTotal', header: 'Grand Total (G)', type: 'currency', width: 160, editable: true, allowFormula: true, formula: '=total * (1 + taxRate)', flex: 1 },
-        ];
+    private buildFormulaColumns(extraColumns = 0): ColumnDef[] {
+
+    const columns: ColumnDef[] = [
+        {
+            colId: 'product',
+            field: 'product',
+            header: this.getExcelColumnName(0), // A
+            type: 'string',
+            minWidth: 160,
+            width: 160,
+            flex: 1
+        },
+        {
+            colId: 'days',
+            field: 'day',
+            header: this.getExcelColumnName(1), // B
+            type: 'string',
+            editable: true,
+            minWidth: 120,
+            flex: 1
+        },
+        {
+            colId: 'quantity',
+            field: 'quantity',
+            header: this.getExcelColumnName(2), // C
+            type: 'number',
+            editable: true,
+            minWidth: 120,
+            flex: 1
+        },
+        {
+            colId: 'unitPrice',
+            field: 'unitPrice',
+            header: this.getExcelColumnName(3), // D
+            type: 'currency',
+            editable: true,
+            minWidth: 120,
+            flex: 1
+        },
+        {
+            colId: 'total',
+            field: 'total',
+            header: this.getExcelColumnName(4), // E
+            type: 'currency',
+            editable: true,
+            allowFormula: true,
+            formula: '=quantity * unitPrice',
+            minWidth: 120,
+            flex: 1
+        },
+        {
+            colId: 'taxRate',
+            field: 'taxRate',
+            header: this.getExcelColumnName(5), // F
+            type: 'number',
+            editable: true,
+            minWidth: 120,
+            flex: 1
+        },
+        {
+            colId: 'grandTotal',
+            field: 'grandTotal',
+            header: this.getExcelColumnName(6), // G
+            type: 'currency',
+            editable: true,
+            allowFormula: true,
+            formula: '=total * (1 + taxRate)',
+            minWidth: 120,
+            flex: 1
+        }
+    ];
+
+    // Add dynamic columns starting at H
+    const startIndex = columns.length;
+
+    for (let i = 0; i < extraColumns; i++) {
+        const excelName = this.getExcelColumnName(startIndex + i);
+
+        columns.push({
+            colId: `col${startIndex + i}`,
+            field: `col${startIndex + i}`,
+            header: excelName,
+            type: 'number',
+            editable: true,
+            minWidth: 120,
+            flex: 1
+        });
     }
+
+    return columns;
+}
+
+private getExcelColumnName(index: number): string {
+    let name = '';
+
+    while (index >= 0) {
+        name = String.fromCharCode((index % 26) + 65) + name;
+        index = Math.floor(index / 26) - 1;
+    }
+
+    return name;
+}
 
     /**
      * Seed rows for the Formula Playground. `total`/`grandTotal` are **not** set
@@ -435,21 +528,61 @@ setTimeout(() => {
      * override the column formula for that one row, aggregating the eight rows
      * above. The second row demonstrates a per-row override via a `=`-value in data.
      */
-    private buildFormulaData(): Record<string, unknown>[] {
-        return [
-            { product: 'Wireless Mouse',     quantity: 12, unitPrice: 25,  taxRate: 0.08 },
-            // Row-data formula: overrides the column formula for THIS row only.
-            { product: 'Mechanical Keyboard', quantity: 7,  unitPrice: 89,  taxRate: 0.08, total: '=quantity * unitPrice * 0.9' },
-            { product: '27" Monitor',        quantity: 4,  unitPrice: 240, taxRate: 0.05 },
-            { product: 'USB-C Dock',         quantity: 9,  unitPrice: 130, taxRate: 0.08 },
-            { product: 'Laptop Stand',       quantity: 15, unitPrice: 45,  taxRate: 0.05 },
-            { product: 'Webcam 1080p',       quantity: 6,  unitPrice: 60,  taxRate: 0.08 },
-            { product: 'Noise-cancel Headset', quantity: 8, unitPrice: 150, taxRate: 0.08 },
-            { product: 'Desk Lamp',          quantity: 20, unitPrice: 30,  taxRate: 0.05 },
-            // Totals row — row-data formulas aggregate the eight product rows above.
-            { product: 'TOTAL', total: '=SUM(D1:D8)', grandTotal: '=SUM(F1:F8)' },
-        ];
+    private buildFormulaData(count: number): Record<string, unknown>[] {
+    const products = [
+        'Wireless Mouse',
+        'Mechanical Keyboard',
+        '27" Monitor',
+        'USB-C Dock',
+        'Laptop Stand',
+        'Webcam 1080p',
+        'Noise-cancel Headset',
+        'Desk Lamp',
+        'External SSD',
+        'Gaming Chair',
+        'Bluetooth Speaker',
+        'Graphics Tablet',
+        'Smartphone Stand',
+        'Portable Charger',
+        'Office Chair',
+        'Microphone',
+        'LED Keyboard',
+        'Wireless Charger',
+        'HDMI Cable',
+        'Ethernet Adapter'
+    ];
+
+    const rows: Record<string, unknown>[] = [];
+
+    for (let i = 0; i < count; i++) {
+        const quantity = Math.floor(Math.random() * 20) + 1;
+        const unitPrice = Math.floor(Math.random() * 250) + 20;
+        const taxRate = Math.random() > 0.5 ? 0.08 : 0.05;
+
+        const row: Record<string, unknown> = {
+            product: products[i % products.length],
+            quantity,
+            unitPrice,
+            taxRate
+        };
+
+        // Example: every 10th row overrides the column formula
+        if ((i + 1) % 10 === 0) {
+            row['total'] = '=quantity * unitPrice * 0.9';
+        }
+
+        rows.push(row);
     }
+
+    // Optional totals row
+    rows.push({
+        product: 'TOTAL',
+        total: `=SUM(D1:D${count})`,
+        grandTotal: `=SUM(F1:F${count})`
+    });
+
+    return rows;
+}
 
     /**
      * Nothing to seed anymore. Formulas are declared entirely in the column

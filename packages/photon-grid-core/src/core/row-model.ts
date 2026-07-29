@@ -34,6 +34,19 @@ export class RowModel {
     });
   }
 
+  /**
+   * Builds {@link RowNode}s from raw data **without** publishing to the store or
+   * emitting `DATA_CHANGED` — used by the Server-Side Row Model to materialise a
+   * fetched page into nodes it lays out and publishes itself (avoiding the
+   * `setRowData` side effects: formula discovery, undo-history reset, and the
+   * data-changed event). Pass `rowHeight` to set the default height for the
+   * built nodes; it falls back to the current default when omitted.
+   */
+  buildNodes(data: Record<string, unknown>[], rowHeight?: number): RowNode[] {
+    if (rowHeight !== undefined) this.defaultRowHeight = rowHeight;
+    return this.buildRowNodes(data);
+  }
+
   appendRowData(data: Record<string, unknown>[]): void {
     const existingNodes = this.store.get('allRows');
     const newNodes = this.buildRowNodes(data, existingNodes.length);

@@ -1,7 +1,7 @@
-import { themeQuartzCss }   from './themes/theme-quartz';
-import { themeAlpineCss }   from './themes/theme-alpine';
-import { themeBalhamCss }   from './themes/theme-balham';
-import { themeMaterialCss } from './themes/theme-material';
+import { themeIonCss }      from './themes/theme-ion';
+import { themeNeonCss }     from './themes/theme-neon';
+import { themePhotonCss }   from './themes/theme-photon';
+import { themeQuantumCss }  from './themes/theme-quantum';
 
 // Base styles are authored as focused per-feature modules under ./base/ for
 // maintainability, then concatenated here in a FIXED order. The order matters:
@@ -36,6 +36,8 @@ import { chartControlsCss }     from './base/chart-controls.css';
 import { columnChooserCss }     from './base/column-chooser.css';
 import { filtersToolPanelCss }  from './base/filters-tool-panel.css';
 import { importMenuCss }        from './base/import-menu.css';
+import { toolbarCss }           from './base/toolbar.css';
+import { themeManagerCss }      from './base/theme-manager.css';
 import { toastCss }             from './base/toast.css';
 import { touchCss }             from './base/touch.css';
 
@@ -73,6 +75,8 @@ const baseCss = [
   columnChooserCss,
   filtersToolPanelCss,
   importMenuCss,
+  toolbarCss,
+  themeManagerCss,
   toastCss,
   touchCss,
 ].join('');
@@ -81,7 +85,7 @@ const baseCss = [
 // (density, radii, typography, accent) that composes with either color mode;
 // the light/dark palettes themselves are injected as tokens by ThemeManager,
 // so no class-based dark skin is bundled here.
-const css = [baseCss, themeQuartzCss, themeAlpineCss, themeBalhamCss, themeMaterialCss].join('\n');
+const css = [baseCss, themeIonCss, themeNeonCss, themePhotonCss, themeQuantumCss].join('\n');
 
 export function injectBaseStyles(): void {
   if (document.getElementById(STYLE_ID)) return;

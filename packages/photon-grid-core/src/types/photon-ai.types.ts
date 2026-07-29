@@ -97,7 +97,7 @@ export interface PhotonAIProviderConfig {
    * Model identifier to invoke. Defaults to the selected provider's
    * recommended fast model when omitted.
    *
-   * @default "gemini-2.5-flash" (Gemini) · "gpt-4o-mini" (OpenAI) · "claude-haiku-4-5-20251001" (Anthropic)
+   * @default "gemini-flash-latest" (Gemini) · "gpt-4o-mini" (OpenAI) · "claude-haiku-4-5-20251001" (Anthropic)
    */
   model?: string;
 

@@ -8,6 +8,8 @@ import type { TreeDataConfig } from './tree-data.types';
 import type { FormulaConfig } from './formula.types';
 import type { AutoFillConfig } from './autofill.types';
 import type { ImportConfig } from './import.types';
+import type { ToolbarConfig } from './toolbar.types';
+import type { RowModelType, ServerSideConfig, ServerSideDatasource } from './server-side.types';
 import type { ToastServiceConfigInput } from '../toast/toast.types';
 import type { ChartPanelType } from '../chart/chart-panel';
 import type { ChartModel, ChartModelPatch } from '../chart/model/chart-model';
@@ -211,7 +213,7 @@ export interface GridOptions {
    *
    * @example
    * ```ts
-   * new GridCore(el, { columns, mode: 'dark', variant: 'quartz' });
+   * new GridCore(el, { columns, mode: 'dark', variant: 'ion' });
    * ```
    */
   mode?: ThemeMode;
@@ -227,7 +229,7 @@ export interface GridOptions {
   /**
    * @deprecated Use {@link GridOptions.mode} and {@link GridOptions.variant}
    * instead. Retained for backward compatibility: legacy values such as
-   * `'dark'`, `'quartz'` or `'pg-quartz-theme'` are mapped onto the mode/variant
+   * `'dark'`, `'ion'` or `'pg-ion-theme'` are mapped onto the mode/variant
    * axes at runtime.
    */
   theme?: BuiltInThemeName | string;
@@ -300,6 +302,31 @@ export interface GridOptions {
   grouping?: Partial<RowGroupingConfig>;
   virtualScroll?: Partial<VirtualScrollConfig>;
   exportConfig?: Partial<ExportConfig>;
+
+  /**
+   * Which row model backs the grid. `'client'` (default) keeps all data
+   * operations in-memory. `'server'` turns the grid into a rendering engine and
+   * delegates sorting/filtering/searching/pagination to
+   * {@link serverSideDatasource}. @default `'client'` @see {@link RowModelType}
+   */
+  rowModel?: RowModelType;
+  /**
+   * Tuning for the Server-Side Row Model (debounce, response cache, retries).
+   * Only used when `rowModel: 'server'`. @see {@link ServerSideConfig}
+   */
+  serverSide?: Partial<ServerSideConfig>;
+  /**
+   * The datasource the grid calls to fetch each slice of rows in server mode.
+   * Required when `rowModel: 'server'`. @see {@link ServerSideDatasource}
+   */
+  serverSideDatasource?: ServerSideDatasource;
+
+  /**
+   * Theme Manager — mounts a "Theme" launcher in the top-right tools strip for
+   * applying saved themes, exporting/importing, and resetting the AI-generated
+   * theme (see `gridApi.photonAI`). Set `true` (or `{ enabled: true }`) to show it.
+   */
+  themeManager?: boolean | { enabled: boolean };
 
   sortConfig?: SortConfig[];
   filterModel?: FilterModel;
@@ -411,6 +438,17 @@ export interface GridOptions {
    * the importer. @see {@link ImportConfig}
    */
   import?: ImportConfig;
+
+  /**
+   * Toolbar — the configurable top strip above the header. Hosts a fully
+   * configurable, event-only **tab strip** (e.g. Active / Inactive / Final
+   * Settlement) on the left, an optional **global search** (positionable left or
+   * right, wired to the quick-filter), and visibility toggles for the Filters
+   * funnel and Import launchers on the right. When omitted, the strip falls back
+   * to legacy behaviour (launchers appear whenever their own features are
+   * enabled). @see {@link ToolbarConfig}
+   */
+  toolbar?: ToolbarConfig;
 
   /**
    * Toast notifications — configures the grid's built-in transient message

@@ -16,6 +16,9 @@ import type {
   ImportCompleteEvent,
   ImportErrorEvent,
 } from './import.types';
+import type { ToolbarTab } from './toolbar.types';
+import type { ServerSideRequest } from './server-side.types';
+import type { GeneratedTheme } from './theme-ai.types';
 
 export const GridEventType = {
   READY: 'grid:ready',
@@ -103,6 +106,18 @@ export const GridEventType = {
   TREE_NODE_EXPANDED: 'tree:nodeExpanded',
   TREE_NODE_COLLAPSED: 'tree:nodeCollapsed',
   TREE_CHILDREN_LOADED: 'tree:childrenLoaded',
+
+  TOOLBAR_TAB_CHANGED: 'toolbar:tabChanged',
+  TOOLBAR_SEARCH_CHANGED: 'toolbar:searchChanged',
+
+  SERVER_REQUEST: 'server:request',
+  SERVER_SUCCESS: 'server:success',
+  SERVER_ERROR: 'server:error',
+  SERVER_REFRESH: 'server:refresh',
+  SERVER_RETRY: 'server:retry',
+
+  THEME_AI_APPLIED: 'themeAI:applied',
+  THEME_AI_ERROR: 'themeAI:error',
 } as const;
 
 export type GridEventType = (typeof GridEventType)[keyof typeof GridEventType];
@@ -229,6 +244,89 @@ export interface ChartDestroyedEvent {
   chartType: string;
 }
 
+/**
+ * Payload of `TOOLBAR_TAB_CHANGED` — fired when the user (or `setActiveToolbarTab`)
+ * selects a different toolbar tab. Purely informational: the grid does not
+ * filter data on the host's behalf.
+ */
+export interface ToolbarTabChangedEvent {
+  /** Id of the newly selected tab. */
+  readonly tabId: string;
+  /** Id of the previously selected tab, or `null` if none was selected. */
+  readonly previousTabId: string | null;
+  /** The full definition of the newly selected tab. */
+  readonly tab: ToolbarTab;
+}
+
+/** Payload of `TOOLBAR_SEARCH_CHANGED` — fired (debounced) as the toolbar's global search query changes. */
+export interface ToolbarSearchChangedEvent {
+  /** The current, trimmed search query (empty string when cleared). */
+  readonly query: string;
+}
+
+/**
+ * Payload of `SERVER_REQUEST` — fired when the Server-Side Row Model is about to
+ * fetch a slice (before the datasource's `getRows` is invoked).
+ */
+export interface ServerRequestEvent {
+  /** The request being issued. */
+  readonly request: ServerSideRequest;
+  /** `true` when served synchronously from cache (no datasource call will follow). */
+  readonly fromCache: boolean;
+}
+
+/** Payload of `SERVER_SUCCESS` — fired after a fetched (or cached) slice is applied to the grid. */
+export interface ServerSuccessEvent {
+  /** The request that produced this result. */
+  readonly request: ServerSideRequest;
+  /** Number of rows returned for this slice. */
+  readonly rowCount: number;
+  /** Total rows across all pages, when the datasource supplied it. */
+  readonly totalRows?: number;
+  /** `true` when the result came from the response cache. */
+  readonly fromCache: boolean;
+}
+
+/** Payload of `SERVER_ERROR` — fired when a request ultimately fails (after any retries). */
+export interface ServerErrorEvent {
+  /** The request that failed. */
+  readonly request: ServerSideRequest;
+  /** The error thrown/passed to `params.fail`. */
+  readonly error: unknown;
+  /** A user-facing message derived from {@link error}. */
+  readonly message: string;
+}
+
+/** Payload of `SERVER_REFRESH` — fired when `api.refreshServerSide()` is called. */
+export interface ServerRefreshEvent {
+  /** `true` when the response cache was purged as part of the refresh. */
+  readonly purge: boolean;
+}
+
+/** Payload of `SERVER_RETRY` — fired before each retry attempt of a failed request. */
+export interface ServerRetryEvent {
+  /** The request being retried. */
+  readonly request: ServerSideRequest;
+  /** 1-based attempt number about to run. */
+  readonly attempt: number;
+  /** The error from the previous attempt. */
+  readonly error: unknown;
+}
+
+/** Payload of `THEME_AI_APPLIED` — fired when the AI Theme Engine applies (or clears) a theme. */
+export interface ThemeAiAppliedEvent {
+  /** The applied theme, or `null` when reverting to the base mode/variant. */
+  readonly theme: GeneratedTheme | null;
+}
+
+/** Payload of `THEME_AI_ERROR` — fired when an AI theme request fails. */
+export interface ThemeAiErrorEvent {
+  /** A user-facing error message. */
+  readonly message: string;
+  /** The underlying error. */
+  readonly error: unknown;
+}
+
 export type GridEventMap = {
   [GridEventType.READY]: ReadyEvent;
   [GridEventType.DATA_CHANGED]: DataChangedEvent;
@@ -279,4 +377,13 @@ export type GridEventMap = {
   [GridEventType.CHART_RANGE_SELECTION_CHANGED]: ChartRangeSelectionChangedEvent;
   [GridEventType.CHART_OPTIONS_CHANGED]: ChartOptionsChangedEvent;
   [GridEventType.CHART_DESTROYED]: ChartDestroyedEvent;
+  [GridEventType.TOOLBAR_TAB_CHANGED]: ToolbarTabChangedEvent;
+  [GridEventType.TOOLBAR_SEARCH_CHANGED]: ToolbarSearchChangedEvent;
+  [GridEventType.SERVER_REQUEST]: ServerRequestEvent;
+  [GridEventType.SERVER_SUCCESS]: ServerSuccessEvent;
+  [GridEventType.SERVER_ERROR]: ServerErrorEvent;
+  [GridEventType.SERVER_REFRESH]: ServerRefreshEvent;
+  [GridEventType.SERVER_RETRY]: ServerRetryEvent;
+  [GridEventType.THEME_AI_APPLIED]: ThemeAiAppliedEvent;
+  [GridEventType.THEME_AI_ERROR]: ThemeAiErrorEvent;
 };

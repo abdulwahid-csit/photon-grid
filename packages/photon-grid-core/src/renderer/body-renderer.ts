@@ -169,28 +169,42 @@ export class BodyRenderer {
    * Sets (or clears) the hovered row by `nodeId`, moving the `pg-row--hover`
    * class across all panels in one pass. No-op when the target is unchanged, so
    * it is cheap to call every scroll frame.
+   *
+   * Resolves the row's parts through `renderedRowMap` — an O(1) lookup of the
+   * exact three elements — rather than a `querySelectorAll` sweep per panel.
+   * Falls back to a scoped query only for a row that is rendered but not in the
+   * map (a Master/Detail or Tree row parked in the sticky overlay, whose DOM is
+   * re-parented out of the content panels by `setStickyRows`).
    */
   private setHoveredRow(nodeId: string | null): void {
     if (nodeId === this.hoveredNodeId) return;
-    if (this.hoveredNodeId) {
-      for (const p of this.hoverPanels) {
-        p.querySelectorAll<HTMLElement>(`[data-node-id="${this.hoveredNodeId}"]`).forEach((r) => r.classList.remove('pg-row--hover'));
-      }
-    }
+    if (this.hoveredNodeId) this.applyHoverClass(this.hoveredNodeId, false);
     this.hoveredNodeId = nodeId;
-    if (nodeId) {
-      for (const p of this.hoverPanels) {
-        p.querySelectorAll<HTMLElement>(`[data-node-id="${nodeId}"]`).forEach((r) => r.classList.add('pg-row--hover'));
+    if (nodeId) this.applyHoverClass(nodeId, true);
+  }
+
+  /** Adds/removes `pg-row--hover` on every panel part of one row. */
+  private applyHoverClass(nodeId: string, on: boolean): void {
+    const ps = this.renderedRowMap.get(nodeId);
+    if (ps) {
+      for (const el of [ps.left, ps.center, ps.right]) {
+        if (el) toggleClass(el, 'pg-row--hover', on);
       }
+      return;
+    }
+    for (const p of this.hoverPanels) {
+      p.querySelectorAll<HTMLElement>(`[data-node-id="${nodeId}"]`)
+        .forEach((r) => toggleClass(r, 'pg-row--hover', on));
     }
   }
 
   /**
    * Re-evaluates which row sits under the last-known pointer position and
-   * updates the hover accordingly. Called after each `renderRows` so that while
-   * the body scrolls under a stationary cursor (wheel/momentum), the row now
-   * beneath the pointer becomes the hovered one. Cheap when idle: a single
-   * `elementFromPoint` only while the pointer is inside the body.
+   * updates the hover accordingly. Called at the start of every `renderRows`
+   * (before row classes are derived) so that while the body scrolls under a
+   * stationary cursor (wheel/momentum), the row now beneath the pointer becomes
+   * the hovered one. Cheap when idle: a single `elementFromPoint` only while the
+   * pointer is inside the body.
    */
   refreshHoverAtPointer(): void {
     if (!this.pointerInside) return;
@@ -267,6 +281,16 @@ export class BodyRenderer {
   ): void {
     const cStart = options.centerColStart ?? 0;
     const cEnd = cStart + centerCols.length;
+
+    // Resolve the hovered row BEFORE any row class is derived. `getRowClass`
+    // reads `hoveredNodeId`, and the rows already sit at their post-scroll
+    // positions by now (GridRenderer updates the RowPositionSheet ahead of this
+    // call), so hit-testing here means recycled rows are stamped with the
+    // correct hover in the same pass that repositions them — no frame where the
+    // highlight is missing or stale. It also self-corrects during a row drag:
+    // `.pg-grid--row-dragging .pg-row` sets `pointer-events: none`, so the hit
+    // test resolves past the rows and clears the hover instead of re-applying it.
+    this.refreshHoverAtPointer();
 
     // When the visible center col range changes, invalidate all center panels
     if (cStart !== this.lastCenterStart || cEnd !== this.lastCenterEnd) {
@@ -354,9 +378,13 @@ export class BodyRenderer {
     this.serialColumnSelection = !!options.serialColumnSelection;
     this.refreshRowSelectionEdges();
 
-    // Rows just moved under the (possibly stationary) pointer — re-hit-test so
-    // the hovered row tracks the scroll instead of sticking to a scrolled-away
-    // (or recycled) node. No-op unless the pointer is inside the body.
+    // Rows just moved under the (possibly stationary) pointer. The pre-pass at
+    // the top of this method already stamped `pg-row--hover` into every row's
+    // className, so this second hit-test only catches the case where appending
+    // the fragments above changed what sits under the cursor (a row entering
+    // the window at the pointer's exact position). `setHoveredRow` early-returns
+    // when the target is unchanged, so this is a single `elementFromPoint` in
+    // the common case and a no-op when the pointer is outside the body.
     this.refreshHoverAtPointer();
   }
 
@@ -470,6 +498,19 @@ export class BodyRenderer {
 
   destroy(): void {
     this.clear();
+  }
+
+  /**
+   * The live render cache: `nodeId` → the row's per-panel DOM parts.
+   *
+   * Exposed read-only for `RowAnimator`, which needs the exact elements that
+   * currently represent each row. Handing over this map means the animator does
+   * no `querySelectorAll` of its own, and — because these are the same reused
+   * nodes across renders — it also guarantees the FLIP operates on DOM that
+   * survived the sort rather than on freshly-built replacements.
+   */
+  getRenderedRows(): ReadonlyMap<string, { left: HTMLElement | null; center: HTMLElement | null; right: HTMLElement | null }> {
+    return this.renderedRowMap;
   }
 
   // ─── Private ─────────────────────────────────────────────────────────────
@@ -1073,6 +1114,16 @@ export class BodyRenderer {
 
   private getRowClass(row: RowNode, displayIndex: number, options: BodyRendererOptions): string {
     const cls = ['pg-row'];
+    // Hover is part of the row's class *identity*, not a decoration applied
+    // afterwards. Both callers of this method (buildSingleRow for brand-new
+    // rows, updatePanelRow for recycled ones) assign the result to
+    // `el.className` wholesale, so any class not produced here is destroyed on
+    // every render pass. Deriving it from the tracked `hoveredNodeId` keeps the
+    // highlight stable across the render churn of a scroll: a recycled row that
+    // still sits under the pointer keeps its hover, and a row entering the
+    // virtual window already under the pointer gets it on first paint rather
+    // than only after the next `mousemove`.
+    if (row.nodeId === this.hoveredNodeId) cls.push('pg-row--hover');
     if (row.selected) cls.push('pg-row--selected');
     if (row.type === 'group') cls.push('pg-row--group');
     if (row.type === 'group-footer') cls.push('pg-row--group-footer');

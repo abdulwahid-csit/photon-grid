@@ -29,6 +29,9 @@ import type { ColumnGroupSerialState, ColumnGroupSystemState, ColumnTreeNode } f
 import { ColumnGroupStateManager } from '../column-groups/column-group-state-manager';
 import type { PhotonCommandResult } from '../photon-ai/photon-ai.types';
 import type { ThemeMode, ThemeVariant } from '../types/theme.types';
+import type { ServerSideDatasource } from '../types/server-side.types';
+import { ServerRowModel } from '../row-models/server/server-row-model';
+import type { PhotonThemeApi } from '../types/theme-ai.types';
 
 export class GridApi {
   private _columnGroupModel: ColumnGroupModel | null = null;
@@ -240,6 +243,58 @@ export class GridApi {
   /** Toggles the Filters Tool Panel open/closed. A no-op when the feature is off. */
   toggleFiltersToolPanel(): void {
     this.ctx.renderer.toggleFiltersToolPanel();
+  }
+
+  /**
+   * Selects a toolbar tab by id. Requires `GridOptions.toolbar.enabled` with a
+   * matching tab; a no-op otherwise. Emits `TOOLBAR_TAB_CHANGED` on change.
+   */
+  setActiveToolbarTab(id: string): void {
+    this.ctx.renderer.setActiveToolbarTab(id);
+  }
+
+  /** Returns the active toolbar tab id, or `null` when the toolbar is disabled or has no tabs. */
+  getActiveToolbarTab(): string | null {
+    return this.ctx.renderer.getActiveToolbarTab();
+  }
+
+  // ──────────────────── Server-Side Row Model ────────────────────
+
+  /**
+   * Sets (or replaces) the datasource used in server mode and immediately
+   * refetches the current view. A no-op unless `GridOptions.rowModel === 'server'`.
+   * @param datasource - The datasource, or `null` to detach (shows the empty state).
+   */
+  setServerSideDatasource(datasource: ServerSideDatasource | null): void {
+    const strategy = this.ctx.rowModelStrategy;
+    if (strategy instanceof ServerRowModel) strategy.setDatasource(datasource);
+  }
+
+  /**
+   * Forces the Server-Side Row Model to refetch the current view. Pass
+   * `{ purge: true }` to also clear the response cache (fetch fresh even for a
+   * previously-cached page). A no-op unless `rowModel === 'server'`.
+   */
+  refreshServerSide(params: { purge?: boolean } = {}): void {
+    const strategy = this.ctx.rowModelStrategy;
+    if (strategy instanceof ServerRowModel) strategy.refresh(params);
+  }
+
+  // ──────────────────── State ────────────────────
+
+  /**
+   * Returns a serialisable snapshot of grid state (columns — order / width /
+   * visibility / pinning, sort, filter, pagination, grouping, expansion,
+   * selection) suitable for persisting on your own server. Alias of
+   * {@link getGridState}.
+   */
+  getState(): GridState {
+    return this.getGridState();
+  }
+
+  /** Restores a snapshot produced by {@link getState}. Alias of {@link applyGridState}. */
+  setState(state: GridState): void {
+    this.applyGridState(state);
   }
 
   // ──────────────────── Selection ────────────────────
@@ -856,7 +911,7 @@ export class GridApi {
 
   /**
    * @deprecated Use {@link GridApi.setMode} / {@link GridApi.setVariant}.
-   * Accepts legacy theme strings (`'dark'`, `'quartz'`, `'pg-quartz-theme'`, …)
+   * Accepts legacy theme strings (`'dark'`, `'ion'`, `'pg-ion-theme'`, …)
    * and maps them onto the mode/variant axes.
    */
   setTheme(nameOrTheme: string): void {
@@ -865,6 +920,26 @@ export class GridApi {
 
   toggleDarkMode(): void {
     this.ctx.themeManager.toggleDarkMode();
+  }
+
+  /**
+   * The **AI Theme Engine** — generate, modify, optimize, explain, preview,
+   * export and import Photon Grid themes from natural language, constrained to
+   * the real design-token registry (never arbitrary CSS). LLM-backed methods
+   * require `GridOptions.photonAI.provider`; preview/apply/export/import/history
+   * work offline.
+   *
+   * @example
+   * ```ts
+   * await gridApi.photonAI.generateTheme({ prompt: 'Create a modern dark dashboard theme', preview: true });
+   * await gridApi.photonAI.modifyTheme({ prompt: 'Make the header emerald green', preview: true });
+   * await gridApi.photonAI.optimizeTheme({ accessibility: true, preview: true });
+   * const json = gridApi.photonAI.exportTheme('json');
+   * ```
+   * @see {@link PhotonThemeApi}
+   */
+  get photonAI(): PhotonThemeApi {
+    return this.ctx.photonThemeEngine;
   }
 
   // ──────────────────── Row animation ────────────────────
@@ -1132,35 +1207,10 @@ export class GridApi {
   }
 
   private applyPipeline(): void {
-    let rows = this.ctx.store.get('allRows');
-    const columns = this.ctx.columnModel.getAllColumns();
-
-    if (this.ctx.treeDataService.isEnabled()) {
-      // Tree Data and column-value grouping are mutually exclusive — a grid
-      // is either hierarchical or grouped by value, never both — so this
-      // branch fully replaces the filter/sort/group steps below with their
-      // tree-aware equivalents (which internally still call FilterEngine's
-      // and SortEngine's own logic; see TreeDataService).
-      rows = this.ctx.treeDataService.getFlatVisibleRows(rows, columns);
-    } else {
-      rows = this.ctx.filterEngine.applyFilters(rows, columns);
-      rows = this.ctx.sortEngine.applySorting(rows, columns);
-
-      const groupColIds = this.ctx.store.get('groupedColumnIds');
-      if (groupColIds.length > 0) {
-        rows = this.ctx.groupingEngine.groupByColumns(groupColIds, columns, rows);
-      }
-    }
-
-    rows = this.ctx.paginationEngine.applyPagination(rows);
-    rows = this.ctx.masterDetailEngine.injectDetailRows(rows);
-    this.ctx.rowModel.setVisibleRows(rows);
-    // Subtree extents depend on `top`/`height`, which `setVisibleRows` just
-    // assigned — must run after layout, not from inside `getFlatVisibleRows`.
-    if (this.ctx.treeDataService.isEnabled()) {
-      this.ctx.treeDataService.annotateSubtreeExtents(rows);
-    }
-    this.ctx.store.set('visibleRows', rows);
+    // Delegates to the active row-model strategy (client = in-memory pipeline;
+    // server = datasource fetch). See RowModelStrategy / ClientRowModel /
+    // ServerRowModel.
+    this.ctx.rowModelStrategy.buildDisplayedRows();
   }
 
 

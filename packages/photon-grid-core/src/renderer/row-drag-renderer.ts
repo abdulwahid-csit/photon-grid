@@ -26,6 +26,9 @@ export class RowDragRenderer {
   private cursorX = 0;
   private cursorY = 0;
 
+  /** Tears down the `ROWS_RENDERED` subscription that re-applies drag visuals after virtualization re-renders. `null` until `mount`. */
+  private unsubscribeRowsRendered: (() => void) | null = null;
+
   private boundMouseDown: (e: MouseEvent) => void;
   private boundMouseMove: (e: MouseEvent) => void;
   private boundMouseUp: (e: MouseEvent) => void;
@@ -45,6 +48,14 @@ export class RowDragRenderer {
     this.bodyWrapEl = bodyWrapEl;
     this.scrollFn = scrollFn;
     bodyWrapEl.addEventListener('pointerdown', this.boundMouseDown, true);
+
+    // Viewport virtualization rebuilds/recycles row DOM on scroll, and
+    // `BodyRenderer.updatePanelRow` resets each reused row's `className` and
+    // serial cell. That silently wipes the drag's element-level markers — the
+    // `pg-row--row-dragging` opacity placeholder, the tree-mode drop-target
+    // highlight, and the previewed serial order — as soon as auto-scroll (or a
+    // wheel) advances the window mid-drag. Re-stamp them after every render.
+    this.unsubscribeRowsRendered = this.eventBus.on(GridEventType.ROWS_RENDERED, () => this.reapplyDragVisuals());
   }
 
   /**
@@ -61,10 +72,26 @@ export class RowDragRenderer {
 
   destroy(): void {
     this.bodyWrapEl?.removeEventListener('pointerdown', this.boundMouseDown, true);
+    this.unsubscribeRowsRendered?.();
+    this.unsubscribeRowsRendered = null;
     this.cleanup();
     this.gridEl = null;
     this.bodyWrapEl = null;
     this.scrollFn = null;
+  }
+
+  /**
+   * The `nodeId` of the row currently being dragged, or `null` when no drag is
+   * in progress.
+   *
+   * `GridRenderer` reads this each render to pin the dragged row inside the
+   * virtual render window: the drag preview repositions it via a `top` override
+   * near the drop target, but vertical virtualization slices on each row's
+   * *real* `top`, so once auto-scroll moves that real position off-screen the
+   * row would otherwise be evicted — leaving the placeholder gap blank.
+   */
+  getDraggingNodeId(): string | null {
+    return this.draggingNodeId;
   }
 
   // ─── Drag start ───────────────────────────────────────────────────────────
@@ -211,6 +238,29 @@ export class RowDragRenderer {
         this.clearDragTops();
       }
     }
+  }
+
+  /**
+   * Re-stamps the drag's imperative DOM state onto the current row elements
+   * after a body re-render. Bound to `ROWS_RENDERED`.
+   *
+   * The absolute-`top` overrides survive a re-render on their own — they live
+   * in a global stylesheet keyed by `data-node-id` (see `updateRowTops`) — but
+   * the dragged-row opacity marker, the tree-mode drop highlight, and the
+   * previewed serial numbering are applied directly to elements that
+   * virtualization recycles and `BodyRenderer.updatePanelRow` overwrites. Those
+   * must be re-applied on the fresh DOM or the placeholder vanishes the moment
+   * the viewport scrolls mid-drag. No-op unless a drag is in progress.
+   */
+  private reapplyDragVisuals(): void {
+    if (!this.isDragging || !this.draggingNodeId) return;
+    this.setDraggingClass(this.draggingNodeId, true);
+    if (!this.targetNodeId) return;
+    // Re-run the same preview branch used while tracking the pointer:
+    // tree mode re-highlights the target row; flat mode re-emits the top
+    // overrides (idempotent — identical values) and re-numbers the serials.
+    if (this.treeModeActive) this.updateTreeDropHighlight();
+    else this.updateRowTops();
   }
 
   /** Tree mode's drop feedback: highlights the target row and flags whether the drop would nest the dragged row inside it. */

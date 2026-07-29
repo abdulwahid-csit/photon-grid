@@ -19,11 +19,35 @@ export type {
   ParsedIntentMatch,
 } from './photon-ai.types';
 
+// ── Assistant: docs/examples, code generation, data analysis, diagnostics ──
+export { PhotonAIAssistant, AssistantRequestKind } from './photon-ai-assistant';
+export type { AssistantResult } from './photon-ai-assistant';
+export { KNOWLEDGE_ARTICLES } from './knowledge/knowledge-base';
+export type { KnowledgeArticle } from './knowledge/knowledge-base';
+export { retrieveArticles, serializeArticles } from './knowledge/knowledge-retriever';
+export type { RetrievedArticle } from './knowledge/knowledge-retriever';
+export { ScaffoldGenerator } from './knowledge/scaffold-generator';
+export { DataAnalysisService } from './insight/data-analysis-service';
+export type {
+  DatasetAnalysis,
+  NumericSummary,
+  DimensionSummary,
+  CategoryBreakdown,
+  CorrelationPair,
+} from './insight/data-analysis-service';
+export { GridDoctor, DiagnosticSeverity, DiagnosticCategory } from './insight/grid-doctor';
+export type { Diagnostic } from './insight/grid-doctor';
+export { parseMarkdown, parseInline } from './chat/markdown-parser';
+export type { MarkdownBlock, InlineSpan } from './chat/markdown-parser';
+export { renderMarkdown } from './chat/markdown-renderer';
+
 // ── Generative provider (config-driven HTTP provider + provider-agnostic contracts) ──
 export {
   createAIProvider,
   HttpAIProvider,
   GridContextBuilder,
+  ContextRouter,
+  domainsForIntentKey,
   CommandNormalizer,
   buildSystemInstruction,
   serializeGridContext,
@@ -31,6 +55,7 @@ export {
   coerceGeneration,
   PhotonAIErrorKind,
   PhotonAIProviderError,
+  PhotonAIDomain,
   describeProviderError,
 } from './provider';
 export type {
@@ -46,5 +71,6 @@ export type {
   PhotonAIGridState,
   PhotonAISortState,
   PhotonAIFilterState,
+  PhotonAIContextScope,
   ProviderPreset,
 } from './provider';

@@ -13,24 +13,44 @@
  */
 export const filtersToolPanelCss = `/* ──────────────────── Filters Tool Panel ──────────────────── */
 
-/* Shared floating tools bar — a right-aligned flex cluster at the grid's
-   top-right corner that hosts every launcher (Filters funnel, Import, and any
-   future ones) so they sit side-by-side and never overlap each other or the
-   group/search bar underneath. Absolute positioning keeps it out of the flex
-   layout so it never affects row/column virtualization; the bar shrink-wraps to
-   its children, so with a single launcher it behaves exactly like a lone button.
-   pointer-events pass through the inter-launcher gaps to the group bar below. */
+/* Shared tools strip — a dedicated toolbar row pinned to the very top of the
+   grid (mounted as the first child of .pg-grid, above the header). It is split
+   into a left region (toolbar tabs + left-docked search) and a right region
+   (right-docked search + the Filters funnel / Import launchers), so nothing
+   overlaps the column headers underneath. As a normal flow child it
+   participates in the grid's flex-column layout, so the header/body shift down
+   by its height instead of being covered.
+
+   Its height is fixed at 48px (32px launcher + 2×8px padding) so the dropdown
+   panels below (.pg-filters-panel / .pg-import-menu at top:48px) anchor flush
+   beneath it. Keep that arithmetic in sync if the padding changes. */
 .pg-grid__tools {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  z-index: var(--pg-z-index-filter-panel, 200);
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px;
+  background: var(--pg-colors-surface, #ffffff);
+  border-bottom: 1px solid var(--pg-colors-border, #e2e8f0);
+}
+/* Left region — tab strip + left-docked search, packed from the start. */
+.pg-grid__tools__left {
   display: flex;
   align-items: center;
   gap: 8px;
-  pointer-events: none;
+  min-width: 0;
 }
-.pg-grid__tools > * { pointer-events: auto; }
+/* Right region — right-docked search + the Filters/Import launchers, packed
+   toward the end. Grows so it always hugs the right edge even when the left
+   region is empty. */
+.pg-grid__tools__right {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-left: auto;
+}
 
 /* Launcher — a funnel button living in the shared tools bar. position: relative
    anchors the active-count badge; ordering keeps the funnel left of Import. */

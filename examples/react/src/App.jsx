@@ -167,7 +167,7 @@ function App() {
 
   const options = useMemo(() => ({
     mode: 'dark',
-    variant: 'material',
+    variant: 'quantum',
     showCheckboxes: false,
     showSerialNumber: false,
     rowShading: false,

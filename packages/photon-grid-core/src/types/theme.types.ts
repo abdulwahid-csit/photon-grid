@@ -208,12 +208,12 @@ export type ThemeMode = 'light' | 'dark';
  * `'none'` (the default) applies no skin: the grid uses the mode palette with
  * the base component styling.
  */
-export type ThemeVariant = 'quartz' | 'alpine' | 'balham' | 'material';
+export type ThemeVariant = 'ion' | 'neon' | 'photon' | 'quantum';
 
 /** CSS class applied to the grid container for a given variant. */
 export const THEME_VARIANT_CLASS: Readonly<Record<ThemeVariant, string>> = {
-  quartz: 'pg-quartz-theme',
-  alpine: 'pg-alpine-theme',
-  balham: 'pg-balham-theme',
-  material: 'pg-material-theme',
+  ion: 'pg-ion-theme',
+  neon: 'pg-neon-theme',
+  photon: 'pg-photon-theme',
+  quantum: 'pg-quantum-theme',
 } as const;

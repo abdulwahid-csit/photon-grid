@@ -17,7 +17,7 @@
     </div>
   </ng-template>
 
-  <!-- <section class="grid-wrapper">
+  <section class="grid-wrapper">
     <photon-grid-angular
       [columns]="columns"
       [dataSet]="data"
@@ -27,7 +27,7 @@
       (rowSelected)="onRowSelected($event)"
       >
     </photon-grid-angular>
-  </section> -->
+  </section>
 
   <header class="page__header page__header--formula">
     <h2 class="page__title">Formula Playground</h2>
@@ -43,12 +43,48 @@
   </header>
 
   <section class="grid-wrapper grid-wrapper--formula">
-    <photon-grid-angular
+    <!-- <photon-grid-angular
       [columns]="formulaColumns"
       [dataSet]="formulaData"
       [options]="formulaOptions"
       (gridReady)="onFormulaGridReady($event)"
+      (toolbarTabChanged)="onToolbarTabChanged($event)"
+      (toolbarSearchChanged)="onToolbarSearchChanged($event)"
+      >
+    </photon-grid-angular> -->
+  </section>
+
+  <header class="page__header page__header--formula">
+    <h2 class="page__title">Server-Side Row Model</h2>
+    <p class="page__subtitle">
+      <code>rowModel: 'server'</code> — the grid renders only; sorting, filtering,
+      searching and pagination are all delegated to a
+      <code>serverSideDatasource</code> (an in-memory mock here that simulates a
+      backend with latency and request cancellation). Change the page, sort a
+      column, or type in a filter and watch the request/response in the console.
+    </p>
+  </header>
+
+  <!-- <header class="page__header page__header--formula">
+    <h2 class="page__title">AI Theme Engine</h2>
+    <p class="page__subtitle">
+      Open the <strong>Photon AI</strong> panel (bottom-right) and ask it to theme
+      the grid — e.g. <em>"create a GitHub dark theme"</em>,
+      <em>"make the header emerald green"</em> or <em>"improve accessibility"</em>.
+      The AI only ever sets real Photon design tokens (never arbitrary CSS) and
+      previews instantly. Use the <strong>Theme</strong> button in the top-right
+      tools strip to apply saved themes, export, import, or reset.
+    </p>
+  </header>
+
+  <section class="grid-wrapper grid-wrapper--formula">
+    <photon-grid-angular
+      [columns]="serverColumns"
+      [options]="serverOptions"
+      (serverRequest)="onServerRequest($event)"
+      (serverSuccess)="onServerSuccess($event)"
+      (serverError)="onServerError($event)"
       >
     </photon-grid-angular>
-  </section>
+  </section> -->
 </main>

@@ -17,9 +17,13 @@ export const miscCss = `/* ─────────────────�
   background: var(--pg-colors-surface, #fff);
   z-index: 20;
 }
-.pg-overlay--loading { background: rgba(255,255,255,0.85); }
+.pg-overlay--loading { background: var(--pg-colors-overlay-loading, rgba(255,255,255,0.85)); }
 .pg-overlay__text { color: var(--pg-colors-text-secondary, #475569); font-size: var(--pg-typography-font-size-md, 13px); }
 .pg-overlay__icon { color: var(--pg-colors-text-disabled, #94a3b8); }
+/* Dark mode: a translucent dark backdrop instead of the hardcoded white one, so
+   the loading spinner overlay matches the surface. A theme may override the
+   colour via the --pg-colors-overlay-loading token. */
+[data-pg-mode="dark"] .pg-overlay--loading { background: var(--pg-colors-overlay-loading, rgba(15,23,42,0.85)); }
 
 /* Error toast — a compact, bottom-anchored alert (not a full-screen overlay) so
    an import/validation failure is clearly surfaced instead of failing silently. */

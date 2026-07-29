@@ -31,10 +31,12 @@ export const rowDragCss = `/* ────────────────�
   align-items: center;
   gap: 6px;
   padding: 5px 10px;
-  border-radius: var(--pg-borders-radius-md, 6px);
-  border: 1.5px solid var(--pg-colors-primary, #2563eb);
+  height: var(--pg-drag-ghost-height, 28px);
+  border-radius: var(--pg-borders-radius-sm, 4px);
+  // border: 1.5px solid var(--pg-colors-primary, #2563eb);
+  border: 2px solid var(--pg-colors-drag-ghost-border-color, #ddd);
   background: var(--pg-colors-surface, #fff);
-  color: var(--pg-colors-primary, #2563eb);
+  color: var(--pg-colors-row-drag-ghost, #2c2c2c);
   font-size: var(--pg-typography-font-size-sm, 12px);
   font-weight: 500;
   box-shadow: 0 6px 24px rgba(37,99,235,0.13), 0 2px 8px rgba(37,99,235,0.12);

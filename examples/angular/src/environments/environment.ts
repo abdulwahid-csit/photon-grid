@@ -1,3 +1,4 @@
 export const environment = {
-    groqApiKey: ""
+    groqApiKey: "",
+    gemeniApiKey: '',
 }

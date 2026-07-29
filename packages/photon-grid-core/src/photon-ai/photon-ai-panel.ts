@@ -2,6 +2,7 @@ import type { IconRenderer } from '../icons/icon-renderer';
 import type { PhotonAIConfig } from '../types/photon-ai.types';
 import type { PhotonCommandResult } from './photon-ai.types';
 import { createDiv, createElement, clearChildren } from '../renderer/dom-utils';
+import { renderMarkdown } from './chat/markdown-renderer';
 
 /** Textarea grows with content up to this height (px), then scrolls internally. */
 const INPUT_MAX_HEIGHT_PX = 120;
@@ -287,7 +288,7 @@ export class PhotonAIPanel {
     if (message.role === 'assistant') {
       bubble.classList.toggle('pg-ai-panel__message--error', message.success === false);
     }
-    this.renderLines(bubble, message.text);
+    this.renderLines(bubble, message.text, message.role);
 
     this.logEl.appendChild(bubble);
     this.scrollToBottom();
@@ -298,8 +299,19 @@ export class PhotonAIPanel {
     return createDiv(`pg-ai-panel__message pg-ai-panel__message--${role}`);
   }
 
-  /** Renders `text` into `bubble` as one `<div>` per line (so multi-line replies keep their line breaks). */
-  private renderLines(bubble: HTMLElement, text: string): void {
+  /**
+   * Renders `text` into `bubble`.
+   *
+   * User messages stay plain text (they are echoes of what was typed, and a
+   * user typing backticks means backticks). Assistant messages go through the
+   * Markdown renderer so code blocks, lists, and headings display properly —
+   * with a copy button on every fenced block.
+   */
+  private renderLines(bubble: HTMLElement, text: string, role: ChatMessage['role'] = 'assistant'): void {
+    if (role === 'assistant') {
+      renderMarkdown(bubble, text, this.iconRenderer);
+      return;
+    }
     clearChildren(bubble);
     for (const line of text.split('\n')) {
       const lineEl = document.createElement('div');
@@ -331,7 +343,14 @@ export class PhotonAIPanel {
     bubble.classList.toggle('pg-ai-panel__message--error', result.success === false);
     this.messages.push({ role: 'assistant', text: result.message, success: result.success });
 
-    if (this.prefersReducedMotion()) {
+    // A reply carrying fenced code is rendered at once rather than typed out.
+    // Three reasons, in order of importance: the typewriter re-renders the whole
+    // bubble every frame, which would rebuild each code block — and with it the
+    // copy button and its listener — dozens of times a second; a half-revealed
+    // fence parses as prose, so the block would visibly flip between styles as
+    // it fills; and a user who asked for code wants to read and copy it now, not
+    // watch forty lines appear at 140 characters per second.
+    if (this.prefersReducedMotion() || result.message.includes('```')) {
       this.renderLines(bubble, result.message);
       this.scrollToBottom();
       return;

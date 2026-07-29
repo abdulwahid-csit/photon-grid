@@ -99,6 +99,28 @@ export const cellsCss = `/* ─────────────────�
   background-color: rgba(37,99,235,0.18) !important;
 }
 
+/*
+ * Single-cell selection (a 1×1 range = a plain focus click). Rendered as a
+ * lone focus cell: a 2px border only, NO selection fill and NO ::after range
+ * outline. The engine tags the sole selected cell with
+ * .pg-cell--single-cell-selection (see CellSelectionEngine.applySelectionClasses).
+ *
+ * These rules carry three selection classes (specificity 0,3,0) and sit after
+ * every light AND dark selection rule above, so they win the cascade over both
+ * the base fill rule and the dark background override without !important games.
+ */
+.pg-cell--single-cell-selection.pg-cell--in-selection.pg-cell--active-cell {
+  background-color: transparent !important;
+  box-shadow: inset 0 0 0 1px var(--pg-colors-primary, #2563eb) !important;
+}
+.pg-cell--single-cell-selection.pg-cell--in-selection.pg-cell--active-cell::after {
+  content: none;
+}
+[data-pg-mode="dark"] .pg-cell--single-cell-selection.pg-cell--in-selection.pg-cell--active-cell {
+  background-color: transparent !important;
+  box-shadow: inset 0 0 0 1px var(--pg-colors-primary, #60a5fa) !important;
+}
+
 /* ─── Group aggregate cells ─── */
 /*
  * Aggregate values are displayed inside .pg-cell--agg cells that sit directly

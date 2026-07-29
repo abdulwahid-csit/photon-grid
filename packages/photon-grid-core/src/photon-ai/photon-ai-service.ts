@@ -9,6 +9,7 @@ import { PhotonAICommandRegistry } from './photon-ai-registry';
 import { PhotonAIMemoryStore, columnSignature } from './photon-ai-memory';
 import { registerBuiltinCommands } from './builtins';
 import { GridContextBuilder } from './provider/grid-context-builder';
+import { ContextRouter } from './provider/context-router';
 import { CommandNormalizer } from './provider/command-normalizer';
 import { buildSystemInstruction } from './provider/system-prompt';
 import { describeProviderError, type PhotonAIProvider, type PhotonAIAction } from './provider/ai-provider.types';
@@ -75,6 +76,13 @@ export class PhotonAIService {
   private readonly providerSystemInstruction?: string;
   /** Builds a fresh grid-context snapshot per generative request. Lazily constructed alongside a provider. */
   private readonly contextBuilder: GridContextBuilder | null;
+  /**
+   * Classifies each prompt into the grid domains it touches, so only the
+   * relevant slice of context is sent. Lazily constructed alongside a provider
+   * — the deterministic pipeline never sends anything anywhere, so it has
+   * nothing to optimize.
+   */
+  private readonly contextRouter: ContextRouter | null;
   /** Reshapes model-generated actions into executable commands. Lazily constructed alongside a provider. */
   private readonly commandNormalizer: CommandNormalizer | null;
 
@@ -98,6 +106,7 @@ export class PhotonAIService {
     this.provider = provider ?? null;
     this.providerSystemInstruction = providerSystemInstruction;
     this.contextBuilder = this.provider ? new GridContextBuilder(this.api, this.registry) : null;
+    this.contextRouter = this.provider ? new ContextRouter(this.registry) : null;
     this.commandNormalizer = this.provider ? new CommandNormalizer(this.api) : null;
   }
 
@@ -160,14 +169,20 @@ export class PhotonAIService {
     const trimmed = rawInput.trim();
     if (!trimmed) return { success: false, message: 'Type a command first.' };
 
-    if (!this.provider || !this.contextBuilder || !this.commandNormalizer) {
+    if (!this.provider || !this.contextBuilder || !this.contextRouter || !this.commandNormalizer) {
       return this.submit(trimmed);
     }
 
     try {
-      const gridContext = this.contextBuilder.build();
+      // Classify first, then build only what the classification calls for. This
+      // is the token-optimization seam: a sort request never carries filter
+      // operators, pin state, or unrelated columns. An unclassifiable prompt
+      // falls back to the full context, so routing can only ever save tokens —
+      // it can never make a request unanswerable.
+      const scope = this.contextRouter!.route(trimmed, this.api.getAllColumns());
+      const gridContext = this.contextBuilder.build(scope);
       const generation = await this.provider.generate({
-        systemInstruction: buildSystemInstruction(this.providerSystemInstruction),
+        systemInstruction: buildSystemInstruction(this.providerSystemInstruction, scope),
         gridContext,
         userCommand: trimmed,
         signal,

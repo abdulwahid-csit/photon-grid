@@ -49,11 +49,15 @@ import { ColumnGroupHeaderBuilder } from '../column-groups/column-group-header-b
 import { DisplayGroupEngine } from '../column-groups/display-group-engine';
 import type { CellValueChangedEvent } from '../types/event.types';
 import { PhotonAIService } from '../photon-ai/photon-ai-service';
+import { PhotonAIAssistant } from '../photon-ai/photon-ai-assistant';
 import { createAIProvider } from '../photon-ai/provider';
 import { FormulaEngine } from '../formula/formula-engine';
 import { GridFormulaAdapter } from './formula-grid-adapter-impl';
 import { FormulaInitializer } from '../formula/formula-initializer';
 import { AutoFillEngine } from '../autofill/autofill-engine';
+import { ClientRowModel } from '../row-models/client-row-model';
+import { ServerRowModel } from '../row-models/server/server-row-model';
+import { PhotonThemeEngine } from '../photon-ai/theme/photon-theme-engine';
 
 /** Recursively collects leaf `ColumnDef` entries, skipping group wrappers. */
 function collectLeaves(cols: ColumnDef[]): ColumnDef[] {
@@ -228,7 +232,7 @@ export class GridCore {
       renderer.setTreeRenderConfig(options.treeData.toggleColumnId, treeExpansionService);
     }
 
-    return {
+    const ctx = {
       options,
       containerEl,
       eventBus,
@@ -261,7 +265,25 @@ export class GridCore {
       formulaInitializer,
       autoFillEngine,
       renderer,
-    };
+    } as GridContext;
+
+    // The row-model strategy captures `ctx`, so it is assigned after the context
+    // literal is built. `applyPipeline()` delegates to it every refresh.
+    ctx.rowModelStrategy =
+      options.rowModel === 'server'
+        ? new ServerRowModel(ctx, options.serverSide, options.serverSideDatasource)
+        : new ClientRowModel(ctx);
+
+    // AI Theme Engine (gridApi.photonAI) — always present; reuses the configured
+    // Photon AI provider (may be null → LLM methods throw, offline methods work).
+    ctx.photonThemeEngine = new PhotonThemeEngine(
+      createAIProvider(options.photonAI?.provider),
+      themeManager,
+      containerEl,
+      eventBus,
+    );
+
+    return ctx;
   }
 
   private initialize(): void {
@@ -271,7 +293,7 @@ export class GridCore {
     const ctx = this.ctx;
 
     // Theming resolves along two axes: `mode` (light/dark) drives the color
-    // palette via token injection, `variant` (quartz/alpine/…) layers a
+    // palette via token injection, `variant` (ion/neon/…) layers a
     // cosmetic skin as a container class. The deprecated `theme` option is
     // normalized onto these axes only when neither is set explicitly.
     if (options.mode || options.variant) {
@@ -300,7 +322,9 @@ export class GridCore {
         page: options.pagination.page ?? 1,
         pageSize: options.pagination.pageSize ?? 50,
         pageSizeOptions: options.pagination.pageSizeOptions ?? [10, 25, 50, 100],
-        serverSide: options.pagination.serverSide ?? false,
+        // Server mode always paginates server-side: the engine must not slice
+        // locally — the datasource returns exactly one page's rows.
+        serverSide: options.rowModel === 'server' ? true : (options.pagination.serverSide ?? false),
         totalRows: options.pagination.totalRows,
       });
     }
@@ -339,6 +363,12 @@ export class GridCore {
     ctx.treeDataService.configure(options.treeData);
     ctx.cellSelectionEngine.setTreeToggleHandler((row, direction) => this.handleTreeToggleKey(ctx, row, direction));
 
+    // Enable the top-right Theme Manager launcher before mount() (it is built
+    // with the tools strip). The theme API is resolved lazily via the live api.
+    const themeManagerEnabled =
+      options.themeManager === true || (typeof options.themeManager === 'object' && options.themeManager.enabled);
+    ctx.renderer.setThemeManager(() => this.api.photonAI, !!themeManagerEnabled, () => ctx.toastService);
+
     ctx.renderer.mount();
     ctx.renderer.setParentApiForDetail(this.api);
 
@@ -359,7 +389,29 @@ export class GridCore {
       // async streaming path; the deterministic sync handler above stays wired
       // as the fallback used whenever no provider is present.
       if (provider) {
-        ctx.renderer.setPhotonAIAsyncSubmitHandler((text, signal) => this.photonAIService!.submitAsync(text, signal));
+        // Panel dispatch chain, most specific first. Each stage inspects the
+        // message and either claims it (`handled`) or passes it on, so adding a
+        // capability means adding a link here rather than editing a branch:
+        //
+        //   1. Theme engine  — styling requests, applied live to the grid.
+        //   2. Assistant     — questions: docs/examples, code generation, data
+        //                      analysis, and configuration diagnostics.
+        //   3. Command AI    — the fallback: anything that operates the grid.
+        const assistant = new PhotonAIAssistant(
+          this.api,
+          options,
+          provider,
+          ctx.photonThemeEngine.getRegistry(),
+        );
+        ctx.renderer.setPhotonAIAsyncSubmitHandler(async (text, signal) => {
+          const themed = await ctx.photonThemeEngine.handlePanelCommand(text, signal);
+          if (themed.handled) return { success: true, message: themed.message };
+
+          const answered = await assistant.handle(text, signal);
+          if (answered.handled) return { success: answered.success !== false, message: answered.message };
+
+          return this.photonAIService!.submitAsync(text, signal);
+        });
       }
     }
 
@@ -416,7 +468,11 @@ export class GridCore {
       this.api.setColumnGroupModel(this.columnGroupModel);
     }
 
-    if (options.data?.length) {
+    if (options.rowModel === 'server') {
+      // Server mode ignores any static `options.data` — the datasource is the
+      // single source of truth. Kick off the initial fetch of the first page.
+      ctx.rowModelStrategy.start?.();
+    } else if (options.data?.length) {
       this.api.setData(options.data);
     }
 
@@ -994,6 +1050,7 @@ export class GridCore {
   }
 
   destroy(): void {
+    this.ctx.rowModelStrategy.destroy();
     this.ctx.rangeChartService?.disposeAll();
     this.api.destroy();
   }

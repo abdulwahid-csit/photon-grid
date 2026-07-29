@@ -34,6 +34,9 @@ import { FilterPanel } from '../engines/filter/filter-panel';
 import type { FilterSetOption } from '../engines/filter/filter-panel';
 import { FiltersToolPanel } from './filters-tool-panel';
 import { ImportMenu } from './import-menu';
+import { Toolbar } from './toolbar';
+import { ThemeManagerPanel } from './theme-manager-panel';
+import type { PhotonThemeApi } from '../types/theme-ai.types';
 import { ImportSourceType } from '../types/import.types';
 import { createDiv } from './dom-utils';
 import type { MasterDetailEngine } from '../engines/master-detail/master-detail-engine';
@@ -108,13 +111,28 @@ export class GridRenderer {
   private filtersToolPanel: FiltersToolPanel | null = null;
   /** Floating Import menu (launcher + dropdown) — only created when `import.enabled`. */
   private importMenu: ImportMenu | null = null;
+  /** Configurable top toolbar (tabs + global search) — only created when `toolbar.enabled`. */
+  private toolbar: Toolbar | null = null;
+  /** Top-right Theme Manager launcher — only created when `themeManager` is enabled. */
+  private themeManagerPanel: ThemeManagerPanel | null = null;
+  /** Lazily resolves the theme API for the Theme Manager (engine exists after this renderer). */
+  private themeApiProvider: (() => PhotonThemeApi) | null = null;
+  private themeToastProvider: (() => import('../toast/toast-service').ToastService) | null = null;
+  /** Whether the Theme Manager launcher should be mounted. */
+  private themeManagerEnabled = false;
   /**
-   * Shared floating tools bar (`.pg-grid__tools`) hosting every top-right
-   * launcher (Filters funnel, Import, …) so they sit side-by-side instead of
-   * stacking. Created lazily on first use via {@link getOrCreateToolsBar}; null
-   * when no launcher-based feature is enabled.
+   * Shared tools strip (`.pg-grid__tools`) — a dedicated toolbar row above the
+   * header hosting every top-right launcher (Filters funnel, Import, …) so they
+   * sit side-by-side instead of stacking. Created lazily on first use via
+   * {@link getOrCreateToolsBar}; null when no launcher-based feature is enabled.
    */
   private toolsBarEl: HTMLElement | null = null;
+  /** Left region of the tools strip (toolbar tabs + left-docked search). */
+  private toolsLeftEl: HTMLElement | null = null;
+  /** Right region of the tools strip (right-docked search + Filters/Import launchers). */
+  private toolsRightEl: HTMLElement | null = null;
+  /** Quick-filter seam shared by the group-bar search and the toolbar search. Wired by GridCore. */
+  private searchCallback: ((term: string) => void) | null = null;
   /** Host handler run when a file-based import source is chosen. Wired by GridCore. */
   private importFileHandler: ((source: ImportSourceType, file: File) => void) | null = null;
   /** Host handler run when *Paste From Clipboard* is chosen. Wired by GridCore. */
@@ -247,6 +265,17 @@ export class GridRenderer {
           ],
         onSelectFile: (source, file) => this.importFileHandler?.(source, file),
         onSelectClipboard: () => this.importClipboardHandler?.(),
+      });
+    }
+
+    if (options.toolbar?.enabled) {
+      // Pure-UI strip. `onSearch` reuses the same quick-filter seam as the
+      // group-bar search (wired lazily via setSearchCallback), and tab/search
+      // events are emitted straight onto the shared event bus.
+      this.toolbar = new Toolbar({
+        iconRenderer,
+        eventBus,
+        onSearch: (query) => this.searchCallback?.(query),
       });
     }
 
@@ -619,7 +648,38 @@ export class GridRenderer {
     type: import('./row-animator').RowAnimationType = 'sort',
   ): void {
     if (this.options.animateRows === false) return;
-    this.rowAnimator.capture(rows, type);
+    this.rowAnimator.capture(this.sliceAnimatableRows(rows), type);
+  }
+
+  /**
+   * Narrows an animation snapshot to the rows the renderer currently has DOM
+   * for, before it reaches {@link RowAnimator.capture}.
+   *
+   * This is a memory guard, not the correctness guard — `RowAnimator` decides
+   * what actually animates by testing each row's start and end position against
+   * the viewport. The problem this solves is upstream of that: `visibleRows` is
+   * the whole current page, and with the large `pageSize` values real grids use
+   * (10k–50k, sometimes the entire dataset) `capture()` would build a Map with
+   * one entry per page row on every sort keystroke, of which ~30 can possibly
+   * matter. Slicing to the rendered window keeps that allocation proportional to
+   * what is on screen, which is what makes sorting a million rows cost the same
+   * as sorting a hundred.
+   *
+   * `firstRenderedRowIndex`/`lastRenderedRowIndex` are written at the end of
+   * every `performRender`, so at capture time (before the pipeline re-runs) they
+   * still describe the window the user is looking at, and they index into the
+   * same pre-pipeline `visibleRows` array passed in here.
+   */
+  private sliceAnimatableRows<T extends { nodeId: string; top: number }>(
+    rows: ReadonlyArray<T>,
+  ): ReadonlyArray<T> {
+    const start = this.store.get('firstRenderedRowIndex') as number;
+    const end = this.store.get('lastRenderedRowIndex') as number;
+    // Guard against a capture that arrives before the first paint, or indices
+    // left stale by a page/dataset swap — a bad slice would silently disable
+    // the animation, so fall back to the full set rather than an empty one.
+    if (!(end > start) || start < 0 || start >= rows.length) return rows;
+    return rows.slice(start, Math.min(end, rows.length));
   }
 
   /**
@@ -636,7 +696,42 @@ export class GridRenderer {
 
   /** Wire up the group-bar search input to an external handler (e.g. api.setQuickFilter). */
   setSearchCallback(fn: (term: string) => void): void {
+    this.searchCallback = fn;
     this.groupDropZone?.setSearchCallback(fn);
+  }
+
+  /**
+   * Enable the top-right Theme Manager launcher and wire the (lazy) theme API
+   * provider. Must be called before `mount()` so the launcher is built with the
+   * tools strip.
+   *
+   * @param getThemeApi - Lazily resolves the live theme API.
+   * @param enabled - Whether the launcher should be built.
+   * @param getToasts - Lazily resolves the grid's toast service, used to
+   *   surface action feedback (import/export/reset) as transient toasts.
+   */
+  setThemeManager(
+    getThemeApi: () => PhotonThemeApi,
+    enabled: boolean,
+    getToasts: () => import('../toast/toast-service').ToastService,
+  ): void {
+    this.themeApiProvider = getThemeApi;
+    this.themeManagerEnabled = enabled;
+    this.themeToastProvider = getToasts;
+  }
+
+  /**
+   * Selects a toolbar tab by id, if the toolbar feature is enabled. Emits
+   * {@link import('../types/event.types').GridEventType.TOOLBAR_TAB_CHANGED} on
+   * change. No-op when the toolbar is disabled or the id is unknown/disabled.
+   */
+  setActiveToolbarTab(id: string): void {
+    this.toolbar?.setActiveTab(id);
+  }
+
+  /** Returns the active toolbar tab id, or `null` when the toolbar is disabled or has no tabs. */
+  getActiveToolbarTab(): string | null {
+    return this.toolbar?.getActiveTab() ?? null;
   }
 
   /**
@@ -907,8 +1002,12 @@ export class GridRenderer {
     this.photonAIPanel?.destroy();
     this.filtersToolPanel?.destroy();
     this.importMenu?.destroy();
+    this.toolbar?.destroy();
+    this.themeManagerPanel?.destroy();
     this.toolsBarEl?.remove();
     this.toolsBarEl = null;
+    this.toolsLeftEl = null;
+    this.toolsRightEl = null;
     this.tooltipController.destroy();
     this.scrollController.destroy();
     this.groupDropZone?.destroy();
@@ -1147,20 +1246,29 @@ export class GridRenderer {
       this.photonAIPanel.mount(bodyWrapEl, this.options.photonAI!);
     }
 
-    // Mount the Filters Tool Panel into the grid wrapper (not the body) so its
-    // launcher floats over the top-right of the header band. Absolute
-    // positioning keeps it out of the flex layout, so it never affects
-    // row/column virtualization or the header measurements.
-    if (this.filtersToolPanel && this.wrapperEl) {
-      this.filtersToolPanel.mount(this.wrapperEl, this.getOrCreateToolsBar(), this.options.filtersToolPanel!);
+    // Mount the configurable toolbar first so its tabs/left-search fill the
+    // left region and any right-docked search sits *before* the Filters/Import
+    // launchers within the right region (DOM order = visual order).
+    if (this.toolbar && this.options.toolbar) {
+      this.toolbar.mount(this.getToolsLeftRegion(), this.getToolsRightRegion(), this.options.toolbar);
     }
 
-    // Mount the Import menu (launcher + dropdown) into the grid wrapper, and
-    // drive the loading overlay from the engine's progress events so the user
-    // sees "Parsing… / Mapping… / Rendering…" without this renderer knowing
-    // anything about the import pipeline.
-    if (this.importMenu && this.wrapperEl) {
-      this.importMenu.mount(this.wrapperEl, this.getOrCreateToolsBar());
+    // Mount the Filters Tool Panel launcher into the tools strip's right region;
+    // its floating panel goes on the wrapper. Absolute positioning keeps the
+    // panel out of the flex layout, so it never affects virtualization. The
+    // toolbar's `showFilterButton` toggle (default true) can hide the launcher.
+    const showFilterButton = this.options.toolbar ? this.options.toolbar.showFilterButton !== false : true;
+    if (this.filtersToolPanel && this.wrapperEl && showFilterButton) {
+      this.filtersToolPanel.mount(this.wrapperEl, this.getToolsRightRegion(), this.options.filtersToolPanel!);
+    }
+
+    // Mount the Import menu (launcher + dropdown), and drive the loading overlay
+    // from the engine's progress events so the user sees "Parsing… / Mapping… /
+    // Rendering…" without this renderer knowing anything about the import
+    // pipeline. The toolbar's `showImportButton` toggle (default true) can hide it.
+    const showImportButton = this.options.toolbar ? this.options.toolbar.showImportButton !== false : true;
+    if (this.importMenu && this.wrapperEl && showImportButton) {
+      this.importMenu.mount(this.wrapperEl, this.getToolsRightRegion());
       this.unsubscribers.push(
         this.eventBus.on<import('../types/import.types').ImportProgressEvent>(
           GridEventType.IMPORT_PROGRESS,
@@ -1173,6 +1281,29 @@ export class GridRenderer {
         }),
       );
     }
+
+    // Mount the Theme Manager launcher (apply saved themes / export / import /
+    // reset) into the tools strip when enabled. The theme API is resolved lazily
+    // because the engine is constructed after this renderer.
+    if (this.themeManagerEnabled && this.themeApiProvider && this.themeToastProvider && this.wrapperEl) {
+      this.themeManagerPanel = new ThemeManagerPanel({
+        iconRenderer: this.iconRenderer,
+        getThemeApi: this.themeApiProvider,
+        getToasts: this.themeToastProvider,
+      });
+      this.themeManagerPanel.mount(this.wrapperEl, this.getToolsRightRegion());
+    }
+
+    // Server-Side Row Model: surface a failed fetch as an error overlay. Loading
+    // and empty states are already handled by the `loading` store flag + the
+    // `rows.length === 0` gating in performRender, so only errors need wiring.
+    // Subscribed unconditionally (independent of the toolbar/import launchers).
+    this.unsubscribers.push(
+      this.eventBus.on<import('../types/event.types').ServerErrorEvent>(
+        GridEventType.SERVER_ERROR,
+        (e) => this.overlayRenderer.showError(e.message),
+      ),
+    );
 
     this.tooltipController.mount(bodyWrapEl);
 
@@ -1372,17 +1503,37 @@ export class GridRenderer {
   }
 
   /**
-   * Returns the shared floating tools bar (`.pg-grid__tools`), creating it once
-   * on first use and appending it to the grid wrapper. Every top-right launcher
-   * (Filters funnel, Import, …) mounts into this bar so they lay out
-   * side-by-side via flex instead of stacking on the same corner.
+   * Returns the shared tools strip (`.pg-grid__tools`), creating it once on
+   * first use and inserting it as the first child of the grid wrapper so it
+   * forms a dedicated toolbar row above the header. The strip is split into a
+   * left region (toolbar tabs + left-docked search) and a right region
+   * (right-docked search + the Filters/Import launchers).
    */
   private getOrCreateToolsBar(): HTMLElement {
     if (!this.toolsBarEl) {
       this.toolsBarEl = createDiv('pg-grid__tools');
-      this.wrapperEl?.appendChild(this.toolsBarEl);
+      this.toolsLeftEl = createDiv('pg-grid__tools__left');
+      this.toolsRightEl = createDiv('pg-grid__tools__right');
+      this.toolsBarEl.appendChild(this.toolsLeftEl);
+      this.toolsBarEl.appendChild(this.toolsRightEl);
+      // Prepend so the strip sits at the very top of the grid, above the
+      // outer row (header + body). insertBefore(el, firstChild) is a safe
+      // prepend even when firstChild is null.
+      this.wrapperEl?.insertBefore(this.toolsBarEl, this.wrapperEl.firstChild);
     }
     return this.toolsBarEl;
+  }
+
+  /** Left region of the tools strip — creates the strip if needed. */
+  private getToolsLeftRegion(): HTMLElement {
+    this.getOrCreateToolsBar();
+    return this.toolsLeftEl!;
+  }
+
+  /** Right region of the tools strip — creates the strip if needed. */
+  private getToolsRightRegion(): HTMLElement {
+    this.getOrCreateToolsBar();
+    return this.toolsRightEl!;
   }
 
   /**
@@ -1691,12 +1842,25 @@ export class GridRenderer {
     }
     this.stickyNodeId = stickyNodeId;
 
+    // Row window for this frame. While a row drag is in progress the dragged
+    // row must stay in the DOM even after auto-scroll pushes its *real* position
+    // out of the virtual window: the drag preview repositions it via a `top`
+    // override near the drop target, but virtualization slices on real tops, so
+    // without pinning it here the dragged row (and the visible placeholder that
+    // is that row shown translucent) would be evicted, leaving a blank gap.
+    const renderedRows = rows.slice(start, end);
+    const draggingNodeId = this.rowDragRenderer?.getDraggingNodeId() ?? null;
+    if (draggingNodeId && !renderedRows.some((r) => r.nodeId === draggingNodeId)) {
+      const dragged = rows.find((r) => r.nodeId === draggingNodeId);
+      if (dragged) renderedRows.push(dragged);
+    }
+
     // Update row position stylesheet for visible rows.
     // In auto-height mode always use rowHeight as min-height so that widening a
     // column allows rows to shrink back — the previously measured row.height must
     // not pin min-height or rows can never get shorter.
     this.rowPositionSheet.update(
-      rows.slice(start, end).map((row) => ({
+      renderedRows.map((row) => ({
         nodeId: row.nodeId,
         top: row.top,
         height: isAutoHeight ? rowHeight : (row.height ?? rowHeight),
@@ -1713,7 +1877,6 @@ export class GridRenderer {
     // custom cell renderers (images, flags, etc.) and causing visible blinking.
     // We skip renderRows while resizing and instead only advance the tracked
     // range so the next normal paint (after mouseup) does not see a stale range.
-    const renderedRows = rows.slice(start, end);
 
     const masterDetailOptions = this.masterDetailEngine?.isEnabled()
       ? {
@@ -1773,16 +1936,6 @@ export class GridRenderer {
       this.bodyRenderer.setStickyRows(treeStickyEntries);
     }
 
-    // Animate rows after sort (FLIP slide) or filter (FLIP slide + fade-in for new rows)
-    if (this.rowAnimator.hasPending()) {
-      const animContainers = [
-        this.leftBodyContentEl,
-        this.centerBodyContentEl,
-        this.rightBodyContentEl,
-      ].filter(Boolean) as HTMLElement[];
-      this.rowAnimator.animate(animContainers, renderedRows, viewportHeight);
-    }
-
     // Auto-height measurement pass: read actual row heights and sync all panels
     if (isAutoHeight) {
       const nodeIdToRow = new Map(renderedRows.map((r) => [r.nodeId, r]));
@@ -1819,6 +1972,28 @@ export class GridRenderer {
 
     this.store.set('firstRenderedRowIndex', start);
     this.store.set('lastRenderedRowIndex', end);
+
+    // ── Row animation (sort / filter / group / detail) ───────────────────────
+    // Deliberately the LAST thing this render does that touches row geometry.
+    //
+    // The auto-height pass above measures rows and, when anything changed,
+    // rewrites every `top` in the position stylesheet. Animating before that
+    // would invert against positions the very next statement invalidates — the
+    // rows would slide toward a layout that no longer exists, then snap. Running
+    // here means the DOM already reflects the final order *and* final geometry,
+    // which is exactly the ordering the FLIP contract requires.
+    //
+    // The animator is handed the renderer's live row cache (the same reused
+    // elements, no DOM query) and the scroll window, so only rows whose movement
+    // is actually on screen animate — sorting 1M rows animates the ~30 rendered
+    // ones, and no more.
+    if (this.rowAnimator.hasPending()) {
+      this.rowAnimator.animate(
+        this.bodyRenderer.getRenderedRows(),
+        renderedRows,
+        { scrollTop, height: viewportHeight },
+      );
+    }
 
     // Footer
     if (this.footerContainerEl) {

@@ -30,6 +30,8 @@ import type { TreeSelectionService } from '../engines/tree/tree-selection-servic
 import type { FormulaEngine } from '../formula/formula-engine';
 import type { FormulaInitializer } from '../formula/formula-initializer';
 import type { AutoFillEngine } from '../autofill/autofill-engine';
+import type { RowModelStrategy } from '../row-models/row-model-strategy';
+import type { PhotonThemeEngine } from '../photon-ai/theme/photon-theme-engine';
 
 export interface GridContext {
   options: GridOptions;
@@ -38,6 +40,13 @@ export interface GridContext {
   store: GridStore;
   columnModel: ColumnModel;
   rowModel: RowModel;
+  /**
+   * The active row-model strategy behind `GridOptions.rowModel`. `applyPipeline()`
+   * delegates to this to produce the displayed rows: {@link import('../row-models/client-row-model').ClientRowModel}
+   * (in-memory, default) or {@link import('../row-models/server/server-row-model').ServerRowModel}
+   * (delegates to a datasource). Assigned in `GridCore.buildContext`.
+   */
+  rowModelStrategy: RowModelStrategy;
   sortEngine: SortEngine;
   filterEngine: FilterEngine;
   paginationEngine: PaginationEngine;
@@ -104,4 +113,11 @@ export interface GridContext {
    */
   autoFillEngine: AutoFillEngine;
   renderer: GridRenderer;
+  /**
+   * AI Theme Engine — natural-language theme generation/modification over the
+   * real design-token registry, exposed publicly as `gridApi.photonAI`. Always
+   * present; LLM-backed methods are inert (throw) unless a provider is
+   * configured via `GridOptions.photonAI.provider`. Assigned in `initialize()`.
+   */
+  photonThemeEngine: PhotonThemeEngine;
 }

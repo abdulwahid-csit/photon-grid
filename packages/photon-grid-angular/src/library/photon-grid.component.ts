@@ -35,6 +35,13 @@ import type {
     RowClickPayload,
     RowSelectedEvent,
     ThemeChangedEvent,
+    ToolbarTabChangedEvent,
+    ToolbarSearchChangedEvent,
+    ServerRequestEvent,
+    ServerSuccessEvent,
+    ServerErrorEvent,
+    ServerRefreshEvent,
+    ServerRetryEvent,
 } from 'photon-grid-core';
 
 import { RendererAdapter } from './angular-renderer.adapter';
@@ -142,7 +149,7 @@ export class PhotonGridComponent implements AfterViewInit, OnChanges, OnDestroy 
      *     provider: {
      *       type: PhotonAIProviderType.Gemini,
      *       apiKey: environment.geminiApiKey,
-     *       model: 'gemini-2.5-flash',
+     *       model: 'gemini-flash-latest',
      *     },
      *   },
      * };
@@ -201,6 +208,27 @@ export class PhotonGridComponent implements AfterViewInit, OnChanges, OnDestroy 
 
     /** An export finished. */
     @Output() readonly exportComplete = new EventEmitter<ExportEvent>();
+
+    /** A toolbar tab was selected (by the user or `api.setActiveToolbarTab`). */
+    @Output() readonly toolbarTabChanged = new EventEmitter<ToolbarTabChangedEvent>();
+
+    /** The toolbar's global search query changed (debounced). */
+    @Output() readonly toolbarSearchChanged = new EventEmitter<ToolbarSearchChangedEvent>();
+
+    /** Server-Side Row Model: a fetch is about to be issued (or served from cache). */
+    @Output() readonly serverRequest = new EventEmitter<ServerRequestEvent>();
+
+    /** Server-Side Row Model: a fetched (or cached) slice was applied to the grid. */
+    @Output() readonly serverSuccess = new EventEmitter<ServerSuccessEvent>();
+
+    /** Server-Side Row Model: a request ultimately failed (after any retries). */
+    @Output() readonly serverError = new EventEmitter<ServerErrorEvent>();
+
+    /** Server-Side Row Model: `api.refreshServerSide()` was invoked. */
+    @Output() readonly serverRefresh = new EventEmitter<ServerRefreshEvent>();
+
+    /** Server-Side Row Model: a failed request is being retried. */
+    @Output() readonly serverRetry = new EventEmitter<ServerRetryEvent>();
 
     /** The live core instance, created in {@link ngAfterViewInit}. */
     private grid?: GridCore;
@@ -328,6 +356,13 @@ export class PhotonGridComponent implements AfterViewInit, OnChanges, OnDestroy 
         this.subscribe(api, GridEventType.COLUMNS_STATE_CHANGED, this.columnsStateChanged);
         this.subscribe(api, GridEventType.THEME_CHANGED, this.themeChanged);
         this.subscribe(api, GridEventType.EXPORT_COMPLETE, this.exportComplete);
+        this.subscribe(api, GridEventType.TOOLBAR_TAB_CHANGED, this.toolbarTabChanged);
+        this.subscribe(api, GridEventType.TOOLBAR_SEARCH_CHANGED, this.toolbarSearchChanged);
+        this.subscribe(api, GridEventType.SERVER_REQUEST, this.serverRequest);
+        this.subscribe(api, GridEventType.SERVER_SUCCESS, this.serverSuccess);
+        this.subscribe(api, GridEventType.SERVER_ERROR, this.serverError);
+        this.subscribe(api, GridEventType.SERVER_REFRESH, this.serverRefresh);
+        this.subscribe(api, GridEventType.SERVER_RETRY, this.serverRetry);
     }
 
     /**

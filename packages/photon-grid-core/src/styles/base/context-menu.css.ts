@@ -86,7 +86,7 @@ export const contextMenuCss = `/* ─── Context menu ─── */
    background (which sits above the darker data-row background in dark themes) so
    the number gutter reads as grid chrome — matching the header and footer
    surfaces — rather than as data. Scoped to dark mode per design; variants that
-   define their own serial-column chrome (e.g. quartz) still win via source order. */
+   define their own serial-column chrome (e.g. ion) still win via source order. */
 [data-pg-mode="dark"] .pg-cell--serial {
   background: var(--pg-colors-header-background, var(--pg-colors-footer-background, #1e293b));
 }

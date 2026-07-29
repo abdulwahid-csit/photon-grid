@@ -48,7 +48,7 @@ export interface PhotonGridProps {
    *       provider: {
    *         type: PhotonAIProviderType.Gemini,
    *         apiKey: import.meta.env.VITE_GEMINI_API_KEY,
-   *         model: 'gemini-2.5-flash',
+   *         model: 'gemini-flash-latest',
    *       },
    *     },
    *   }}

@@ -185,14 +185,17 @@ export const columnGroupHeaderCss = `/* ─────────────�
   position: fixed;
   pointer-events: none;
   z-index: 9999;
+  height: var(--pg-drag-ghost-height, 28px);
   display: flex;
   align-items: center;
   gap: var(--pg-drag-ghost-gap, 8px);
   padding: 5px 12px 5px 10px;
   background: var(--pg-colors-drag-ghost-background, var(--pg-colors-drag-preview-background, var(--pg-colors-surface, #fff)));
-  border: 1.5px solid var(--pg-colors-primary, #2563eb);
-  border-radius: var(--pg-borders-radius-md, 6px);
-  box-shadow: 0 6px 24px rgba(0,0,0,0.13), 0 2px 8px rgba(37, 99, 235, 0.12);
+  border: 2px solid var(--pg-colors-drag-ghost-border-color, #ddd);
+  border-radius: var(--pg-borders-radius-sm, 6px);
+  box-shadow:
+  0 8px 30px rgba(0, 0, 0, 0.08),
+  0 2px 10px rgba(59, 130, 246, 0.08);
   font-family: var(--pg-typography-font-family, system-ui, sans-serif);
   font-size: var(--pg-typography-font-size-sm, 12px);
   font-weight: var(--pg-typography-font-weight-semi-bold, 600);

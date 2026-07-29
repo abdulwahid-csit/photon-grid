@@ -86,6 +86,53 @@ export type {
   GridImportSink,
 } from './types/import.types';
 
+export { ToolbarSearchPosition } from './types/toolbar.types';
+export type {
+  ToolbarConfig,
+  ToolbarTab,
+  ToolbarTabsConfig,
+  ToolbarSearchConfig,
+} from './types/toolbar.types';
+export type { ToolbarTabChangedEvent, ToolbarSearchChangedEvent } from './types/event.types';
+
+export type {
+  RowModelType,
+  SortModelItem,
+  ServerSideRequest,
+  ServerSideResult,
+  ServerSideGetRowsParams,
+  ServerSideDatasource,
+  ServerSideConfig,
+  ServerSideCacheConfig,
+} from './types/server-side.types';
+export type {
+  ServerRequestEvent,
+  ServerSuccessEvent,
+  ServerErrorEvent,
+  ServerRefreshEvent,
+  ServerRetryEvent,
+} from './types/event.types';
+
+export { ThemeCategory, ThemeVariableType } from './types/theme-ai.types';
+export type {
+  ThemeVariable,
+  ThemeVariableRegistryReader,
+  GeneratedTheme,
+  ThemeGenerationResult,
+  ThemeValidationResult,
+  RejectedThemeVariable,
+  ThemeGenerateParams,
+  ThemeModifyParams,
+  ThemeOptimizeOptions,
+  ThemeExplanation,
+  ThemeHistoryEntry,
+  ThemeExportFormat,
+  PhotonThemeApi,
+} from './types/theme-ai.types';
+export type { ThemeAiAppliedEvent, ThemeAiErrorEvent } from './types/event.types';
+export { ThemeVariableRegistry, buildDefaultThemeVariables } from './photon-ai/theme/theme-variable-registry';
+export { PhotonThemeError } from './photon-ai/theme/photon-theme-engine';
+
 export { ClipboardEngine } from './engines/clipboard/clipboard-engine';
 export { UndoRedoEngine } from './engines/undo-redo/undo-redo-engine';
 export type { CellChange, UndoRedoAction, UndoRedoActionType } from './engines/undo-redo/undo-redo-engine';
@@ -146,10 +193,12 @@ export {
   createAIProvider,
   HttpAIProvider,
   GridContextBuilder,
+  ContextRouter,
   CommandNormalizer,
   buildSystemInstruction,
   PhotonAIErrorKind,
   PhotonAIProviderError,
+  PhotonAIDomain,
 } from './photon-ai';
 export type { PhotonCommand, PhotonCommandResult, ResolvedEntities, IntentDefinition, ParsedIntentMatch } from './photon-ai';
 export type {
@@ -163,6 +212,7 @@ export type {
   PhotonAIColumnContext,
   PhotonAICapability,
   PhotonAIGridState,
+  PhotonAIContextScope,
 } from './photon-ai';
 export type { PhotonAIConfig, PhotonAIProviderConfig } from './types/photon-ai.types';
 export { PhotonAIProviderType } from './types/photon-ai.types';

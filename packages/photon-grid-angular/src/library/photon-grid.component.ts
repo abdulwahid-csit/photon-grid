@@ -45,7 +45,7 @@ import type {
 } from 'photon-grid-core';
 
 import { RendererAdapter } from './angular-renderer.adapter';
-import type {ColumnDef as GridColumnDef } from './angular-renderer.types';
+import type { ColumnDef as GridColumnDef, PhotonGridOptions } from './angular-renderer.types';
 
 /**
  * Angular wrapper around the framework-agnostic Photon Grid core.
@@ -99,6 +99,25 @@ import type {ColumnDef as GridColumnDef } from './angular-renderer.types';
  *   colId: 'status', field: 'status', header: 'Status', type: 'string',
  *   renderer: { display: { kind: 'template', template: this.statusTpl } },
  * }];
+ * ```
+ *
+ * @example Template-based Master/Detail renderer
+ * ```html
+ * <ng-template #detailTpl let-ctx let-data="data">
+ *   <h2>{{ data['account'] }}</h2>
+ *   <button type="button" (click)="ctx.emit('save', data)">Save</button>
+ * </ng-template>
+ * ```
+ * ```ts
+ * @ViewChild('detailTpl') detailTpl!: TemplateRef<DetailTemplateContext>;
+ * options: Partial<PhotonGridOptions> = {
+ *   masterDetail: {
+ *     enabled: true,
+ *     renderer: { kind: 'template', template: this.detailTpl },
+ *     props: (ctx) => ({ orders: ctx.detailData ?? [] }),
+ *     events: { save: (e) => this.persist(e.payload) },
+ *   },
+ * };
  * ```
  */
 @Component({
@@ -156,7 +175,7 @@ export class PhotonGridComponent implements AfterViewInit, OnChanges, OnDestroy 
      * ```
      */
     @Input()
-    options: Partial<GridOptions> = {};
+    options: Partial<PhotonGridOptions> = {};
 
     /** Emitted once the grid is constructed, carrying its {@link GridApi}. */
     @Output() readonly gridReady = new EventEmitter<GridApi>();
@@ -295,10 +314,10 @@ export class PhotonGridComponent implements AfterViewInit, OnChanges, OnDestroy 
         this.rendererAdapter.observe(this.gridHost.nativeElement);
 
         const mergedOptions: GridOptions = {
-            ...this.options,
+            ...this.rendererAdapter.adaptOptions(this.options),
             columns: this.rendererAdapter.adaptColumns(this.columns),
             data: this.dataSet,
-        };
+        } as GridOptions;
 
         const grid = new GridCore(this.gridHost.nativeElement, mergedOptions);
         this.grid = grid;

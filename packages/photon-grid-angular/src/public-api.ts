@@ -23,3 +23,18 @@ export { GridEventType } from 'photon-grid-core';
 export { PhotonAIProviderType } from 'photon-grid-core';
 export type { PhotonAIConfig, PhotonAIProviderConfig, PhotonAIRequest, PhotonAIResponse } from 'photon-grid-core';
 
+// ── Master/Detail custom renderers ───────────────────────────────────────────
+// The Angular-flavoured `renderer` / `props` / `events` surface lives in
+// `angular-renderer.types` (exported above); these are the core types those
+// signatures are built from, re-exported so a consumer can annotate a detail
+// component or an event handler without importing photon-grid-core directly.
+export type {
+    DetailComponent,
+    DetailContext,
+    DetailEvent,
+    DetailEventHandler,
+    DetailEventHandlerMap,
+    MasterDetailConfig,
+} from 'photon-grid-core';
+export { EmptyDetailToggleMode } from 'photon-grid-core';
+

@@ -1063,11 +1063,13 @@ export class HeaderRenderer {
       th.appendChild(content);
     }
 
-    // Filter icon — reveal-on-hover by default; always visible when a filter is
-    // active, or when the column/grid opts into `HeaderIconDisplay.ALWAYS`.
-    // Skipped entirely when the mode is `HeaderIconDisplay.HIDDEN`.
+    // Filter icon — opt-in per column via `filterable: true`. The column stays
+    // filterable when the flag is omitted (every capability check reads it as
+    // `!== false`); this only decides whether the header carries the funnel, so
+    // a grid does not sprout an icon on every column by default. Display mode
+    // then controls hover-vs-always, and `HIDDEN` suppresses it outright.
     const filterMode = col.filterIconDisplay ?? options.filterIconDisplay ?? HeaderIconDisplay.HOVER;
-    if (col.filterable !== false && filterMode !== HeaderIconDisplay.HIDDEN) {
+    if (col.filterable === true && filterMode !== HeaderIconDisplay.HIDDEN) {
       const filterBtn = createDiv('pg-th__filter-btn');
       const filterActive = col.filterActive === true;
       if (filterActive) filterBtn.classList.add('pg-th__filter-btn--active');
@@ -1086,10 +1088,12 @@ export class HeaderRenderer {
       th.appendChild(filterBtn);
     }
 
-    // Column-menu "⋯" icon — hidden entirely when the mode is
-    // `HeaderIconDisplay.HIDDEN` (the header right-click menu still works).
+    // Column-menu "⋯" icon — opt-in per column via `configurable: true`, then
+    // gated by the grid-wide `showColumnMenu` and the display mode. Right-click
+    // access to the same menu is independent (see `enableRightClick`), so a
+    // column can stay configurable by context menu without showing a button.
     const menuMode = col.menuIconDisplay ?? options.menuIconDisplay ?? HeaderIconDisplay.HOVER;
-    if (options.showColumnMenu !== false && menuMode !== HeaderIconDisplay.HIDDEN) {
+    if (col.configurable === true && options.showColumnMenu !== false && menuMode !== HeaderIconDisplay.HIDDEN) {
       const menuBtn = createDiv('pg-th__menu-btn');
       if (menuMode === HeaderIconDisplay.ALWAYS) menuBtn.classList.add('pg-th__menu-btn--always');
       menuBtn.innerHTML = this.iconRenderer.renderToString('menuHorizontal', 14);

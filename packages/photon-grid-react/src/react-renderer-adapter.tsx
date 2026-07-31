@@ -2,13 +2,56 @@ import { createElement, type ComponentType, type JSX } from 'react';
 import { createPortal } from 'react-dom';
 import { createRoot, type Root } from 'react-dom/client';
 
-import type { ColumnDef, ColumnDefInput, RendererOutput } from 'photon-grid-core';
+import type {
+  ColumnDef,
+  ColumnDefInput,
+  DetailComponent,
+  DetailComponentConstructor,
+  DetailContext,
+  DetailRenderer,
+  GridOptions,
+  MasterDetailConfig,
+  RendererOutput,
+} from 'photon-grid-core';
 
 export interface ReactRendererSpec {
   kind: 'component';
   component: ComponentType<Record<string, unknown>>;
   props?: (params: unknown) => Record<string, unknown>;
 }
+
+/**
+ * `masterDetail.renderer` as accepted by the React wrapper: a React component
+ * passed directly, or anything the core already accepts (a `DetailComponent`
+ * class, a `(ctx) => HTMLElement | string` function, a static HTML string).
+ *
+ * ```tsx
+ * renderer: OrderDetail                                  // a React component
+ * renderer: (ctx) => `<h2>${ctx.data.account}</h2>`      // core: HTML from a function
+ * renderer: '<h2>Details</h2>'                           // core: a static HTML string
+ * ```
+ *
+ * A bare function is treated as a React component only when its name is
+ * capitalised — the same convention {@link isComponentRenderer} uses for
+ * cells, since a lowercase React component is indistinguishable from a core
+ * function renderer. For that case, wrap it explicitly with
+ * {@link createReactDetailRenderer}.
+ */
+export type ReactDetailRenderer = ComponentType<Record<string, unknown>> | DetailRenderer;
+
+/** Core `MasterDetailConfig` with `renderer` widened to the React forms above. */
+export type ReactMasterDetailConfig = Omit<MasterDetailConfig, 'renderer'> & {
+  renderer?: ReactDetailRenderer;
+};
+
+/**
+ * Core `GridOptions` with `masterDetail.renderer` widened to accept React
+ * components. Assignment-compatible with the core type, so an existing
+ * `GridOptions` object passes through unchanged.
+ */
+export type PhotonGridOptions = Omit<GridOptions, 'masterDetail'> & {
+  masterDetail?: ReactMasterDetailConfig;
+};
 
 type RendererSlotValue = ((params: unknown) => RendererOutput) | ReactRendererSpec | ComponentType<Record<string, unknown>> | undefined;
 
@@ -116,6 +159,36 @@ export class ReactRendererAdapter {
         renderer: adaptedRenderer,
       } as ColumnDef;
     });
+  }
+
+  /**
+   * Converts React-flavoured grid options into what the core accepts.
+   *
+   * Currently that is `masterDetail.renderer`: a React component is wrapped in
+   * a core `DetailComponent` class that owns its own React root and unmounts
+   * it in `destroy()`.
+   *
+   * Unlike cell renderers, detail rows need no portal bookkeeping and no
+   * `MutationObserver`: the core's detail lifecycle hands us explicit
+   * `init`/`refresh`/`destroy` hooks, and there is at most one mounted detail
+   * per expanded row.
+   *
+   * Returns the original object untouched when there is nothing React to
+   * adapt, so the common case allocates nothing.
+   */
+  adaptOptions(options: Partial<PhotonGridOptions>): Partial<GridOptions> {
+    const masterDetail = options.masterDetail;
+    if (!masterDetail?.renderer) {
+      return options as Partial<GridOptions>;
+    }
+
+    return {
+      ...options,
+      masterDetail: {
+        ...masterDetail,
+        renderer: adaptDetailRenderer(masterDetail.renderer),
+      },
+    } as Partial<GridOptions>;
   }
 
   dispose(): void {
@@ -307,3 +380,79 @@ export class ReactRendererAdapter {
 }
 
 export type { PhotonGridColumnDef };
+
+// ── Master/Detail ────────────────────────────────────────────────────────────
+
+/**
+ * Resolves a {@link ReactDetailRenderer} to a core `DetailRenderer`. Core
+ * forms — a `DetailComponent` class, a function, an HTML string — pass
+ * straight through; the wrapper only adds the React form.
+ */
+function adaptDetailRenderer(renderer: ReactDetailRenderer): DetailRenderer {
+  // Probed as `unknown` rather than through the union: each check below
+  // narrows by exclusion, and by the last one TypeScript has reduced the union
+  // to a shape that no longer admits the structural test being made.
+  const candidate: unknown = renderer;
+
+  // A memo/forwardRef component is an object carrying React's brand symbol.
+  if (typeof candidate === 'object' && candidate !== null && '$$typeof' in candidate) {
+    return createReactDetailRenderer(candidate as ComponentType<Record<string, unknown>>);
+  }
+
+  if (typeof candidate === 'function' && /^[A-Z]/.test(candidate.name)) {
+    return createReactDetailRenderer(candidate as ComponentType<Record<string, unknown>>);
+  }
+
+  return renderer as DetailRenderer;
+}
+
+/** Props every detail component receives. Anything else comes from `masterDetail.props`, delivered as the `props` prop. */
+function detailProps(ctx: DetailContext): Record<string, unknown> {
+  return { ctx, data: ctx.data, props: ctx.props, api: ctx.api, rowNode: ctx.rowNode };
+}
+
+/**
+ * Wraps a React component in a core `DetailComponent` class.
+ *
+ * A class (rather than a `(ctx) => HTMLElement` function) because only the
+ * class form gets `destroy()` — a React root that is merely detached from the
+ * DOM is never unmounted, so its effects and subscriptions would outlive the
+ * collapsed row.
+ *
+ * Each expanded row gets its own root mounted into `ctx.containerEl`. `refresh`
+ * re-renders that root in place and returns `true`, so React reconciles rather
+ * than the core tearing the component down and rebuilding it.
+ *
+ * Exported for the one case the bare form cannot express: a lowercase-named
+ * function component, which is indistinguishable from a core function
+ * renderer. `renderer: createReactDetailRenderer(myDetail)` settles it.
+ */
+export function createReactDetailRenderer(
+  component: ComponentType<Record<string, unknown>>,
+): DetailComponentConstructor {
+  return class ReactDetailRenderer implements DetailComponent {
+    private root?: Root;
+
+    init(ctx: DetailContext): void {
+      this.root = createRoot(ctx.containerEl);
+      this.root.render(createElement(component, detailProps(ctx)));
+    }
+
+    refresh(ctx: DetailContext): boolean {
+      if (!this.root) {
+        return false;
+      }
+      this.root.render(createElement(component, detailProps(ctx)));
+      return true;
+    }
+
+    destroy(): void {
+      const root = this.root;
+      this.root = undefined;
+      // Deferred: the core may call this from inside a React commit (an event
+      // handler that collapsed the row), and unmounting a root synchronously
+      // during render is a React error.
+      queueMicrotask(() => root?.unmount());
+    }
+  };
+}

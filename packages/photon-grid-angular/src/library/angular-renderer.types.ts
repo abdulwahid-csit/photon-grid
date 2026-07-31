@@ -2,11 +2,15 @@ import type { TemplateRef, Type } from '@angular/core';
 
 import type {
     ColumnDefInput as CoreColumnDefInput,
+    DetailContext,
+    DetailRenderer as CoreDetailRenderer,
     DisplayRendererParams,
     EditorRendererParams,
     FilterRendererParams,
+    GridOptions as CoreGridOptions,
     GroupRendererParams,
     HeaderRendererParams,
+    MasterDetailConfig as CoreMasterDetailConfig,
     OptionRendererParams,
     RendererOutput,
     SummaryRendererParams,
@@ -102,3 +106,74 @@ export function isTemplateRendererSpec(
 ): value is TemplateRendererSpec<unknown> {
     return !!value && typeof value === 'object' && (value as { kind?: unknown }).kind === 'template';
 }
+
+// ── Master/Detail: custom detail renderers ───────────────────────────────────
+
+/**
+ * Context handed to an `<ng-template>` used as a Master/Detail renderer.
+ *
+ * `data` and `props` are **live accessors** onto the core's `DetailContext`,
+ * not snapshots — the same guarantee the core makes. A template bound with
+ * `let-data` therefore keeps showing current row data across row transactions
+ * and `ctx.refresh()` without the view being rebuilt.
+ *
+ * @example
+ * ```html
+ * <ng-template #detailTpl let-ctx let-data="data" let-props="props">
+ *   <h2>{{ data['account'] }}</h2>
+ *   <button type="button" (click)="ctx.emit('save', data)">Save</button>
+ * </ng-template>
+ * ```
+ */
+export interface DetailTemplateContext {
+    /** Enables the implicit `let-ctx` binding. Same object as {@link ctx}. */
+    $implicit: DetailContext;
+    /** The core detail context: `emit`, `refresh`, `updateHeight`, `collapse`, `api`, `rowNode`. */
+    ctx: DetailContext;
+    /** Live master-row data. */
+    readonly data: Record<string, unknown>;
+    /** Live resolved output of `masterDetail.props`. */
+    readonly props: Record<string, unknown>;
+    [key: string]: unknown;
+}
+
+/**
+ * Renders a detail row through an Angular `@Component`.
+ *
+ * Pass the component class directly to `masterDetail.renderer` — there is no
+ * wrapper object. It receives `ctx`, `data` and `props` as `@Input()`s; add
+ * more by returning them from `masterDetail.props`.
+ *
+ * Unlike cell renderers, the instance is created **once per expanded row** and
+ * reused: the core's detail lifecycle gives us real `refresh` and `destroy`
+ * hooks, so there is no mount-per-invocation and no `MutationObserver`.
+ *
+ * `masterDetail.renderer` as accepted by the Angular wrapper. Everything the
+ * core accepts still works verbatim; the Angular forms are additive and are
+ * likewise passed directly:
+ *
+ * ```ts
+ * renderer: this.detailTpl        // an <ng-template>'s TemplateRef
+ * renderer: OrderDetailComponent  // an Angular component class
+ * renderer: (ctx) => `<h2>${ctx.data['account']}</h2>`   // core: HTML from a function
+ * renderer: '<h2>Details</h2>'                           // core: a static HTML string
+ * ```
+ */
+export type AngularDetailRenderer =
+    | TemplateRef<DetailTemplateContext>
+    | Type<unknown>
+    | CoreDetailRenderer;
+
+/** Core `MasterDetailConfig` with `renderer` widened to the Angular forms above. */
+export type PhotonMasterDetailConfig = Omit<CoreMasterDetailConfig, 'renderer'> & {
+    renderer?: AngularDetailRenderer;
+};
+
+/**
+ * Core `GridOptions` with `masterDetail.renderer` widened to accept Angular
+ * templates and components. Assignment-compatible with the core type, so an
+ * existing `GridOptions` object binds to `[options]` unchanged.
+ */
+export type PhotonGridOptions = Omit<CoreGridOptions, 'masterDetail'> & {
+    masterDetail?: PhotonMasterDetailConfig;
+};

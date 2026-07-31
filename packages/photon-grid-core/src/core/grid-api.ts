@@ -31,7 +31,12 @@ import type { PhotonCommandResult } from '../photon-ai/photon-ai.types';
 import type { ThemeMode, ThemeVariant } from '../types/theme.types';
 import type { ServerSideDatasource } from '../types/server-side.types';
 import { ServerRowModel } from '../row-models/server/server-row-model';
+import { InfiniteRowModel } from '../row-models/infinite/infinite-row-model';
+import type { InfiniteStats } from '../types/infinite.types';
 import type { PhotonThemeApi } from '../types/theme-ai.types';
+import type { CellUpdate, CellUpdateResult, VDomStats } from '../renderer/vdom/vdom.types';
+import type { DetailComponent } from '../types/detail-component.types';
+import { DETAIL_ROW_VERTICAL_CHROME_PX } from '../renderer/detail-row-renderer';
 
 export class GridApi {
   private _columnGroupModel: ColumnGroupModel | null = null;
@@ -108,6 +113,169 @@ export class GridApi {
     const changed = this.ctx.formulaInitializer.onRowsRemoved(new Set(nodeIds));
     if (changed.size > 0) this.ctx.renderer.invalidateBodyRowsByIds(new Set(changed));
     this.refresh();
+  }
+
+  // ──────────────────── Real-time cell updates ────────────────────
+
+  /**
+   * Applies a batch of field-level updates and repaints **only the cells whose
+   * values actually changed**.
+   *
+   * This is the high-frequency path. Unlike {@link updateRow} or
+   * {@link applyTransaction}, it does not re-run the row pipeline and does not
+   * rebuild any row DOM: values are merged into the row data in place, and the
+   * renderer's viewport Virtual DOM diffs the rendered window and writes just
+   * the changed cells. Every piece of cell state survives — DOM focus, an open
+   * editor, range selection, hover, and the DOM produced by custom renderers.
+   *
+   * Patches are coalesced to one flush per animation frame, so a feed pushing
+   * thousands of updates per second still touches the DOM at most 60 times.
+   *
+   * **Automatic structural fallback.** If a changed field participates in the
+   * active sort, an active filter, or the current grouping, the update can
+   * change which rows are displayed or in what order — a structural change that
+   * a cell patch cannot express. Those batches transparently fall back to a
+   * full pipeline run, so correctness never depends on the caller knowing the
+   * grid's current state.
+   *
+   * @example
+   * ```ts
+   * // Streaming price ticks — patches ~2 cells per visible row, no re-render.
+   * socket.onmessage = (e) => {
+   *   const ticks = JSON.parse(e.data);
+   *   api.applyCellUpdates(ticks.map((t) => ({
+   *     nodeId: t.symbol,
+   *     values: { price: t.price, change: t.change },
+   *   })));
+   * };
+   * ```
+   *
+   * @param updates - Per-row field updates, matched by `RowNode.nodeId`.
+   * @returns What the batch did — see {@link CellUpdateResult}.
+   */
+  applyCellUpdates(updates: readonly CellUpdate[]): CellUpdateResult {
+    if (updates.length === 0) {
+      return { rowsUpdated: 0, cellsPatched: 0, pipelineRan: false };
+    }
+
+    const touchedFields = new Set<string>();
+    const touchedRows: string[] = [];
+
+    for (const update of updates) {
+      const node = this.ctx.rowModel.mergeRowValues(update.nodeId, update.values);
+      if (!node) continue;
+      touchedRows.push(update.nodeId);
+      for (const field in update.values) touchedFields.add(field);
+    }
+
+    if (touchedRows.length === 0) {
+      return { rowsUpdated: 0, cellsPatched: 0, pipelineRan: false };
+    }
+
+    // A value the grid orders, filters or groups by is structural: the row's
+    // position, not just its text, has to change. Re-run the pipeline for the
+    // ordering — but the cells still repaint through the Virtual DOM below,
+    // because the pipeline does not touch cell content.
+    const structural = this.structuralReason(touchedFields);
+    if (structural !== null) {
+      // Snapshot row positions before the pipeline re-runs so the reorder plays
+      // as a FLIP slide rather than rows teleporting. The sort/filter event
+      // handlers do this for user-driven changes; a data-driven reorder needs
+      // the same treatment, and is in fact where it matters most — the user did
+      // not initiate the move and has no other cue that a row travelled.
+      //
+      // Every batch captures, including while a previous slide is still in
+      // flight: `RowAnimator.animate` finalises in-flight elements before it
+      // measures, so a restart re-targets from the row's committed position
+      // instead of fighting the transform already on it. Skipping the capture
+      // instead would be worse than no animation — the pipeline still moves the
+      // rows, so they would jump silently *and* disturb the slide already
+      // playing.
+      const currentRows = this.ctx.store.get('visibleRows') as Array<{ nodeId: string; top: number }>;
+      if (currentRows.length > 0) {
+        this.ctx.renderer.captureRowAnimation(currentRows, structural);
+      }
+      this.refresh();
+    }
+
+    // Always patch the changed cells — including on the structural path.
+    // Re-running the pipeline reorders rows but *reuses their DOM*, and a reused
+    // row's cells are never re-rendered, so without this a row would slide to
+    // the position its new value earns while still displaying its old one.
+    // Render and patch are both frame-coalesced and converge in either order:
+    // a row rebuilt by the render already carries current values (the diff then
+    // finds nothing), and a row patched first keeps them when the render merely
+    // repositions it.
+    this.ctx.renderer.patchCells(touchedRows);
+
+    return {
+      rowsUpdated: touchedRows.length,
+      cellsPatched: 0,
+      pipelineRan: structural !== null,
+    };
+  }
+
+  /**
+   * Applies queued cell patches immediately rather than on the next frame.
+   *
+   * Needed when the DOM must be consistent synchronously — before measuring,
+   * exporting, or asserting in a test.
+   *
+   * @returns The number of cells written to the DOM.
+   */
+  flushCellUpdates(): number {
+    return this.ctx.renderer.flushCellPatches();
+  }
+
+  /**
+   * Counters describing what the viewport Virtual DOM has done — how many cells
+   * it compared, how many it actually wrote, and how long the last flush took.
+   *
+   * Useful for verifying that a real-time feed patches only what changed.
+   */
+  getVDomStats(): VDomStats {
+    return this.ctx.renderer.getVDomStats();
+  }
+
+  /** Zeroes the Virtual DOM counters returned by {@link getVDomStats}. */
+  resetVDomStats(): void {
+    this.ctx.renderer.resetVDomStats();
+  }
+
+  /**
+   * Classifies why a set of changed fields cannot be expressed as an in-place
+   * cell patch, and therefore how the resulting re-layout should animate.
+   *
+   * @param fields - Fields whose values just changed.
+   * @returns `'sort'` when the change reorders rows, `'filter'` when it can add
+   *          or remove them, or `null` when the change is purely cosmetic and a
+   *          cell patch is sufficient.
+   */
+  private structuralReason(fields: ReadonlySet<string>): 'sort' | 'filter' | null {
+    const sorts = this.ctx.store.get('sortConfig') as SortConfig[];
+    for (const sort of sorts) {
+      if (fields.has(sort.field)) return 'sort';
+    }
+
+    // Grouping re-buckets rows, which reads as rows entering and leaving their
+    // groups rather than sliding — the filter entrance is the right cue.
+    const grouped = this.ctx.store.get('groupedColumnIds') as string[];
+    for (const colId of grouped) {
+      const col = this.ctx.columnModel.getColumn(colId);
+      if (col && fields.has(col.field)) return 'filter';
+    }
+
+    const filterModel = this.ctx.store.get('filterModel') as FilterModel;
+    for (const colId in filterModel) {
+      const col = this.ctx.columnModel.getColumn(colId);
+      if (col && fields.has(col.field)) return 'filter';
+    }
+
+    // A quick filter searches every column, so any change can affect matching.
+    const quickFilter = this.ctx.store.get('quickFilterConfig');
+    if (quickFilter && (quickFilter as { term?: string }).term) return 'filter';
+
+    return null;
   }
 
   getRowNode(nodeId: string): RowNode | undefined {
@@ -278,6 +446,56 @@ export class GridApi {
   refreshServerSide(params: { purge?: boolean } = {}): void {
     const strategy = this.ctx.rowModelStrategy;
     if (strategy instanceof ServerRowModel) strategy.refresh(params);
+  }
+
+  // ──────────────────── Infinite Row Model ────────────────────
+
+  /**
+   * Sets (or replaces) the datasource used in infinite mode and reloads from
+   * the current scroll position. A no-op unless `rowModel === 'infinite'`.
+   *
+   * The datasource contract is the same one the Server-Side Row Model uses, so
+   * an implementation can be shared between the two models verbatim.
+   *
+   * @param datasource - The datasource, or `null` to detach (shows the empty state).
+   */
+  setInfiniteDatasource(datasource: ServerSideDatasource | null): void {
+    const strategy = this.ctx.rowModelStrategy;
+    if (strategy instanceof InfiniteRowModel) strategy.setDatasource(datasource);
+  }
+
+  /**
+   * Reloads the pages currently resident. Pass `{ purge: true }` to empty the
+   * page cache first, so previously loaded pages are fetched fresh rather than
+   * served from memory. A no-op unless `rowModel === 'infinite'`.
+   */
+  refreshInfinite(params: { purge?: boolean } = {}): void {
+    const strategy = this.ctx.rowModelStrategy;
+    if (strategy instanceof InfiniteRowModel) strategy.refresh(params);
+  }
+
+  /**
+   * Drops a range of cached pages so they reload when next seen — the targeted
+   * alternative to {@link refreshInfinite} when only part of the dataset went
+   * stale. Omit both bounds to invalidate everything.
+   *
+   * @param from - First page index, inclusive (0-based).
+   * @param to   - Last page index, inclusive.
+   */
+  invalidateInfinitePages(from?: number, to?: number): void {
+    const strategy = this.ctx.rowModelStrategy;
+    if (strategy instanceof InfiniteRowModel) strategy.invalidatePages(from, to);
+  }
+
+  /**
+   * Cache and request diagnostics for the Infinite Row Model — cached pages,
+   * in-flight and queued requests, hit/miss counts and load totals.
+   *
+   * @returns The stats, or `null` when another row model is active.
+   */
+  getInfiniteStats(): InfiniteStats | null {
+    const strategy = this.ctx.rowModelStrategy;
+    return strategy instanceof InfiniteRowModel ? strategy.getStats() : null;
   }
 
   // ──────────────────── State ────────────────────
@@ -584,6 +802,52 @@ export class GridApi {
    */
   getDetailGridApi(nodeId: string): unknown {
     return this.ctx.renderer.getDetailGridApi(nodeId);
+  }
+
+  /**
+   * Returns the custom detail component instance mounted for `nodeId`'s
+   * expanded detail row — the object created from `masterDetail.renderer`.
+   *
+   * `undefined` when the row is not expanded, its content has not been built
+   * yet (still loading, or scrolled outside the render window on first
+   * expand), or `masterDetail.renderer` is a plain function rather than a
+   * class (a function renderer has no instance to hand back).
+   *
+   * @example
+   * ```ts
+   * const detail = api.getDetailComponent('row-42') as OrderDetailComponent | undefined;
+   * detail?.scrollToOrder('ORD-1001');
+   * ```
+   */
+  getDetailComponent(nodeId: string): DetailComponent | undefined {
+    return this.ctx.renderer.getDetailComponent(nodeId);
+  }
+
+  /**
+   * Re-resolves `masterDetail.props` for `nodeId`'s mounted detail component
+   * and asks it to update in place via `DetailComponent.refresh`. The
+   * component is re-created only if it declines.
+   *
+   * The programmatic twin of `DetailContext.refresh()` — reach for it when the
+   * data behind a detail section changed outside the component's knowledge.
+   *
+   * @returns `true` if a mounted component was refreshed, `false` if the row
+   * has no custom detail component currently mounted.
+   */
+  refreshDetail(nodeId: string): boolean {
+    return this.ctx.renderer.refreshDetailComponent(nodeId);
+  }
+
+  /**
+   * Sets the detail row height (in **content** pixels — the container's own
+   * padding is added on top) for `nodeId`, clamped by
+   * `masterDetail.detailMinHeight`/`detailMaxHeight`.
+   *
+   * The programmatic twin of `DetailContext.updateHeight(px)`, for callers
+   * that hold a `GridApi` rather than a detail context.
+   */
+  setDetailHeight(nodeId: string, height: number): void {
+    this.ctx.masterDetailEngine.setDetailHeight(nodeId, height + DETAIL_ROW_VERTICAL_CHROME_PX);
   }
 
   // ──────────────────── Photon AI ────────────────────
@@ -1494,8 +1758,26 @@ export class GridApi {
    * @param position - Where to place the row; omit for the minimal scroll.
    */
   ensureNodeVisible(nodeId: string, position?: RowVerticalScrollPosition): void {
-    const rowIndex = this.getVisibleRows().findIndex((r) => r.nodeId === nodeId);
+    // Optional-chained because a demand-loading row model publishes a sparse
+    // array; an index outside the loaded window simply holds nothing.
+    const rowIndex = this.getVisibleRows().findIndex((r) => r?.nodeId === nodeId);
     if (rowIndex < 0) return;
+    this.ctx.renderer.ensureRowVisible(rowIndex, position);
+  }
+
+  /**
+   * Scrolls the row at a display index into view.
+   *
+   * Unlike {@link ensureNodeVisible} this needs no loaded row, so it is the way
+   * to jump anywhere in an infinite-scrolling grid: the target position is
+   * derived from the index, and the pages covering it load once they are on
+   * screen.
+   *
+   * @param rowIndex - Display index, 0-based. Out-of-range values are ignored.
+   * @param position - Where to place the row; omit for the minimal scroll.
+   */
+  ensureIndexVisible(rowIndex: number, position?: RowVerticalScrollPosition): void {
+    if (rowIndex < 0 || rowIndex >= this.getVisibleRows().length) return;
     this.ctx.renderer.ensureRowVisible(rowIndex, position);
   }
 

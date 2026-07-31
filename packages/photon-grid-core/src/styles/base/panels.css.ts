@@ -79,19 +79,41 @@ export const panelsCss = `/* ─────────────────
    The overlay adds no layout box (zero reflow, no width shift) and paints above
    the rows. It only renders while the panel is displayed, i.e. that side
    actually has pinned columns (empty panels are display:none). */
-.pg-panel--left::after,
-.pg-panel--right::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  background: var(--pg-colors-pinned-border, var(--pg-colors-border, #e2e8f0));
-  z-index: 4;
-  pointer-events: none;
-}
+// .pg-panel--left::after,
+// .pg-panel--right::after {
+//   content: "";
+//   position: absolute;
+//   top: 0;
+//   bottom: 0;
+//   width: 1px;
+//   background: var(--pg-colors-pinned-border, var(--pg-colors-border, #e2e8f0));
+//   z-index: 4;
+//   pointer-events: none;
+// }
 .pg-panel--left::after  { right: 0; }
 .pg-panel--right::after { left: 0; }
+
+/* ── Pinned-edge shadow ─────────────────────────────────────────────────
+   The full-height depth cue that separates a frozen (pinned) column region
+   from the scrolling center.
+   Deliberately on the BODY panel container (z-index: 2) and nowhere else:
+   .pg-detail-layer (master-detail.css.ts) carries the same z-index but is a
+   later DOM sibling (mounted after the panels in GridRenderer.buildLayout),
+   so it paints on top — which means an expanded detail row's opaque,
+   full-width background covers this shadow instead of the shadow striping
+   across the detail content. Hoisting it any higher (e.g. onto the
+   always-on-top .pg-sticky-layer, where it used to live) reintroduces
+   exactly that artefact, because the panels are full-viewport-height flex
+   items: their shadow spans every detail row's Y range too, not just the
+   pinned cells' own.
+   Scoped to .pg-grid__body so the *header* panels — same .pg-panel classes,
+   different container — are untouched. */
+.pg-grid__body > .pg-panel--left {
+  box-shadow: var(--pg-shadows-pinned-left, 2px 0 4px rgba(0,0,0,0.06));
+}
+.pg-grid__body > .pg-panel--right {
+  box-shadow: var(--pg-shadows-pinned-right, -2px 0 4px rgba(0,0,0,0.06));
+}
 
 /* ──────────────────── Panel header ──────────────────── */
 .pg-panel__header {
@@ -124,6 +146,27 @@ export const panelsCss = `/* ─────────────────
 }
 
 /* ──────────────────── Panel content (virtual scroll) ──────────────────── */
+/*
+ * The vertical translate reads \`--pg-row-offset-y\`, NOT \`--pg-scroll-y\`.
+ *
+ * Row \`top\`s are absolute offsets into the dataset, so at a million rows they
+ * reach tens of millions of pixels — and browsers rasterise with 32-bit floats,
+ * whose spacing grows past 1px beyond 2^24 (~16.7M). At that depth a 1px row
+ * border is a rect whose two edges round to the same value, so it collapses to
+ * zero height and simply stops being painted. Rows are therefore positioned
+ * relative to the top of the render window (RowPositionSheet writes
+ * \`top - origin\`) and this transform adds the origin back:
+ *
+ *   --pg-row-offset-y = rowOrigin - scrollTop
+ *
+ * ScrollController computes that subtraction in JS doubles, where it is exact.
+ * Doing it here as \`calc(var(--pg-scroll-y) + var(--pg-row-origin-y))\` would
+ * round both huge terms to float32 first and jitter the whole panel by a pixel
+ * as you scroll.
+ *
+ * \`--pg-scroll-y\` is still published (absolute, unscaled) for code that needs
+ * the true scroll offset — see RowDragRenderer.
+ */
 .pg-panel__content {
   position: relative;
   height: var(--pg-content-height, 0px);
@@ -131,10 +174,10 @@ export const panelsCss = `/* ─────────────────
 }
 .pg-panel--left .pg-panel__content,
 .pg-panel--right .pg-panel__content {
-  transform: translateY(var(--pg-scroll-y, 0px));
+  transform: translateY(var(--pg-row-offset-y, 0px));
 }
 .pg-panel--center .pg-panel__content {
-  transform: translate(var(--pg-scroll-x, 0px), var(--pg-scroll-y, 0px));
+  transform: translate(var(--pg-scroll-x, 0px), var(--pg-row-offset-y, 0px));
   width: var(--pg-center-content-width, 100%);
 }
 /* Master/Detail only (see GridRenderer's pg-grid--has-master-detail class):

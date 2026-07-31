@@ -17,7 +17,7 @@
     </div>
   </ng-template>
 
-  <section class="grid-wrapper">
+  <!-- <section class="grid-wrapper">
     <photon-grid-angular
       [columns]="columns"
       [dataSet]="data"
@@ -27,9 +27,23 @@
       (rowSelected)="onRowSelected($event)"
       >
     </photon-grid-angular>
-  </section>
+  </section> -->
 
-  <header class="page__header page__header--formula">
+  <!-- Streaming demo for the viewport Virtual DOM: custom cell renderers fed by
+       a setInterval market simulation, patched cell-by-cell with no re-render. -->
+  <!-- <app-realtime-grid></app-realtime-grid> -->
+
+  <!-- Master/Detail: each account row expands into its own nested Photon Grid
+       of orders — lazily fetched, auto-sized, independently sortable, and
+       bubbling its row clicks back up to the parent. -->
+  <app-master-detail-grid></app-master-detail-grid>
+
+  <!-- Infinite scrolling over a million rows from a mock backend: pages load on
+       demand with prefetch, are cached LRU, and unloaded rows render as
+       skeletons. Memory stays flat however far you scroll. -->
+  <!-- <app-infinite-grid></app-infinite-grid> -->
+
+  <!-- <header class="page__header page__header--formula">
     <h2 class="page__title">Formula Playground</h2>
     <p class="page__subtitle">
       A small grid with the <code>formula</code> engine enabled. The
@@ -43,7 +57,7 @@
   </header>
 
   <section class="grid-wrapper grid-wrapper--formula">
-    <!-- <photon-grid-angular
+    <photon-grid-angular
       [columns]="formulaColumns"
       [dataSet]="formulaData"
       [options]="formulaOptions"
@@ -51,7 +65,7 @@
       (toolbarTabChanged)="onToolbarTabChanged($event)"
       (toolbarSearchChanged)="onToolbarSearchChanged($event)"
       >
-    </photon-grid-angular> -->
+    </photon-grid-angular>
   </section>
 
   <header class="page__header page__header--formula">
@@ -65,7 +79,7 @@
     </p>
   </header>
 
-  <!-- <header class="page__header page__header--formula">
+  <header class="page__header page__header--formula">
     <h2 class="page__title">AI Theme Engine</h2>
     <p class="page__subtitle">
       Open the <strong>Photon AI</strong> panel (bottom-right) and ask it to theme

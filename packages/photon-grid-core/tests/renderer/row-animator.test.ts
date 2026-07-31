@@ -100,6 +100,53 @@ describe('RowAnimator — FLIP contract', () => {
     expect(animator.hasPending()).toBe(false);
   });
 
+  it('isAnimating reports whether rows are still mid-transition', () => {
+    // Gates the real-time reorder path: a feed ticking faster than the 400 ms
+    // slide must not restart the FLIP, or rows never finish travelling.
+    const cache = makeCache(['a']);
+    expect(animator.isAnimating()).toBe(false);
+
+    animator.capture([{ nodeId: 'a', top: 200 }], 'sort');
+    animator.animate(cache, [{ nodeId: 'a', top: 40 }], VIEWPORT);
+    expect(animator.isAnimating()).toBe(true);
+
+    flushFrame();
+    // Still in flight — the transition is now playing.
+    expect(animator.isAnimating()).toBe(true);
+
+    center(cache, 'a').fireTransitionEnd('transform');
+    expect(animator.isAnimating()).toBe(false);
+  });
+
+  it('re-targets cleanly when a new capture lands mid-flight', () => {
+    // The real-time reorder path restarts the FLIP on every batch, which can
+    // arrive faster than the 400 ms slide completes. Each restart must finalise
+    // the in-flight transform first and invert from the row's committed
+    // position — otherwise the new start state is computed against a transform
+    // that is still animating, and the row visibly jumps.
+    const cache = makeCache(['a']);
+    const el = center(cache, 'a');
+
+    animator.capture([{ nodeId: 'a', top: 200 }], 'sort');
+    animator.animate(cache, [{ nodeId: 'a', top: 120 }], VIEWPORT);
+    flushFrame();
+    // Mid-flight: transitioning, transform released toward the resting place.
+    expect(el.style.transition).toContain('transform');
+
+    // A second batch arrives before the first slide has ended.
+    animator.capture([{ nodeId: 'a', top: 120 }], 'sort');
+    animator.animate(cache, [{ nodeId: 'a', top: 40 }], VIEWPORT);
+
+    // Inverted from the position the row had actually committed to (120), not
+    // compounded on top of the previous run's transform.
+    expect(el.style.transform).toBe('translate3d(0, 80px, 0)');
+    expect(el.style.transition).toBe('none');
+
+    flushFrame();
+    expect(el.style.transform).toBe('');
+    expect(el.style.transition).toContain('transform');
+  });
+
   it('inverts a moved row with translate3d equal to oldTop - newTop', () => {
     const cache = makeCache(['a']);
     animator.capture([{ nodeId: 'a', top: 200 }], 'sort');

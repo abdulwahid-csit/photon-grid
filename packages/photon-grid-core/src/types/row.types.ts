@@ -133,6 +133,18 @@ export interface RowDropPayload {
   draggedRows: RowNode[];
   targetRow: RowNode;
   position: 'before' | 'after' | 'inside';
+  /**
+   * Whether the grid already applied the reorder.
+   *
+   * `true` — the row array has been rewritten and the grid re-rendered; this is
+   * a notification. `false` — the grid ran the drag but changed nothing, and
+   * this is a *request*: persist the move and refresh. See `RowDragOptions`.
+   */
+  managed: boolean;
+  /** Index the dragged row occupied before the drop. */
+  fromIndex: number;
+  /** Index it occupies (managed) or should occupy (unmanaged) after the drop. */
+  toIndex: number;
 }
 
 export interface RowClickPayload {

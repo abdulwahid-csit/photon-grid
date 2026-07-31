@@ -18,6 +18,7 @@ import type { DragDropEngine } from '../drag-drop/drag-drop-engine';
 import type { CellSelectionEngine } from '../cell-selection/cell-selection-engine';
 import type { ThemeManager } from '../theme/theme-manager';
 import type { IconRegistry } from '../icons/icon-registry';
+import type { IconRenderer } from '../icons/icon-renderer';
 import type { ChartEngine } from '../chart/chart-engine';
 import type { RangeChartService } from '../chart/range-chart-service';
 import type { AggregationEngine } from '../engines/aggregation/aggregation-engine';
@@ -74,6 +75,13 @@ export interface GridContext {
   cellSelectionEngine: CellSelectionEngine;
   themeManager: ThemeManager;
   iconRegistry: IconRegistry;
+  /**
+   * Shared renderer over {@link iconRegistry}. Exposed on the context so
+   * subsystems that build icon-bearing UI outside the render tree — the row
+   * context menu's custom items, for example — resolve icon names through the
+   * same registry the rest of the grid uses, instead of embedding markup.
+   */
+  iconRenderer: IconRenderer;
   chartEngine: ChartEngine;
   /**
    * Manages AG-Grid-style range charts (configurable, live-linked). Assigned in

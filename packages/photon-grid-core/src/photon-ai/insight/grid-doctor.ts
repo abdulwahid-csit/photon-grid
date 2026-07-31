@@ -148,7 +148,10 @@ export class GridDoctor {
       });
     }
 
-    if (rowCount > LARGE_DATASET_ROWS && o.rowModel !== 'server') {
+    // Only the client model holds every row in the browser; both server-backed
+    // models already delegate the work this warning is about.
+    const isClientModel = o.rowModel === undefined || o.rowModel === 'client';
+    if (rowCount > LARGE_DATASET_ROWS && isClientModel) {
       findings.push({
         severity: DiagnosticSeverity.Warning,
         category: DiagnosticCategory.Performance,
@@ -238,11 +241,13 @@ export class GridDoctor {
       });
     }
 
-    if (o.rowModel === 'server' && !o.serverSideDatasource) {
+    // Both server-backed row models fetch through the same datasource, so
+    // either one without it is equally broken.
+    if ((o.rowModel === 'server' || o.rowModel === 'infinite') && !o.serverSideDatasource) {
       findings.push({
         severity: DiagnosticSeverity.Error,
         category: DiagnosticCategory.Configuration,
-        message: "rowModel is 'server' but no serverSideDatasource was supplied, so the grid has no way to fetch rows.",
+        message: `rowModel is '${o.rowModel}' but no serverSideDatasource was supplied, so the grid has no way to fetch rows.`,
         fix: 'Provide serverSideDatasource, or call api.setServerSideDatasource(ds).',
       });
     }

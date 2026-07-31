@@ -10,7 +10,37 @@ import { UndoRedoEngine } from '../engines/undo-redo/undo-redo-engine';
 import type { CellChange } from '../engines/undo-redo/undo-redo-engine';
 import type { AutoFillEngine } from '../autofill/autofill-engine';
 import type { AutoFillValue } from '../autofill/types/autofill.types';
+import type { IconRenderer } from '../icons/icon-renderer';
+import type {
+  RowMenuConfig,
+  RowMenuConfirmOptions,
+  RowMenuConfirmRequest,
+  RowMenuController,
+  RowMenuInteractiveItem,
+  RowMenuItem,
+  RowMenuItemContext,
+  RowMenuItemId,
+  RowMenuValue,
+} from '../types/row-menu.types';
+import { buildRowMenuItems, resolvePredicate } from '../renderer/row-menu-builder';
+import { openConfirmDialog } from '../renderer/confirm-dialog';
 import { activeGridRegistry } from './active-grid-registry';
+
+/**
+ * Maps a built-in menu entry's `data-action` dispatch key to its public
+ * {@link RowMenuItemId}.
+ *
+ * The two differ because the dispatch keys predate the public item ids and are
+ * kebab-cased; the public ids follow the camelCase convention the column menu
+ * already uses, so applications configure both menus the same way.
+ */
+const BUILTIN_ID_BY_ACTION: Readonly<Record<string, RowMenuItemId>> = {
+  'cut': 'cut',
+  'copy': 'copy',
+  'copy-headers': 'copyWithHeaders',
+  'paste': 'paste',
+  'export-csv': 'exportCsv',
+};
 
 /**
  * The narrow surface the selection engine needs from the formula engine to make
@@ -45,6 +75,41 @@ export class CellSelectionEngine {
   private bodyPanels: HTMLElement[] = [];
   private contextMenuEl: HTMLElement | null = null;
   private chartOpenCallback: ((type: string) => void) | null = null;
+
+  // ── Row context menu ──────────────────────────────────────────────────────
+  /** Host-supplied row-menu configuration, or `null` for built-ins only. */
+  private rowMenuConfig: RowMenuConfig | null = null;
+  /** Icon registry used to resolve custom item icons. */
+  private rowMenuIconRenderer: IconRenderer | null = null;
+  /** Public `GridApi`, handed to custom item handlers. */
+  private rowMenuApi: unknown = null;
+  /** Container holding the built-in entries, so they can be hidden wholesale. */
+  private builtInMenuEl: HTMLElement | null = null;
+  /** Container rebuilt with the host's custom items on every open. */
+  private customMenuEl: HTMLElement | null = null;
+  /** Row/column the menu was last opened on, resolved into an item context. */
+  private ctxRowIndex = -1;
+  private ctxColIndex = -1;
+  /** The `contextmenu` event that opened the menu, exposed on the context. */
+  private ctxEvent: MouseEvent | null = null;
+
+  /**
+   * Imperative handle handed to every item handler.
+   *
+   * Created once and closed over `this`, so the object identity is stable
+   * across opens and no allocation happens per item.
+   */
+  private readonly rowMenuController: RowMenuController = {
+    close: () => this.hideContextMenu(),
+    refresh: () => this.syncRowMenuSections(),
+    setLoading: (loading: boolean) => {
+      const el = this.activeRowMenuItemEl;
+      if (el) this.setRowMenuItemLoading(el, loading);
+    },
+  };
+
+  /** Element of the item currently being activated, for `menu.setLoading`. */
+  private activeRowMenuItemEl: HTMLElement | null = null;
   /**
    * Optional callback invoked when the user presses Enter on a focused (non-editing) cell.
    * Return `true` to absorb the event (editing started); `false` to fall through to
@@ -1151,6 +1216,28 @@ export class CellSelectionEngine {
     this.chartOpenCallback = fn;
   }
 
+  /**
+   * Supplies the row context-menu configuration and the collaborators its
+   * custom items need.
+   *
+   * Called by `GridCore` after construction. Safe to call again at runtime — the
+   * custom section is rebuilt on every open, so a new configuration takes effect
+   * on the next right-click without rebuilding the menu.
+   *
+   * @param config       - `GridOptions.rowMenu`, or `undefined` for defaults.
+   * @param iconRenderer - Resolves item icon names through the icon registry.
+   * @param api          - The public `GridApi`, handed to item handlers.
+   */
+  setRowMenuConfig(
+    config: RowMenuConfig | undefined,
+    iconRenderer: IconRenderer,
+    api: unknown,
+  ): void {
+    this.rowMenuConfig = config ?? null;
+    this.rowMenuIconRenderer = iconRenderer;
+    this.rowMenuApi = api;
+  }
+
   // ─── Clipboard ───────────────────────────────────────────────────────────
 
   async copySelection(rows: RowNode[], columns: ColumnDef[]): Promise<void> {
@@ -1242,7 +1329,11 @@ export class CellSelectionEngine {
     let minRow = Infinity;
     let maxRow = -Infinity;
     for (let i = 0; i < visible.length; i++) {
-      if (ids.has(visible[i].nodeId)) {
+      // A demand-loading row model publishes a sparse array, so an index
+      // outside the loaded window holds nothing. Skipping keeps the operation
+      // meaningful over the rows that *are* loaded; the guard is a no-op for
+      // the dense arrays every other row model produces.
+      if (ids.has(visible[i]?.nodeId)) {
         if (i < minRow) minRow = i;
         if (i > maxRow) maxRow = i;
       }
@@ -1673,8 +1764,28 @@ export class CellSelectionEngine {
 
   // ─── Context menu ─────────────────────────────────────────────────────────
 
-  showContextMenu(x: number, y: number): void {
+  /**
+   * Opens the row context menu at the pointer.
+   *
+   * The custom section is rebuilt on every open rather than once at
+   * construction: items may be produced by `getCustomItems`, and their
+   * `disabled` / `hidden` predicates are evaluated against the row that was
+   * actually right-clicked, so a cached DOM would show another row's state.
+   *
+   * @param x        - Viewport X of the pointer.
+   * @param y        - Viewport Y of the pointer.
+   * @param rowIndex - Display index of the right-clicked row, if known.
+   * @param colIndex - Global column index of the right-clicked cell, if known.
+   */
+  showContextMenu(x: number, y: number, rowIndex = -1, colIndex = -1, event: MouseEvent | null = null): void {
     if (!this.contextMenuEl) return;
+    if (this.rowMenuConfig?.enabled === false) return;
+
+    this.ctxRowIndex = rowIndex;
+    this.ctxColIndex = colIndex;
+    this.ctxEvent = event;
+    this.syncRowMenuSections();
+
     // Clamp to viewport
     const vw = window.innerWidth, vh = window.innerHeight;
     const mw = 200, mh = 300;
@@ -1688,8 +1799,246 @@ export class CellSelectionEngine {
     });
   }
 
+  /**
+   * Applies the row-menu configuration to the open menu: built-in visibility
+   * and suppression, then a fresh render of the custom items.
+   */
+  private syncRowMenuSections(): void {
+    const cfg = this.rowMenuConfig;
+    const builtIns = this.builtInMenuEl;
+    const custom = this.customMenuEl;
+
+    if (builtIns) {
+      const show = cfg?.showBuiltInItems !== false;
+      builtIns.style.display = show ? '' : 'none';
+      if (show) this.applyBuiltInSuppression(builtIns, cfg?.suppressItems);
+    }
+
+    if (!custom) return;
+    while (custom.firstChild) custom.removeChild(custom.firstChild);
+
+    const iconRenderer = this.rowMenuIconRenderer;
+    if (!cfg || !iconRenderer) return;
+
+    const ctx = this.buildRowMenuContext();
+    // `items` is the canonical list; `customItems` is its pre-rename alias and
+    // is concatenated so both spellings work in one configuration.
+    const items: RowMenuItem[] = [
+      ...(cfg.items ?? []),
+      ...(cfg.customItems ?? []),
+      ...(cfg.getItems?.(ctx) ?? []),
+      ...(cfg.getCustomItems?.(ctx) ?? []),
+    ];
+    if (items.length === 0) return;
+
+    const elements = buildRowMenuItems(items, ctx, iconRenderer, (item, itemCtx, el) => {
+      this.activeRowMenuItemEl = el;
+      void this.activateRowMenuItem(item, itemCtx, el);
+    });
+    if (elements.length === 0) return;
+
+    // A rule between the two blocks, but only when both are populated.
+    const builtInsVisible = !!builtIns && builtIns.style.display !== 'none';
+    if (builtInsVisible) {
+      const sep = document.createElement('div');
+      sep.className = 'pg-context-menu__sep';
+      sep.setAttribute('role', 'separator');
+      custom.appendChild(sep);
+    }
+    for (const el of elements) custom.appendChild(el);
+
+    // `position` decides whether custom actions lead or follow the built-ins.
+    // Re-ordering the two containers is enough — neither is rebuilt.
+    const menu = this.contextMenuEl;
+    if (menu && builtIns) {
+      const customFirst = cfg.position === 'top';
+      const first = customFirst ? custom : builtIns;
+      const second = customFirst ? builtIns : custom;
+      if (menu.firstElementChild !== first) menu.insertBefore(first, second);
+    }
+  }
+
+  /** Hides the built-in entries listed in `suppressItems`, showing the rest. */
+  private applyBuiltInSuppression(
+    builtIns: HTMLElement,
+    suppress: ReadonlyArray<RowMenuItemId> | undefined,
+  ): void {
+    const hidden = new Set<string>(suppress ?? []);
+    for (const el of builtIns.querySelectorAll<HTMLElement>('[data-item-id]')) {
+      const id = el.getAttribute('data-item-id') ?? '';
+      el.style.display = hidden.has(id) ? 'none' : '';
+    }
+  }
+
+  /**
+   * Resolves the row, column and selection the menu was opened on.
+   *
+   * Everything is optional by design: right-clicking the empty area below the
+   * rows still opens the menu, and an item that only acts on a selection can
+   * check `selectedRows` rather than `row`.
+   */
+  private buildRowMenuContext(): RowMenuItemContext {
+    const rows = this.store.get('visibleRows') as RowNode[];
+    const columns = this.getVisibleColumns();
+    const row = this.ctxRowIndex >= 0 ? rows[this.ctxRowIndex] ?? null : null;
+    const colDef = this.ctxColIndex >= 0 ? columns[this.ctxColIndex] ?? null : null;
+
+    const selectedIds = this.store.get('selectedRowIds') as Set<string>;
+    const selectedRows = selectedIds.size > 0
+      ? rows.filter((r) => selectedIds.has(r.nodeId))
+      : [];
+
+    return {
+      api: this.rowMenuApi,
+      row,
+      rowIndex: this.ctxRowIndex,
+      data: row?.data ?? null,
+      colDef,
+      colId: colDef?.colId ?? null,
+      value: row && colDef ? row.data[colDef.field] : undefined,
+      selectedRows,
+      selectedRanges: this.store.get('cellRanges') as CellRange[],
+      event: this.ctxEvent,
+      close: this.rowMenuController.close,
+      menu: this.rowMenuController,
+    };
+  }
+
+  /**
+   * Runs one item activation end to end: confirm, act, report.
+   *
+   * The order matters and is the whole reason this is not inline with the
+   * click listener:
+   * 1. **Confirm** — the action must not start, and the menu must not close,
+   *    while the user is still deciding.
+   * 2. **Close** — unless the item is a toggle or opts into `keepOpen`, in
+   *    which case the menu stays up so several options can be set in one visit.
+   * 3. **Act** — a promise-returning action marks the item busy and holds the
+   *    menu open until it settles, so the work is visible rather than silent.
+   * 4. **Report** — `ROW_MENU_ITEM_CLICKED` on success, `ROW_MENU_ITEM_ERROR`
+   *    on rejection, so a rejected action is never mistaken for a completed one.
+   *
+   * @param item    - The activated item.
+   * @param ctx     - Context it was resolved against.
+   * @param el      - Its element, used to show the busy state.
+   */
+  private async activateRowMenuItem(
+    item: RowMenuInteractiveItem,
+    ctx: RowMenuItemContext,
+    el: HTMLElement,
+  ): Promise<void> {
+    if (item.confirm && !(await this.confirmRowMenuItem(item.confirm, ctx))) return;
+
+    // Toggles default to keeping the menu open — setting several options in one
+    // visit is the normal interaction for a checkbox or radio group.
+    const keepOpen = item.keepOpen ?? (item.type === 'checkbox' || item.type === 'radio');
+    const result = item.action?.(ctx);
+    const isAsync = result instanceof Promise;
+
+    if (!keepOpen && !isAsync) this.hideContextMenu();
+
+    const label = typeof item.label === 'function' ? item.label(ctx) : item.label;
+
+    if (!isAsync) {
+      this.emitRowMenuItemClicked(item.id ?? '', label ?? '', true, item);
+      return;
+    }
+
+    this.setRowMenuItemLoading(el, true);
+    try {
+      await result;
+      this.emitRowMenuItemClicked(item.id ?? '', label ?? '', true, item);
+      if (!keepOpen) this.hideContextMenu();
+    } catch (error) {
+      // The menu deliberately stays open on failure: closing it would hide the
+      // only affordance the user has to retry.
+      this.eventBus.emit(GridEventType.ROW_MENU_ITEM_ERROR, {
+        itemId: item.id ?? '',
+        label: label ?? '',
+        error,
+        row: ctx.row,
+        rowIndex: ctx.rowIndex,
+      });
+    } finally {
+      this.setRowMenuItemLoading(el, false);
+    }
+  }
+
+  /**
+   * Resolves an item's confirmation, through the host's handler when one is
+   * configured and the grid's own dialog otherwise.
+   */
+  private async confirmRowMenuItem(
+    options: RowMenuConfirmOptions,
+    ctx: RowMenuItemContext,
+  ): Promise<boolean> {
+    const resolve = <T>(v: RowMenuValue<T> | undefined, fallback: T): T =>
+      (v === undefined ? fallback : (typeof v === 'function' ? (v as (c: RowMenuItemContext) => T)(ctx) : v));
+
+    const request: RowMenuConfirmRequest = {
+      title: resolve(options.title, 'Are you sure?'),
+      message: resolve(options.message, ''),
+      confirmLabel: resolve(options.confirmLabel, 'Confirm'),
+      cancelLabel: resolve(options.cancelLabel, 'Cancel'),
+      danger: options.danger === true,
+      ctx,
+    };
+
+    const handler = this.rowMenuConfig?.confirmHandler;
+    return handler ? handler(request) : openConfirmDialog(request);
+  }
+
+  /** Toggles the busy indicator on an item element. */
+  private setRowMenuItemLoading(el: HTMLElement, loading: boolean): void {
+    el.classList.toggle('pg-context-menu__item--loading', loading);
+    if (loading) el.setAttribute('aria-busy', 'true');
+    else el.removeAttribute('aria-busy');
+  }
+
+  /** Publishes a menu activation on the event bus. */
+  private emitRowMenuItemClicked(
+    itemId: string,
+    label: string,
+    custom: boolean,
+    item?: RowMenuInteractiveItem,
+  ): void {
+    const ctx = this.buildRowMenuContext();
+    const checked = item && (item.type === 'checkbox' || item.type === 'radio')
+      ? resolvePredicate(item.checked, ctx)
+      : undefined;
+
+    this.eventBus.emit(GridEventType.ROW_MENU_ITEM_CLICKED, {
+      itemId,
+      label,
+      custom,
+      row: ctx.row,
+      rowIndex: ctx.rowIndex,
+      colDef: ctx.colDef,
+      itemType: item?.type ?? 'action',
+      checked,
+      value: item && item.type === 'radio' ? item.value : undefined,
+    });
+  }
+
+  /**
+   * Closes the row context menu.
+   *
+   * Emits `ROW_MENU_CLOSED` only on a real transition from open to closed —
+   * the method is also called defensively from teardown and from the
+   * click-outside handler, and an application restoring focus or logging
+   * dismissals must not see those as extra closes.
+   */
   hideContextMenu(): void {
-    this.contextMenuEl?.classList.remove('pg-context-menu--visible');
+    const el = this.contextMenuEl;
+    if (!el || !el.classList.contains('pg-context-menu--visible')) return;
+
+    el.classList.remove('pg-context-menu--visible');
+    const ctx = this.buildRowMenuContext();
+    this.eventBus.emit(GridEventType.ROW_MENU_CLOSED, {
+      row: ctx.row,
+      rowIndex: ctx.rowIndex,
+      colDef: ctx.colDef,
+    });
   }
 
   /**
@@ -2038,11 +2387,27 @@ export class CellSelectionEngine {
     el.className = 'pg-context-menu';
     el.setAttribute('role', 'menu');
 
+    // The built-in entries live in their own container so the whole block can be
+    // hidden (`showBuiltInItems: false`) and individual entries suppressed
+    // without disturbing the host's custom items, which are rebuilt separately
+    // on every open.
+    const builtIns = document.createElement('div');
+    builtIns.className = 'pg-context-menu__group pg-context-menu__group--builtin';
+    this.builtInMenuEl = builtIns;
+
+    const custom = document.createElement('div');
+    custom.className = 'pg-context-menu__group pg-context-menu__group--custom';
+    this.customMenuEl = custom;
+
     const makeItem = (action: string, icon: string, label: string, kbd?: string): HTMLElement => {
       const btn = document.createElement('button');
       btn.className = 'pg-context-menu__item';
       btn.setAttribute('role', 'menuitem');
       btn.setAttribute('data-action', action);
+      // Suppression and the click event address items by a stable id; the
+      // `data-action` above stays the dispatch key for the built-in handler.
+      btn.setAttribute('data-item-id', BUILTIN_ID_BY_ACTION[action] ?? action);
+      btn.setAttribute('data-item-label', label);
       const iconSpan = document.createElement('span');
       iconSpan.className = 'pg-context-menu__icon';
       iconSpan.innerHTML = icon;
@@ -2095,16 +2460,17 @@ export class CellSelectionEngine {
     };
 
     // Cut / Copy / Copy with Headers / Paste
-    el.appendChild(makeItem('cut', ICON_CUT, 'Cut', 'Ctrl+X'));
-    el.appendChild(makeItem('copy', ICON_COPY, 'Copy', 'Ctrl+C'));
-    el.appendChild(makeItem('copy-headers', ICON_COPY, 'Copy with Headers'));
-    el.appendChild(makeItem('paste', ICON_PASTE, 'Paste', 'Ctrl+V'));
-    el.appendChild(makeSep());
+    builtIns.appendChild(makeItem('cut', ICON_CUT, 'Cut', 'Ctrl+X'));
+    builtIns.appendChild(makeItem('copy', ICON_COPY, 'Copy', 'Ctrl+C'));
+    builtIns.appendChild(makeItem('copy-headers', ICON_COPY, 'Copy with Headers'));
+    builtIns.appendChild(makeItem('paste', ICON_PASTE, 'Paste', 'Ctrl+V'));
+    builtIns.appendChild(makeSep());
 
     // Chart Range with nested submenu
     const chartItem = document.createElement('div');
     chartItem.className = 'pg-context-menu__item pg-context-menu__item--has-sub';
     chartItem.setAttribute('role', 'menuitem');
+    chartItem.setAttribute('data-item-id', 'chartRange');
     const chartIcon = document.createElement('span');
     chartIcon.className = 'pg-context-menu__icon';
     chartIcon.innerHTML = ICON_CHART;
@@ -2141,14 +2507,15 @@ export class CellSelectionEngine {
     chartSub.appendChild(makeChartSubItem('funnel', 'Funnel'));
 
     chartItem.appendChild(chartSub);
-    el.appendChild(chartItem);
+    builtIns.appendChild(chartItem);
 
-    el.appendChild(makeSep());
+    builtIns.appendChild(makeSep());
 
     // Export sub-group
     const exportItem = document.createElement('div');
     exportItem.className = 'pg-context-menu__item pg-context-menu__item--has-sub';
     exportItem.setAttribute('role', 'menuitem');
+    exportItem.setAttribute('data-item-id', 'export');
     const exportIcon = document.createElement('span');
     exportIcon.className = 'pg-context-menu__icon';
     exportIcon.innerHTML = ICON_EXPORT;
@@ -2163,13 +2530,18 @@ export class CellSelectionEngine {
     csvBtn.className = 'pg-context-menu__item';
     csvBtn.setAttribute('role', 'menuitem');
     csvBtn.setAttribute('data-action', 'export-csv');
+    csvBtn.setAttribute('data-item-id', 'exportCsv');
+    csvBtn.setAttribute('data-item-label', 'Export as CSV');
     const csvLabel = document.createElement('span');
     csvLabel.className = 'pg-context-menu__label';
     csvLabel.textContent = 'Export as CSV';
     csvBtn.appendChild(csvLabel);
     exportSub.appendChild(csvBtn);
     exportItem.appendChild(exportSub);
-    el.appendChild(exportItem);
+    builtIns.appendChild(exportItem);
+
+    el.appendChild(builtIns);
+    el.appendChild(custom);
 
     el.addEventListener('pointerdown', (e) => e.stopPropagation());
     // Reposition nested submenus on hover so they never render off-screen.
@@ -2195,6 +2567,14 @@ export class CellSelectionEngine {
         this.chartOpenCallback?.(chartType);
         return;
       }
+
+      // Built-ins report through the same event as custom items, so an
+      // application can observe every menu activation from one subscription.
+      this.emitRowMenuItemClicked(
+        btn.getAttribute('data-item-id') ?? action ?? '',
+        btn.getAttribute('data-item-label') ?? '',
+        false,
+      );
 
       switch (action) {
         case 'cut':           this.cutSelection(rows, columns); break;

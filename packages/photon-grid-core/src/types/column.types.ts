@@ -194,7 +194,34 @@ export interface ColumnDef {
   pinned?: ColumnPinPosition;
 
   sortable?: boolean;
+  /**
+   * Whether the column participates in filtering.
+   *
+   * Two distinct effects, deliberately separated:
+   * - **Capability** — filtering works unless this is `false`. The inline
+   *   filter row, the Filters tool panel and Photon AI all treat an omitted
+   *   value as filterable.
+   * - **Header affordance** — the funnel icon is rendered only when this is
+   *   explicitly `true`. Leaving it unset keeps the header clean while the
+   *   column remains filterable through the filter row and tool panel.
+   *
+   * So: omit for "filterable, no icon", set `true` for "filterable, show the
+   * funnel", set `false` to opt out of filtering entirely.
+   */
   filterable?: boolean;
+  /**
+   * Whether the column exposes its configuration menu button.
+   *
+   * The "⋯" button in the header is rendered only when this is `true`, so a
+   * grid does not sprout a menu affordance on every column by default. The
+   * menu's *contents* are controlled by {@link ColumnDef.menu} and
+   * `GridOptions.columnMenu`, and right-click access is governed independently
+   * by `ColumnMenuConfig.enableRightClick` — a column can therefore stay
+   * right-clickable without showing the button.
+   *
+   * @default false
+   */
+  configurable?: boolean;
   resizable?: boolean;
   draggable?: boolean;
   editable?: boolean;

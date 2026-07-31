@@ -76,8 +76,7 @@ const PAGE_REPLACE_SHARE_THRESHOLD = 0.5;
 /**
  * Row-movement durations, in milliseconds.
  *
- * `sort` / `filter` / `group` match AG Grid's shipped rule for an animated
- * grid — `.ag-row-animation .ag-row { transition: transform 0.4s, top 0.4s; }`
+ * grid — `.pg-row-animation .pg-row { transition: transform 0.4s, top 0.4s; }`
  * — so a Photon sort settles on the same clock as an AG Grid sort. `detail`
  * stays deliberately shorter: a Master/Detail expand is a direct response to a
  * click on a single row, where 400 ms reads as laggy.
@@ -177,6 +176,15 @@ export class RowAnimator {
    * event (element detached mid-flight) can still not leak `will-change`.
    */
   private readonly active = new Map<HTMLElement, (e: TransitionEvent) => void>();
+
+  /**
+   * `true` between the invert phase and the frame that starts the transitions.
+   *
+   * `active` is only populated once the play phase runs, so without this flag
+   * the animator would report itself idle for one frame in the middle of a
+   * sequence it is very much in the middle of.
+   */
+  private playPending = false;
 
   /** Scratch buffers, reused across runs so a sort allocates no per-row arrays. */
   private readonly toFlip: HTMLElement[] = [];
@@ -326,11 +334,18 @@ export class RowAnimator {
     const probe = toFlip[0] ?? toFadeIn[0] ?? toSlideIn[0];
     void probe.offsetHeight;
 
+    // Mark the animation as live from here, not from the play phase below:
+    // `active` does not fill until the next frame, and a caller polling
+    // `isAnimating()` in between would see an idle animator and restart the
+    // whole sequence — the exact stutter the flag exists to prevent.
+    this.playPending = true;
+
     // ── Play phase ───────────────────────────────────────────────────────────
     // Next frame: enable transitions and release every element to its natural
     // resting place. Only `transform`/`opacity` are transitioned — never `top`,
     // which the position stylesheet owns and which would force layout per frame.
     requestAnimationFrame(() => {
+      this.playPending = false;
       const moveTransition = `transform ${duration}ms ${EASING}`;
       const fadeTransition = `opacity ${duration}ms ${EASING}, transform ${duration}ms ${EASING}`;
 
@@ -406,9 +421,25 @@ export class RowAnimator {
     return this.snapshot !== null;
   }
 
+  /**
+   * Returns `true` while rows are mid-transition.
+   *
+   * Lets a caller driving repeated re-layouts — a real-time feed reordering a
+   * sorted column — skip capturing a new snapshot until the current slide has
+   * landed. Without that check, a feed ticking faster than the animation
+   * duration restarts the FLIP on every batch, and rows never finish travelling:
+   * the effect reads as a permanent smear rather than as motion. Skipping is
+   * safe because the rows still move to their correct positions; only the
+   * animation for that intermediate step is dropped.
+   */
+  isAnimating(): boolean {
+    return this.playPending || this.active.size > 0;
+  }
+
   destroy(): void {
     this.finishAll();
     this.snapshot = null;
+    this.playPending = false;
   }
 }
 

@@ -27,6 +27,7 @@ import { miscCss }              from './base/misc.css';
 import { rowDragCss }           from './base/row-drag.css';
 import { chartPanelCss }        from './base/chart-panel.css';
 import { sparklineCss }         from './base/sparkline.css';
+import { skeletonCss }          from './base/skeleton.css';
 import { columnContextMenuCss } from './base/column-context-menu.css';
 import { masterDetailCss }      from './base/master-detail.css';
 import { photonAiCss }          from './base/photon-ai.css';
@@ -66,6 +67,8 @@ const baseCss = [
   rowDragCss,
   chartPanelCss,
   sparklineCss,
+
+  skeletonCss,
   columnContextMenuCss,
   masterDetailCss,
   photonAiCss,

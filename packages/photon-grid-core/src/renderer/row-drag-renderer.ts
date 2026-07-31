@@ -4,9 +4,24 @@ import type { IconRenderer } from '../icons/icon-renderer';
 import type { RowNode } from '../types/row.types';
 import { GridEventType } from '../types/event.types';
 import { createDiv } from './dom-utils';
+import { computeRowDragPreview, previewTopFor } from './row-drag-preview';
 
 const SCROLL_ZONE = 64;    // px from body edge to engage auto-scroll
 const MAX_SCROLL_SPD = 24; // px/frame at extreme edge
+
+/**
+ * A slot in the published row array. A demand-loading row model publishes a
+ * sparse array — only fetched pages are materialised — so every read has to
+ * tolerate a hole.
+ */
+type RowSlot = RowNode | undefined;
+
+/** The rendered row range, as `[start, end)` half-open indices. */
+interface RenderWindow {
+  readonly rows: ReadonlyArray<RowSlot>;
+  readonly start: number;
+  readonly end: number;
+}
 
 export class RowDragRenderer {
   private ghostEl: HTMLElement | null = null;
@@ -25,6 +40,17 @@ export class RowDragRenderer {
   private autoScrollRAF: number | null = null;
   private cursorX = 0;
   private cursorY = 0;
+
+  /**
+   * `false` when the grid must not rewrite row order itself — the application
+   * commits the move instead. See {@link setManagedReorder}.
+   */
+  private managedReorder = true;
+
+  /** The dragged row node, captured at drag start so its index can be resolved in O(1). */
+  private draggedRow: RowNode | null = null;
+  /** The row the pointer is currently over, kept alongside {@link targetNodeId}. */
+  private targetRow: RowNode | null = null;
 
   /** Tears down the `ROWS_RENDERED` subscription that re-applies drag visuals after virtualization re-renders. `null` until `mount`. */
   private unsubscribeRowsRendered: (() => void) | null = null;
@@ -70,6 +96,19 @@ export class RowDragRenderer {
     this.treeReparentHandler = reparentHandler;
   }
 
+  /**
+   * Declares whether the grid applies the reorder itself on drop.
+   *
+   * When `false` the drag and its live preview run exactly as normal, but the
+   * row array is never touched and `ROW_DROP` is emitted with `managed: false`
+   * — a request for the application to persist the move and refresh. That is the
+   * only coherent mode under a server-backed row model, where the datasource
+   * owns row order. See `RowDragOptions`.
+   */
+  setManagedReorder(managed: boolean): void {
+    this.managedReorder = managed;
+  }
+
   destroy(): void {
     this.bodyWrapEl?.removeEventListener('pointerdown', this.boundMouseDown, true);
     this.unsubscribeRowsRendered?.();
@@ -108,10 +147,14 @@ export class RowDragRenderer {
     const nodeId = rowEl?.getAttribute('data-node-id');
     if (!nodeId) return;
 
-    const rows = this.store.get('visibleRows') as RowNode[];
-    const row = rows.find((r) => r.nodeId === nodeId);
+    // Scoped to the rendered window: the row under the pointer is on screen by
+    // definition, so there is no reason to scan a dataset that may hold
+    // millions of entries.
+    const w = this.renderWindow();
+    const row = this.findInWindow(w, nodeId);
     if (!row || row.type === 'group' || row.type === 'summary') return;
 
+    this.draggedRow = row;
     this.dragLabel = handle.getAttribute('data-drag-label') ?? '';
     this.startDrag(nodeId, e);
   }
@@ -154,6 +197,11 @@ export class RowDragRenderer {
     document.body.style.cursor = 'grabbing';
 
     this.startAutoScrollLoop();
+
+    this.eventBus.emit(GridEventType.ROW_DRAG_START, {
+      row: this.draggedRow!,
+      rowIndex: this.draggedRow!.rowIndex,
+    });
   }
 
   // ─── Mouse move ───────────────────────────────────────────────────────────
@@ -184,6 +232,7 @@ export class RowDragRenderer {
       this.ghostEl?.classList.add('pg-row-drag-ghost--outside');
       if (this.targetNodeId !== null) {
         this.targetNodeId = null;
+        this.targetRow = null;
         this.clearDragTops(); // rows animate back to their real positions
       }
       return;
@@ -193,30 +242,38 @@ export class RowDragRenderer {
     const scrollTop = this.getScrollTop();
     const cursorContentY = (this.cursorY - bodyRect.top) + scrollTop;
 
-    const allVisible = this.store.get('visibleRows') as RowNode[];
-    const rows = allVisible.filter(
-      (r) => r.type !== 'group' && r.type !== 'summary' && r.nodeId !== this.draggingNodeId,
-    );
-
+    // Hit-test only what is painted. The cursor is inside the body (checked
+    // above), so the row under it is necessarily in the render window — and
+    // scanning the full array would be both O(dataset) per pointer move and
+    // unsafe against a sparse one.
+    const w = this.renderWindow();
     let target: RowNode | null = null;
     let position: 'before' | 'after' | 'inside' = 'before';
+    let firstCandidate: RowNode | null = null;
+    let lastCandidate: RowNode | null = null;
 
-    for (const row of rows) {
+    for (let i = w.start; i < w.end; i++) {
+      const row = w.rows[i];
+      if (!row) continue; // unloaded slot in a demand-loading model
+      if (row.type === 'group' || row.type === 'summary') continue;
+      if (row.nodeId === this.draggingNodeId) continue;
+
       if (cursorContentY >= row.top && cursorContentY < row.top + row.height) {
         target = row;
         position = this.classifyDropPosition(cursorContentY - row.top, row.height);
         break;
       }
+      if (!firstCandidate) firstCandidate = row;
+      lastCandidate = row;
     }
 
-    // Fallback: above first visible / below last visible
-    if (!target && rows.length > 0) {
-      const first = rows[0];
-      const last = rows[rows.length - 1];
-      if (cursorContentY < first.top) {
-        target = first; position = 'before';
-      } else if (cursorContentY >= last.top + last.height) {
-        target = last; position = 'after';
+    // Fallback for a cursor in a gap the loop found no row for — above the
+    // topmost painted row, or below the bottom one.
+    if (!target && firstCandidate && lastCandidate) {
+      if (cursorContentY < firstCandidate.top) {
+        target = firstCandidate; position = 'before';
+      } else if (cursorContentY >= lastCandidate.top + lastCandidate.height) {
+        target = lastCandidate; position = 'after';
       }
     }
 
@@ -226,6 +283,7 @@ export class RowDragRenderer {
     // Only recompute style sheet when the target slot actually changed
     if (newTarget !== this.targetNodeId || newPos !== this.targetPosition) {
       this.targetNodeId = newTarget;
+      this.targetRow = target;
       this.targetPosition = newPos;
       if (this.targetNodeId) {
         // Tree reparenting doesn't have a stable "flat virtual order" to
@@ -288,30 +346,75 @@ export class RowDragRenderer {
   private onMouseUp(_e: MouseEvent): void {
     if (!this.isDragging) { this.cleanup(); return; }
 
-    const draggedId = this.draggingNodeId;
-    const targetId  = this.targetNodeId;
-    const position  = this.targetPosition;
+    const draggedRow = this.draggedRow;
+    const targetRow = this.targetRow;
+    const position = this.targetPosition;
+    // Resolved before cleanup, which clears the drag's row references.
+    const move = draggedRow && targetRow && draggedRow.nodeId !== targetRow.nodeId
+      ? this.resolveMove(draggedRow, targetRow, position)
+      : null;
 
     // Phase 1: remove interaction state immediately (ghost, events, cursor, row class).
     // Keep pg-grid--row-dragging + drag tops alive so there is no visual snap while
     // the store re-render and RowPositionSheet settle to the new positions.
     this.cleanupInteraction();
 
-    if (draggedId && targetId && draggedId !== targetId && this.treeModeActive && this.treeReparentHandler) {
+    if (move && this.treeModeActive && this.treeReparentHandler) {
       // Tree reparenting rebuilds the whole hierarchy via a pipeline refresh
       // rather than a flat splice — no drag-tops preview to reconcile, so
       // visuals can be cleared immediately.
-      this.treeReparentHandler(draggedId, targetId, position);
+      this.treeReparentHandler(draggedRow!.nodeId, targetRow!.nodeId, position);
       this.cleanupVisuals();
-    } else if (draggedId && targetId && draggedId !== targetId) {
-      this.reorderRows(draggedId, targetId, position === 'inside' ? 'after' : position);
+    } else if (move && this.managedReorder) {
+      this.reorderRows(draggedRow!.nodeId, targetRow!.nodeId, move.position, move);
       // Phase 2: after two RAFs, RowPositionSheet has the same top values as our drag tops
       // → removing the overrides causes zero visual change.
       requestAnimationFrame(() => requestAnimationFrame(() => this.cleanupVisuals()));
+    } else if (move) {
+      // Unmanaged: the grid changes nothing. The preview is torn down at once so
+      // rows sit where the data still says they do, and ROW_DROP goes out as a
+      // request for the application to persist the move and refresh.
+      this.cleanupVisuals();
+      this.eventBus.emit(GridEventType.ROW_DROP, {
+        draggedRows: [draggedRow!],
+        targetRow: targetRow!,
+        position,
+        managed: false,
+        fromIndex: move.fromIndex,
+        toIndex: move.toIndex,
+      });
     } else {
       this.cleanupVisuals();
     }
+
+    if (draggedRow) {
+      this.eventBus.emit(GridEventType.ROW_DRAG_END, { row: draggedRow, cancelled: move === null });
+    }
   }
+
+  /**
+   * Resolves the drop into concrete indices, or `null` when it would not move
+   * the row (dropped back into its own slot, or onto a row whose position can't
+   * be resolved).
+   */
+  private resolveMove(
+    draggedRow: RowNode,
+    targetRow: RowNode,
+    position: 'before' | 'after' | 'inside',
+  ): { fromIndex: number; toIndex: number; position: 'before' | 'after' } | null {
+    const w = this.renderWindow();
+    const fromIndex = this.indexOf(w, draggedRow);
+    const targetIndex = this.indexOf(w, targetRow);
+    if (fromIndex === -1 || targetIndex === -1) return null;
+
+    // 'inside' is a Tree Data reparent, which has no flat equivalent; the flat
+    // path treats it as 'after' exactly as the preview does.
+    const flat = position === 'inside' ? 'after' : position;
+    const preview = computeRowDragPreview(fromIndex, targetIndex, flat, w.rows.length, (i) => w.rows[i] ?? null);
+    if (!preview) return null;
+    return { fromIndex, toIndex: preview.insertIndex, position: flat };
+  }
+
 
   // ─── Auto-scroll loop ─────────────────────────────────────────────────────
 
@@ -353,6 +456,10 @@ export class RowDragRenderer {
   // than RowPositionSheet (.pg-grid--row-dragging .pg-row[data-node-id="X"])
   // so they win cleanly.  Because reorderRows() produces the exact same top
   // values, removing these rules after the re-render causes zero visual snap.
+  //
+  // Scope is the render window, and the shift itself is computed in constant
+  // time (see `row-drag-preview.ts`) rather than by rebuilding the whole order:
+  // this runs on every pointer move, and only painted rows can be seen moving.
 
   private updateRowTops(): void {
     if (!this.draggingNodeId || !this.targetNodeId) {
@@ -360,35 +467,93 @@ export class RowDragRenderer {
       return;
     }
 
-    const allRows = this.store.get('visibleRows') as RowNode[];
+    const w = this.renderWindow();
+    const draggedRow = this.draggedRow;
+    const targetRow = this.targetRow;
+    if (!draggedRow || !targetRow) { this.clearDragTops(); return; }
 
-    // Compute the virtual order that the drop would produce
-    const virtual = [...allRows];
-    const fromIdx = virtual.findIndex((r) => r.nodeId === this.draggingNodeId);
-    if (fromIdx === -1) { this.clearDragTops(); return; }
+    const fromIdx = this.indexOf(w, draggedRow);
+    const targetIdx = this.indexOf(w, targetRow);
+    if (fromIdx === -1 || targetIdx === -1) { this.clearDragTops(); return; }
 
-    const [dragged] = virtual.splice(fromIdx, 1);
-    let insertIdx = virtual.findIndex((r) => r.nodeId === this.targetNodeId);
-    if (insertIdx === -1) { this.clearDragTops(); return; }
-    if (this.targetPosition === 'after') insertIdx++;
-    virtual.splice(Math.max(0, insertIdx), 0, dragged);
+    const preview = computeRowDragPreview(
+      fromIdx,
+      targetIdx,
+      this.targetPosition === 'inside' ? 'after' : this.targetPosition,
+      w.rows.length,
+      (i) => w.rows[i] ?? null,
+    );
+    if (!preview) { this.clearDragTops(); return; }
 
-    // Emit CSS overrides only for rows that changed position
-    let css = '';
-    let newTop = 0;
-    for (const row of virtual) {
-      if (Math.abs(newTop - row.top) > 0.5) {
-        // specificity (0,3,0) > RowPositionSheet (0,2,0) → always wins
-        css += `.pg-grid--row-dragging .pg-row[data-node-id="${row.nodeId}"]{top:${newTop}px;}\n`;
-      }
-      newTop += row.height;
+    // RowPositionSheet writes window-relative tops (see GridRenderer's
+    // paint-coordinate rebasing), so the same origin comes off here or the
+    // preview would sit an entire scroll depth away from the rows it replaces.
+    const originY = this.getRowOriginY();
+    const rule = (nodeId: string, top: number): string =>
+      // specificity (0,3,0) > RowPositionSheet (0,2,0) → always wins
+      `.pg-grid--row-dragging .pg-row[data-node-id="${nodeId}"]{top:${top - originY}px;}\n`;
+
+    // The dragged row is pinned into the DOM by GridRenderer even once
+    // auto-scroll carries its real position out of the window, so its rule is
+    // emitted outside the window loop.
+    let css = rule(this.draggingNodeId, preview.draggedTop);
+
+    // Previewed visual order, for the serial column. Every painted row goes in,
+    // moved or not, so the ordering is complete for what is on screen.
+    const order: Array<{ row: RowNode; top: number }> = [
+      { row: draggedRow, top: preview.draggedTop },
+    ];
+
+    for (let i = w.start; i < w.end; i++) {
+      const row = w.rows[i];
+      if (!row || i === fromIdx) continue;
+      const newTop = previewTopFor(preview, i, fromIdx, row.top);
+      if (newTop !== null) css += rule(row.nodeId, newTop);
+      order.push({ row, top: newTop ?? row.top });
     }
 
     this.getOrCreateTopStyle().textContent = css;
 
     // Keep the serial-number column consistent with the live preview: the rows
     // have just been repositioned, so their serials must follow suit.
-    this.renumberSerialCells(virtual);
+    order.sort((a, b) => a.top - b.top);
+    this.renumberSerialCells(order.map((e) => e.row));
+  }
+
+  /**
+   * Index of `row` in the published array.
+   *
+   * `RowNode.rowIndex` is the row's absolute position in `visibleRows`,
+   * assigned by `RowModel.layoutNodes` — the same invariant `BodyRenderer`
+   * already relies on for serials and stripe parity. So it serves as an O(1)
+   * hint, verified against the array before it is trusted, with a scan of the
+   * render window as the fallback.
+   */
+  private indexOf(w: RenderWindow, row: RowNode | null): number {
+    if (!row) return -1;
+    const hint = row.rowIndex;
+    if (hint >= 0 && hint < w.rows.length && w.rows[hint]?.nodeId === row.nodeId) return hint;
+    for (let i = w.start; i < w.end; i++) {
+      if (w.rows[i]?.nodeId === row.nodeId) return i;
+    }
+    return -1;
+  }
+
+  /** The published rows plus the half-open index range currently painted. */
+  private renderWindow(): RenderWindow {
+    const rows = this.store.get('visibleRows') as ReadonlyArray<RowSlot>;
+    const start = Math.max(0, this.store.get('firstRenderedRowIndex'));
+    const end = Math.min(rows.length, this.store.get('lastRenderedRowIndex'));
+    return { rows, start, end };
+  }
+
+  /** The painted row carrying `nodeId`, or `null`. */
+  private findInWindow(w: RenderWindow, nodeId: string): RowNode | null {
+    for (let i = w.start; i < w.end; i++) {
+      const row = w.rows[i];
+      if (row?.nodeId === nodeId) return row;
+    }
+    return null;
   }
 
   private clearDragTops(): void {
@@ -401,7 +566,13 @@ export class RowDragRenderer {
     // subsequent re-render already carries the correct serials, so this is a
     // harmless identity pass; on a cancelled/reverted drag it undoes the
     // preview renumbering (no re-render happens in that path).
-    this.renumberSerialCells(this.store.get('visibleRows') as RowNode[]);
+    const w = this.renderWindow();
+    const order: RowNode[] = [];
+    for (let i = w.start; i < w.end; i++) {
+      const row = w.rows[i];
+      if (row) order.push(row);
+    }
+    this.renumberSerialCells(order);
   }
 
   /**
@@ -414,12 +585,13 @@ export class RowDragRenderer {
    * serials are computed (absolute vs. window-relative) — it neither knows nor
    * needs the numbering scheme, which avoids any value "jump" at drag start.
    *
-   * Only rows currently in the DOM carry serial cells; `order` may be the full
-   * visible-row list and non-rendered rows are simply skipped. No-op when the
-   * serial column is disabled (no serial cells present).
+   * Only rows currently in the DOM carry serial cells, and `order` is scoped to
+   * the render window for exactly that reason — a row that is not painted has
+   * no serial to renumber. No-op when the serial column is disabled (no serial
+   * cells present).
    *
-   * @param order - Row nodes in the desired visual order (previewed order while
-   *                dragging; real `visibleRows` order to restore).
+   * @param order - Painted row nodes in the desired visual order (previewed
+   *                order while dragging; real order to restore).
    */
   private renumberSerialCells(order: ReadonlyArray<RowNode>): void {
     if (!this.bodyWrapEl) return;
@@ -459,7 +631,12 @@ export class RowDragRenderer {
 
   // ─── Row reorder (committed on drop) ─────────────────────────────────────
 
-  private reorderRows(draggedId: string, targetId: string, position: 'before' | 'after'): void {
+  private reorderRows(
+    draggedId: string,
+    targetId: string,
+    position: 'before' | 'after',
+    indices: { fromIndex: number; toIndex: number },
+  ): void {
     const allRows    = [...(this.store.get('allRows')    as RowNode[])];
     const visibleRows = [...(this.store.get('visibleRows') as RowNode[])];
 
@@ -491,6 +668,9 @@ export class RowDragRenderer {
         draggedRows: [draggedNode],
         targetRow: targetNode,
         position,
+        managed: true,
+        fromIndex: indices.fromIndex,
+        toIndex: indices.toIndex,
       });
     }
 
@@ -503,6 +683,16 @@ export class RowDragRenderer {
   private getScrollTop(): number {
     const val = this.gridEl?.style.getPropertyValue('--pg-scroll-y') ?? '0px';
     return -parseFloat(val) || 0;
+  }
+
+  /**
+   * The offset RowPositionSheet currently subtracts from every row's `top`.
+   * Published by `ScrollController.setRowOrigin`; see the paint-coordinate
+   * rebasing note in `GridRenderer.performRender`.
+   */
+  private getRowOriginY(): number {
+    const val = this.gridEl?.style.getPropertyValue('--pg-row-origin-y') ?? '0px';
+    return parseFloat(val) || 0;
   }
 
   private setDraggingClass(nodeId: string, active: boolean): void {
@@ -521,6 +711,8 @@ export class RowDragRenderer {
     this.ghostEl = null;
     this.draggingNodeId = null;
     this.targetNodeId = null;
+    this.draggedRow = null;
+    this.targetRow = null;
     this.isDragging = false;
     document.body.style.userSelect = '';
     document.body.style.cursor = '';

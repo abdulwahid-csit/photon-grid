@@ -9,6 +9,17 @@ export interface StickyRowResult {
   offsetPx: number;
   /** The virtualization window's `start` index, widened if needed so the sticky row's cells stay rendered even though it has scrolled past its natural position. */
   minStart: number;
+  /**
+   * Height in pixels of the band the sticky overlay actually occupies —
+   * `offsetPx + masterHeight`, i.e. the master row's visible remainder while
+   * it is being pushed off, and `0` when nothing is sticky.
+   *
+   * Published by `GridRenderer` as `--pg-sticky-block-height` so the sticky
+   * layer's pinned-edge shadow spans exactly the stuck rows and no further —
+   * a full-height shadow there paints over Master/Detail rows, which sit one
+   * stacking level below the always-on-top sticky layer.
+   */
+  blockHeight: number;
 }
 
 /**
@@ -32,7 +43,7 @@ export interface StickyRowResult {
  */
 export class StickyRowTracker {
   compute(rows: RowNode[], scrollTop: number, rowHeight: number, windowStart: number): StickyRowResult {
-    const none: StickyRowResult = { nodeId: null, offsetPx: 0, minStart: windowStart };
+    const none: StickyRowResult = { nodeId: null, offsetPx: 0, minStart: windowStart, blockHeight: 0 };
     if (rows.length === 0) return none;
 
     const idx = findRowAtOffset(rows, scrollTop, rowHeight);
@@ -53,6 +64,9 @@ export class StickyRowTracker {
       nodeId: master.nodeId,
       offsetPx,
       minStart: Math.min(windowStart, masterIdx),
+      // Clamped at 0: `offsetPx` bottoms out at `-masterHeight` exactly as the
+      // block ends, so the band collapses to nothing rather than going negative.
+      blockHeight: Math.max(0, offsetPx + masterHeight),
     };
   }
 

@@ -21,10 +21,14 @@ import type { FilterModel } from './filter.types';
  * - `'client'` — the default. All data operations happen in-memory inside the
  *   grid (sort, filter, group, paginate, aggregate, formulas…).
  * - `'server'` — the grid renders only; every data operation is delegated to a
- *   {@link ServerSideDatasource}. Reserved future values (`'infinite'`,
- *   `'viewport'`) can be added without breaking this union.
+ *   {@link ServerSideDatasource}, one page at a time, driven by the pager.
+ * - `'infinite'` — like `'server'`, but driven by *scroll position* rather than
+ *   the pager: pages load on demand as they come into view, are prefetched
+ *   ahead, and are cached under an LRU bound. Uses the same
+ *   {@link ServerSideDatasource}, so switching between the two costs nothing.
+ *   See `GridOptions.infinite`.
  */
-export type RowModelType = 'client' | 'server';
+export type RowModelType = 'client' | 'server' | 'infinite';
 
 /** A single column's sort directive within a {@link ServerSideRequest.sortModel}. */
 export interface SortModelItem {

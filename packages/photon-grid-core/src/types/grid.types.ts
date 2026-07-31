@@ -7,9 +7,12 @@ import type { PhotonAIConfig } from './photon-ai.types';
 import type { TreeDataConfig } from './tree-data.types';
 import type { FormulaConfig } from './formula.types';
 import type { AutoFillConfig } from './autofill.types';
+import type { RowMenuConfig } from './row-menu.types';
+import type { RowDragOptions } from './row-drag.types';
 import type { ImportConfig } from './import.types';
 import type { ToolbarConfig } from './toolbar.types';
 import type { RowModelType, ServerSideConfig, ServerSideDatasource } from './server-side.types';
+import type { InfiniteScrollConfig } from './infinite.types';
 import type { ToastServiceConfigInput } from '../toast/toast.types';
 import type { ChartPanelType } from '../chart/chart-panel';
 import type { ChartModel, ChartModelPatch } from '../chart/model/chart-model';
@@ -311,10 +314,27 @@ export interface GridOptions {
    */
   rowModel?: RowModelType;
   /**
+   * Row-drag behaviour. The grab handle itself is opted into per column with
+   * {@link ColumnDef.rowDrag}; this controls whether the grid applies the
+   * reorder on drop or leaves it to the application.
+   *
+   * Defaults to managed under `rowModel: 'client'` and unmanaged under the
+   * server-backed models. @see {@link RowDragOptions}
+   */
+  rowDrag?: RowDragOptions;
+  /**
    * Tuning for the Server-Side Row Model (debounce, response cache, retries).
    * Only used when `rowModel: 'server'`. @see {@link ServerSideConfig}
    */
   serverSide?: Partial<ServerSideConfig>;
+  /**
+   * Tuning for the Infinite Row Model (page size, prefetch, cache bound,
+   * concurrency, retries) plus its five lifecycle callbacks. Only used when
+   * `rowModel: 'infinite'`. Uses the same {@link serverSideDatasource}, so a
+   * datasource written for `'server'` works unchanged.
+   * @see {@link InfiniteScrollConfig}
+   */
+  infinite?: InfiniteScrollConfig;
   /**
    * The datasource the grid calls to fetch each slice of rows in server mode.
    * Required when `rowModel: 'server'`. @see {@link ServerSideDatasource}
@@ -427,6 +447,18 @@ export interface GridOptions {
    * handle is the only integration point. @see {@link AutoFillConfig}
    */
   autofill?: AutoFillConfig;
+
+  /**
+   * Row context menu — the menu opened by right-clicking a data row.
+   *
+   * Adds host-authored actions alongside (or instead of) the built-in
+   * clipboard, chart and export entries. Items accept an icon from the grid's
+   * icon registry, an optional keyboard hint, and `children` for a hover
+   * fly-out submenu; `disabled` / `hidden` may be predicates evaluated against
+   * the clicked row. Activations invoke the item's `action` and emit
+   * `ROW_MENU_ITEM_CLICKED`. @see {@link RowMenuConfig}
+   */
+  rowMenu?: RowMenuConfig;
 
   /**
    * Import Engine — an opt-in **Import ▾** button at the grid's top-right

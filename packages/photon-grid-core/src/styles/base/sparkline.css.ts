@@ -33,6 +33,142 @@ export const sparklineCss = `/* ────────────────
   display: inline-flex; align-items: center; width: 16px; flex-shrink: 0;
   color: var(--pg-colors-text-secondary,#64748b);
 }
+/* Built-in and custom entries are grouped in their own wrappers so either block
+   can be hidden or reordered without rebuilding the other. The wrappers are
+   layout-neutral — items must keep behaving as direct children of the menu. */
+.pg-context-menu__group { display: contents; }
+/* A disabled entry stays visible (so the action remains discoverable) but is
+   inert: muted, no hover feedback, no pointer affordance. */
+.pg-context-menu__item--disabled {
+  opacity: 0.45;
+  cursor: default;
+  pointer-events: none;
+}
+
+/* ── Checkbox / radio entries ────────────────────────────────────────────────
+   The state indicator is a trailing slot so it aligns with the keyboard hints
+   of neighbouring items instead of shifting their label text. */
+.pg-context-menu__mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  margin-left: auto;
+  flex-shrink: 0;
+  color: var(--pg-colors-primary, #2563eb);
+}
+.pg-context-menu__mark--radio {
+  border: 1px solid var(--pg-colors-border, #cbd5e1);
+  border-radius: var(--pg-borders-radius-pill, 9999px);
+}
+.pg-context-menu__item--checked > .pg-context-menu__mark--radio {
+  border-color: var(--pg-colors-primary, #2563eb);
+}
+.pg-context-menu__item--checked > .pg-context-menu__mark--radio::after {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: var(--pg-borders-radius-pill, 9999px);
+  background: var(--pg-colors-primary, #2563eb);
+}
+/* A toggle keeps its trailing slot even when unchecked, so rows of options do
+   not shift horizontally as the user toggles them. */
+.pg-context-menu__item--toggle > .pg-context-menu__kbd { margin-left: 8px; }
+
+/* ── Busy state for async actions ────────────────────────────────────────────
+   The spinner replaces the leading icon rather than adding a slot, so the item
+   keeps its exact width and the menu never reflows mid-action. */
+.pg-context-menu__item--loading { pointer-events: none; }
+/* Anchor for the spinner below. */
+.pg-context-menu__item--loading > .pg-context-menu__icon { position: relative; }
+/* The action's own icon is hidden for the duration — whatever the icon
+   renderer produced (an <svg>, a wrapper, a custom element) goes with it. */
+.pg-context-menu__item--loading > .pg-context-menu__icon > * { display: none; }
+/* Absolutely positioned, so the fixed-width icon slot's flex layout cannot
+   compress it: a flex-item spinner gets squashed horizontally and renders as a
+   pill instead of a circle. Centred with margins rather than a translate,
+   because the keyframe animates transform and would overwrite it. */
+.pg-context-menu__item--loading > .pg-context-menu__icon::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  box-sizing: border-box;
+  border: 2px solid var(--pg-colors-border, #cbd5e1);
+  border-top-color: var(--pg-colors-primary, #2563eb);
+  /* 50% of a square box is exactly a circle, and cannot be skewed by a theme
+     overriding the pill token. */
+  border-radius: 50%;
+  animation: pg-context-menu-spin 640ms linear infinite;
+}
+@keyframes pg-context-menu-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .pg-context-menu__item--loading > .pg-context-menu__icon::after { animation-duration: 2s; }
+}
+
+/* ── Confirmation dialog ─────────────────────────────────────────────────── */
+.pg-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--pg-colors-overlay, rgba(15, 23, 42, 0.45));
+}
+.pg-confirm {
+  width: min(420px, calc(100vw - 32px));
+  padding: 20px;
+  background: var(--pg-colors-surface, #fff);
+  border: 1px solid var(--pg-colors-border, #e2e8f0);
+  border-radius: var(--pg-borders-radius-lg, 10px);
+  box-shadow: var(--pg-shadows-dialog, var(--pg-shadows-dropdown, 0 16px 48px rgba(0,0,0,0.2)));
+  font-family: var(--pg-typography-font-family, system-ui, sans-serif);
+  color: var(--pg-colors-text-primary, #0f172a);
+}
+.pg-confirm__title {
+  font-size: var(--pg-typography-font-size-lg, 15px);
+  font-weight: var(--pg-typography-font-weight-semibold, 600);
+  margin-bottom: 6px;
+}
+.pg-confirm__message {
+  font-size: var(--pg-typography-font-size-md, 13px);
+  line-height: var(--pg-typography-line-height-base, 1.5);
+  color: var(--pg-colors-text-secondary, #475569);
+}
+.pg-confirm__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+.pg-confirm__btn {
+  padding: 7px 14px;
+  border-radius: var(--pg-borders-radius-md, 6px);
+  border: 1px solid var(--pg-colors-border, #cbd5e1);
+  background: var(--pg-colors-surface, #fff);
+  color: var(--pg-colors-text-primary, #0f172a);
+  font-family: inherit;
+  font-size: var(--pg-typography-font-size-md, 13px);
+  font-weight: var(--pg-typography-font-weight-medium, 500);
+  cursor: pointer;
+}
+.pg-confirm__btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--pg-colors-primary, #2563eb);
+}
+.pg-confirm__btn--confirm {
+  border-color: transparent;
+  background: var(--pg-colors-primary, #2563eb);
+  color: var(--pg-colors-primary-contrast, #fff);
+}
+.pg-confirm__btn--danger {
+  background: var(--pg-colors-error, #dc2626);
+}
 
 /* ──────────────────── Sparkline cell ──────────────────── */
 

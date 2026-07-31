@@ -16,6 +16,7 @@
  */
 
 import type {
+  SparklineBaseline,
   SparklineConfig,
   SparklinePoint,
   OHLCPoint,
@@ -29,6 +30,9 @@ import type {
 /** @internal Fully resolved configuration with all defaults filled in. */
 interface ResolvedConfig {
   type: SparklineType;
+  baseline: SparklineBaseline;
+  axisMin: number | null;
+  axisMax: number | null;
   stroke: string;
   fill: string;
   lineWidth: number;
@@ -205,6 +209,16 @@ function formatNumber(n: number): string {
 }
 
 /**
+ * Constrains `value` to the inclusive `[min, max]` range.
+ *
+ * Used to keep a bar chart's baseline inside the plot area when the value axis
+ * does not contain zero.
+ */
+function clampNum(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+/**
  * Reads a CSS custom property from the computed style of an element.
  * Returns `fallback` when the property is absent or empty.
  *
@@ -359,6 +373,25 @@ export class SparklineRenderer {
   }
 
   /**
+   * Swaps in a new data series and redraws onto the **same canvas**.
+   *
+   * The counterpart to {@link redraw} for feeds that publish a *new* array each
+   * tick (an immutable update) rather than mutating one in place — `redraw`
+   * would keep re-parsing the original reference and the chart would freeze.
+   *
+   * This is what lets a live sparkline update silently: recreating the cell's
+   * content would build a fresh `<canvas>`, whose first paint is deferred until
+   * it has been measured, leaving a visibly blank frame on every tick. Drawing
+   * into the existing canvas has no such gap.
+   *
+   * @param rawData - The new cell value; a flat `number[]` or `object[]`.
+   */
+  setData(rawData: unknown): void {
+    this.rawData = rawData;
+    this.redraw();
+  }
+
+  /**
    * Releases all event listeners held by this renderer.
    * Must be called when the host cell element is removed from the DOM to
    * prevent memory leaks.
@@ -411,6 +444,9 @@ export class SparklineRenderer {
 
     return {
       type: config.type ?? 'line',
+      baseline: config.baseline ?? 'auto',
+      axisMin: config.axisMin ?? null,
+      axisMax: config.axisMax ?? null,
       stroke,
       fill: fillColor,
       lineWidth: config.lineWidth ?? 1.5,
@@ -618,7 +654,12 @@ export class SparklineRenderer {
     const bandW = plotW / n;
     const gap = bandW * cfg.barSpacing;
     const barW = Math.max(1, bandW - gap);
-    const zeroY = this._yPos(0, minV, range, plotTop, plotH);
+    // Bars grow from the zero line when it is inside the domain, and from the
+    // nearest edge of the plot when it is not (the `baseline: 'auto'` case for
+    // an all-positive or all-negative series). Clamping rather than trusting
+    // `_yPos(0)` keeps the bars inside the cell instead of overflowing far
+    // below it.
+    const zeroY = clampNum(this._yPos(0, minV, range, plotTop, plotH), plotTop, plotTop + plotH);
 
     for (const pt of pts) {
       const x = plotLeft + pt.index * bandW + gap / 2;
@@ -648,16 +689,16 @@ export class SparklineRenderer {
     const plotTop = pad;
     const plotLeft = pad;
 
-    const minV = Math.min(...pts.map((p) => p.value), 0);
-    const maxV = Math.max(...pts.map((p) => p.value), 0);
-    const range = maxV - minV || 1;
+    const { minV, range } = this._domain(pts.map((p) => p.value));
 
     const n = pts.length;
     const bandH = plotH / n;
     const gap = bandH * cfg.barSpacing;
     const barH = Math.max(1, bandH - gap);
 
-    const zeroX = plotLeft + ((0 - minV) / range) * plotW;
+    // Same rule as `_drawColumn`, on the horizontal axis: anchor at zero when
+    // it is in the domain, otherwise at the nearest edge of the plot.
+    const zeroX = clampNum(plotLeft + ((0 - minV) / range) * plotW, plotLeft, plotLeft + plotW);
 
     for (const pt of pts) {
       const y = plotTop + pt.index * bandH + gap / 2;
@@ -875,11 +916,47 @@ export class SparklineRenderer {
     const plotH = plotBottom - plotTop;
 
     const values = pts.map((p) => p.value);
-    const minV = Math.min(...values, 0);
-    const maxV = Math.max(...values, 0);
-    const range = maxV - minV || 1;
+    const { minV, maxV, range } = this._domain(values);
 
     return { pad, plotLeft, plotTop, plotRight, plotBottom, plotW, plotH, minV, maxV, range };
+  }
+
+  /**
+   * Resolves the value-axis domain for a series.
+   *
+   * A sparkline's job is to show the **shape** of a series inside a cell, so
+   * the default domain is the data's own min…max. Forcing zero into it — the
+   * previous behaviour — silently destroys that for any series far from zero:
+   * prices oscillating between 300 and 305 map onto a 0…305 axis, which renders
+   * a `line` as a flat stripe near the top and a `column` chart as a row of
+   * apparently identical full-height bars, because every bar is ~99 % of the
+   * plot height.
+   *
+   * `baseline: 'zero'` restores the zero anchor for cases where absolute
+   * magnitude, not trend, is the point; `axisMin` / `axisMax` pin the domain
+   * outright so several rows can share one scale.
+   *
+   * A zero-height domain (every value identical) falls back to a range of `1`,
+   * which draws a flat series at the bottom of the plot rather than dividing by
+   * zero.
+   *
+   * @param values - The series values.
+   * @returns The resolved `minV` / `maxV` and their non-zero `range`.
+   */
+  private _domain(values: number[]): { minV: number; maxV: number; range: number } {
+    const { baseline, axisMin, axisMax } = this.cfg;
+
+    let minV = values.length > 0 ? Math.min(...values) : 0;
+    let maxV = values.length > 0 ? Math.max(...values) : 0;
+
+    if (baseline === 'zero') {
+      minV = Math.min(minV, 0);
+      maxV = Math.max(maxV, 0);
+    }
+    if (axisMin !== null) minV = axisMin;
+    if (axisMax !== null) maxV = axisMax;
+
+    return { minV, maxV, range: maxV - minV || 1 };
   }
 
   /**

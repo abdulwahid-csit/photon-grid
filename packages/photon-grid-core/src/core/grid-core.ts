@@ -57,6 +57,7 @@ import { FormulaInitializer } from '../formula/formula-initializer';
 import { AutoFillEngine } from '../autofill/autofill-engine';
 import { ClientRowModel } from '../row-models/client-row-model';
 import { ServerRowModel } from '../row-models/server/server-row-model';
+import { InfiniteRowModel } from '../row-models/infinite/infinite-row-model';
 import { PhotonThemeEngine } from '../photon-ai/theme/photon-theme-engine';
 
 /** Recursively collects leaf `ColumnDef` entries, skipping group wrappers. */
@@ -255,6 +256,7 @@ export class GridCore {
       cellSelectionEngine,
       themeManager,
       iconRegistry,
+      iconRenderer,
       chartEngine,
       undoRedoEngine,
       masterDetailEngine,
@@ -272,7 +274,20 @@ export class GridCore {
     ctx.rowModelStrategy =
       options.rowModel === 'server'
         ? new ServerRowModel(ctx, options.serverSide, options.serverSideDatasource)
-        : new ClientRowModel(ctx);
+        : options.rowModel === 'infinite'
+          ? new InfiniteRowModel(ctx, options.infinite, options.serverSideDatasource)
+          : new ClientRowModel(ctx);
+
+    // Hand the renderer whatever the strategy needs from it: uniform-height
+    // accounting, the painted row range (for demand-loading models), and
+    // whether the row order may be rewritten client-side (managed row drag).
+    ctx.renderer.setRowModelIntegration(
+      ctx.rowModelStrategy.uniformRowHeight === true,
+      ctx.rowModelStrategy.onRenderWindow
+        ? (start, end) => ctx.rowModelStrategy.onRenderWindow!(start, end)
+        : null,
+      ctx.rowModelStrategy.rowOrderIsClientOwned === true,
+    );
 
     // AI Theme Engine (gridApi.photonAI) — always present; reuses the configured
     // Photon AI provider (may be null → LLM methods throw, offline methods work).
@@ -322,9 +337,11 @@ export class GridCore {
         page: options.pagination.page ?? 1,
         pageSize: options.pagination.pageSize ?? 50,
         pageSizeOptions: options.pagination.pageSizeOptions ?? [10, 25, 50, 100],
-        // Server mode always paginates server-side: the engine must not slice
-        // locally — the datasource returns exactly one page's rows.
-        serverSide: options.rowModel === 'server' ? true : (options.pagination.serverSide ?? false),
+        // Both server-backed models paginate remotely: the engine must not
+        // slice locally — the datasource decides which rows exist.
+        serverSide: options.rowModel === 'server' || options.rowModel === 'infinite'
+          ? true
+          : (options.pagination.serverSide ?? false),
         totalRows: options.pagination.totalRows,
       });
     }
@@ -429,6 +446,11 @@ export class GridCore {
 
     ctx.renderer.setSearchCallback((term) => this.api.setQuickFilter(term));
 
+    // Row context menu: hand the engine its configuration plus the icon
+    // registry and public API its custom items need. Items are rendered on each
+    // open, so a later `setRowMenuConfig` call takes effect immediately.
+    ctx.cellSelectionEngine.setRowMenuConfig(ctx.options.rowMenu, ctx.iconRenderer, this.api);
+
     // Import wiring: the Import menu is pure UI — GridCore owns the bridge to the
     // engine (via the public GridApi), and fans the engine's completion/error
     // events out to the user-supplied config callbacks.
@@ -468,9 +490,10 @@ export class GridCore {
       this.api.setColumnGroupModel(this.columnGroupModel);
     }
 
-    if (options.rowModel === 'server') {
-      // Server mode ignores any static `options.data` — the datasource is the
-      // single source of truth. Kick off the initial fetch of the first page.
+    if (options.rowModel === 'server' || options.rowModel === 'infinite') {
+      // Both server-backed models ignore any static `options.data` — the
+      // datasource is the single source of truth. Kick off the initial load:
+      // the first page for `'server'`, the first window for `'infinite'`.
       ctx.rowModelStrategy.start?.();
     } else if (options.data?.length) {
       this.api.setData(options.data);

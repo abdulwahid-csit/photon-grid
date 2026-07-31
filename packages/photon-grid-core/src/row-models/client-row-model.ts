@@ -18,6 +18,13 @@ import type { RowModelStrategy } from './row-model-strategy';
 export class ClientRowModel implements RowModelStrategy {
   readonly type = 'client' as const;
 
+  /**
+   * Every row lives in memory and the published array is dense, so the grid can
+   * commit a row reorder itself. This is what makes managed row dragging the
+   * default here. See {@link RowModelStrategy.rowOrderIsClientOwned}.
+   */
+  readonly rowOrderIsClientOwned = true;
+
   constructor(private readonly ctx: GridContext) {}
 
   /**

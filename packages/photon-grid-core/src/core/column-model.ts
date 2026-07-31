@@ -517,7 +517,11 @@ export class ColumnModel {
       minWidth: 40,
       visible: true,
       sortable: true,
-      filterable: true,
+      // `filterable` is deliberately NOT defaulted. Every consumer tests it as
+      // `!== false`, so an omitted value already means "filterable" — and
+      // leaving it absent is what lets the header distinguish an explicit
+      // `filterable: true` (show the funnel) from a column that merely inherits
+      // the capability. Defaulting it here would erase that distinction.
       resizable: true,
       draggable: true,
       editable: false,

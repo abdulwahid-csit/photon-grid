@@ -36,6 +36,16 @@ export type SparklineType =
   | 'candlestick'
   | 'ohlc';
 
+/**
+ * Where a sparkline's value axis starts.
+ *
+ * `'auto'` scales to the series' own range (shape-first — the sparkline
+ * convention); `'zero'` anchors the axis at zero so magnitudes are comparable.
+ *
+ * @see {@link SparklineConfig.baseline}
+ */
+export type SparklineBaseline = 'auto' | 'zero';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Configuration
 // ─────────────────────────────────────────────────────────────────────────────
@@ -85,6 +95,36 @@ export interface SparklineConfig {
    * @default 'line'
    */
   type?: SparklineType;
+
+  /**
+   * Where the value axis starts.
+   *
+   * - `'auto'` — the axis spans the series' own min…max, so the chart shows the
+   *   **shape** of the data. This is what makes a sparkline readable for series
+   *   that never approach zero: a price moving between 300 and 305 fills the
+   *   cell with its variation instead of collapsing into a flat line (or, for
+   *   `column`, a row of identical full-height bars).
+   * - `'zero'` — zero is forced into the domain, so bar heights are
+   *   proportional to absolute magnitude and comparable across cells. Choose
+   *   this when the reader is meant to compare quantities rather than trends.
+   *
+   * Ignored when {@link axisMin} / {@link axisMax} pin the domain explicitly,
+   * and for `win-loss`, whose baseline is always the centre line.
+   *
+   * @default 'auto'
+   */
+  baseline?: SparklineBaseline;
+
+  /**
+   * Pins the bottom of the value axis, overriding {@link baseline}.
+   *
+   * Use to give every row in a column the same scale so cells are directly
+   * comparable — with `'auto'`, each cell scales to its own series.
+   */
+  axisMin?: number;
+
+  /** Pins the top of the value axis, overriding {@link baseline}. */
+  axisMax?: number;
 
   /**
    * Stroke colour for line, area, and OHLC sparklines.

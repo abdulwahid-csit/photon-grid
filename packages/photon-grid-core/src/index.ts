@@ -87,6 +87,21 @@ export type {
 } from './types/import.types';
 
 export { ToolbarSearchPosition } from './types/toolbar.types';
+export { EmptyDetailToggleMode } from './types/master-detail.types';
+export type { MasterDetailConfig, DetailRendererParams } from './types/master-detail.types';
+export type {
+  DetailComponent,
+  DetailComponentConstructor,
+  DetailContext,
+  DetailContextBase,
+  DetailEvent,
+  DetailEventHandler,
+  DetailEventHandlerMap,
+  DetailPropsFactory,
+  DetailRenderer,
+  DetailRendererFunction,
+  DetailRenderOutput,
+} from './types/detail-component.types';
 export type {
   ToolbarConfig,
   ToolbarTab,
@@ -288,6 +303,81 @@ export type {
 } from './autofill';
 export type { AutoFillConfig } from './types/autofill.types';
 
+// ── Infinite Row Model ──────────────────────────────────────────────────────
+// `rowModel: 'infinite'` — scroll-driven page loading with prefetch, an LRU
+// page cache, per-page cancellation and skeleton placeholders. Reuses the
+// Server-Side Row Model's `ServerSideDatasource` contract unchanged.
+export { InfiniteRowModel } from './row-models/infinite/infinite-row-model';
+export { InfinitePageCache } from './row-models/infinite/infinite-page-cache';
+export { InfiniteRequestQueue } from './row-models/infinite/infinite-request-queue';
+export {
+  computePageWindow,
+  pageCount,
+  pageOfRow,
+  pageStartRow,
+  pagesInRange,
+} from './row-models/infinite/infinite-window';
+export type { PageWindow, PageWindowParams } from './row-models/infinite/infinite-window';
+export type { CachedPage } from './row-models/infinite/infinite-page-cache';
+export type {
+  PageFetchHooks,
+  PageFetchOutcome,
+  PageFetchTask,
+} from './row-models/infinite/infinite-request-queue';
+export { resolveInfiniteConfig } from './types/infinite.types';
+export type {
+  InfiniteCacheEvent,
+  InfiniteDataReceivedEvent,
+  InfiniteDataRequestEvent,
+  InfiniteErrorEvent,
+  InfiniteRequestReason,
+  InfiniteScrollConfig,
+  InfiniteStats,
+  ResolvedInfiniteConfig,
+} from './types/infinite.types';
+
+// ── Row context menu ────────────────────────────────────────────────────────
+// Host-authored actions for the row right-click menu: registry or custom
+// icons, dynamic labels, checkbox/radio items, confirmation, async actions
+// with a busy state, and unbounded nested submenus.
+export type {
+  RowMenuActionItem,
+  RowMenuCheckboxItem,
+  RowMenuConfig,
+  RowMenuConfirmHandler,
+  RowMenuConfirmOptions,
+  RowMenuConfirmRequest,
+  RowMenuController,
+  RowMenuCustomItem,
+  RowMenuIcon,
+  RowMenuInteractiveItem,
+  RowMenuItem,
+  RowMenuItemCommon,
+  RowMenuItemContext,
+  RowMenuItemId,
+  RowMenuItemPredicate,
+  RowMenuRadioItem,
+  RowMenuSeparatorItem,
+  RowMenuSubmenuItem,
+  RowMenuValue,
+} from './types/row-menu.types';
+export { buildRowMenuItems, resolvePredicate, resolveValue } from './renderer/row-menu-builder';
+export type { RowMenuActivateHandler } from './renderer/row-menu-builder';
+export { openConfirmDialog } from './renderer/confirm-dialog';
+export type { ConfirmDialogOptions } from './renderer/confirm-dialog';
+
+// ── Viewport Virtual DOM ────────────────────────────────────────────────────
+// The real-time update path: `GridApi.applyCellUpdates` diffs the rendered
+// window and writes only the cells whose values changed. See src/renderer/vdom.
+export { CellPatchKind } from './renderer/vdom/vdom.types';
+export type {
+  CellUpdate,
+  CellUpdateResult,
+  VDomStats,
+  VirtualCell,
+  VirtualRow,
+} from './renderer/vdom/vdom.types';
+
 export type { GridOptions, GridState, GridDimensions, SortConfig, PaginationConfig, SelectionConfig, EditingConfig, CellRange, ColumnGroupConfig, HeaderIconsConfig, FiltersToolPanelConfig } from './types/grid.types';
 export type { ColumnDef, ColumnDefInput, Column, ColumnState, ColumnGroup, ColumnDropdownOption, ColumnDataType, ColumnPinPosition, AggFunc } from './types/column.types';
 export { HeaderIconDisplay } from './types/column.types';
@@ -340,6 +430,7 @@ export type { GroupCellBuildOptions } from './column-groups/column-group-header-
 export type { GroupDropPosition, GroupDropTarget } from './column-groups/column-group-drag-handler';
 export type { ColumnGroupStateDiff } from './column-groups/column-group-state-manager';
 export type { RowNode, RowGroupNode, RowGroupFooterNode, RowDataNode, RowDropPayload, RowClickPayload, RowEditPayload } from './types/row.types';
+export type { RowDragOptions, RowDragStartPayload, RowDragEndPayload } from './types/row-drag.types';
 export type { FilterModel, ColumnFilter, FilterCondition, FilterOperator, QuickFilterConfig, FilterSetOption } from './types/filter.types';
 export type { Theme, ThemeTokens, ColorTokens, BuiltInThemeName } from './types/theme.types';
 export type { GridEvent, GridEventMap } from './types/event.types';
@@ -350,6 +441,9 @@ export type {
   RowSelectedEvent,
   CellClickedEvent,
   CellValueChangedEvent,
+  RowMenuItemClickedEvent,
+  RowMenuItemErrorEvent,
+  RowMenuClosedEvent,
   CellSelectionChangedEvent,
   ColumnResizedEvent,
   ColumnMovedEvent,

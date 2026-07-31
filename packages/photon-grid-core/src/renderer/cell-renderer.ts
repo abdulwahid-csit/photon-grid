@@ -41,16 +41,41 @@ export class CellRenderer {
     toggleClass(cell, 'pg-cell--selected', row.selected);
     const align = colDef.textAlign ?? (colDef.type === 'number' || colDef.type === 'currency' ? 'right' : 'left');
     if (align !== 'left') cell.classList.add(`pg-cell--align-${align}`);
-    if (colDef.cellCssClass) {
-      if (typeof colDef.cellCssClass === 'string') {
-        cell.classList.add(colDef.cellCssClass);
-      } else {
-        const dynClass = colDef.cellCssClass({ value, rawValue, row: row.data, colDef, rowIndex, colIndex, api });
-        if (dynClass) cell.classList.add(dynClass);
-      }
-    }
+    const dynClass = this.resolveDynamicClass(value, rawValue, ctx);
+    if (dynClass) cell.classList.add(dynClass);
 
     const inner = createDiv('pg-cell__inner');
+    this.renderCellContent(inner, value, rawValue, ctx);
+
+    cell.appendChild(inner);
+    return cell;
+  }
+
+  /**
+   * Fills a `.pg-cell__inner` element with a cell's content.
+   *
+   * Extracted from {@link renderCell} so the Virtual DOM's cell patcher can
+   * re-render a changed cell **into its existing element** using the exact same
+   * code path as the initial render — a custom renderer, an HTML cell and a
+   * built-in type all behave identically whether the cell was just created or
+   * patched in place. Existing children are discarded first, so the call is
+   * idempotent.
+   *
+   * @param inner    - The `.pg-cell__inner` element to fill (cleared first).
+   * @param value    - Logical value (post `valueGetter`).
+   * @param rawValue - Underlying field value, for renderers that need both.
+   * @param ctx      - Render context (column, indices, formatting, api).
+   */
+  renderCellContent(
+    inner: HTMLElement,
+    value: unknown,
+    rawValue: unknown,
+    ctx: CellRenderContext,
+  ): void {
+    const { row, colDef, rowIndex, colIndex, api } = ctx;
+
+    // Cheaper than innerHTML = '' and does not re-parse markup.
+    while (inner.firstChild) inner.removeChild(inner.firstChild);
 
     const displayFn = resolveColumnRenderer(colDef, 'display');
     if (displayFn) {
@@ -66,9 +91,51 @@ export class CellRenderer {
     } else {
       inner.appendChild(this.renderDefaultCell(value, colDef, ctx));
     }
+  }
 
-    cell.appendChild(inner);
-    return cell;
+  /**
+   * Resolves the dynamic class contributed by `ColumnDef.cellCssClass`.
+   *
+   * Returns `''` when the column declares none, so callers can compare the
+   * result against a previously applied class and swap only on change.
+   *
+   * @param value    - Logical value (post `valueGetter`).
+   * @param rawValue - Underlying field value.
+   * @param ctx      - Render context.
+   * @returns The class name to apply, or `''`.
+   */
+  resolveDynamicClass(value: unknown, rawValue: unknown, ctx: CellRenderContext): string {
+    const { colDef, row, rowIndex, colIndex, api } = ctx;
+    if (!colDef.cellCssClass) return '';
+    if (typeof colDef.cellCssClass === 'string') return colDef.cellCssClass;
+    return colDef.cellCssClass({ value, rawValue, row: row.data, colDef, rowIndex, colIndex, api }) || '';
+  }
+
+  /**
+   * `true` when a column's cells render as plain text and can therefore be
+   * patched by writing a single string, with no element creation at all.
+   *
+   * Every other column (custom renderer, raw HTML, or a built-in type that
+   * produces elements — badges, images, sparklines, boolean icons) needs its
+   * content rebuilt through {@link renderCellContent}.
+   *
+   * @param colDef - Column to classify.
+   */
+  isTextOnlyColumn(colDef: ColumnDef): boolean {
+    if (resolveColumnRenderer(colDef, 'display')) return false;
+    if (colDef.renderHtml) return false;
+    if (colDef.valueFormatter) return true;
+    switch (colDef.type) {
+      case 'boolean':
+      case 'image':
+      case 'dropdown':
+      case 'object':
+      case 'array':
+      case 'sparkline':
+        return false;
+      default:
+        return true;
+    }
   }
 
   renderCheckboxCell(row: RowNode, rowIndex: number): HTMLElement {

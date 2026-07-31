@@ -20,6 +20,9 @@ import { SheetJsWorkbookParser } from 'photon-grid-core/import/sheetjs';
 import * as XLSX from 'xlsx';
 
 import { EmployeeCellComponent } from './employee-cell.component';
+import { RealtimeGridComponent } from './realtime-grid.component';
+import { InfiniteGridComponent } from './infinite-grid.component';
+import { MasterDetailGridComponent } from './master-detail-grid.component';
 import { CommonModule } from '@angular/common';
 import { environment } from '../environments/environment';
 import { ToastPosition } from '../../../../packages/photon-grid-core/dist/toast/toast.types';
@@ -34,7 +37,7 @@ import { ToastPosition } from '../../../../packages/photon-grid-core/dist/toast/
 @Component({
     selector: 'app-root',
     standalone: true,
-    imports: [PhotonGridComponent, CommonModule],
+    imports: [PhotonGridComponent, CommonModule, RealtimeGridComponent, InfiniteGridComponent, MasterDetailGridComponent],
     templateUrl: './app.component.html', 
     styleUrls: ['./app.component.scss', './linear-theme.scss'],
     changeDetection: ChangeDetectionStrategy.OnPush,
@@ -629,6 +632,10 @@ setTimeout(() => {
                     // Component-based renderer: avatar + name + gray job title.
                     display: EmployeeCellComponent,
                 },
+                // The funnel and "⋯" buttons are opt-in per column, so a grid
+                // only shows them where they are wanted.
+                filterable: true,
+                configurable: true,
                 filterIconDisplay: HeaderIconDisplay.ALWAYS,
                 menuIconDisplay: HeaderIconDisplay.ALWAYS
             },
@@ -650,9 +657,9 @@ setTimeout(() => {
                     },
                 },
             },
-            { colId: 'department', field: 'department', header: 'Department', type: 'string', width: 160, groupable: true },
+            { colId: 'department', field: 'department', header: 'Department', type: 'string', width: 160, groupable: true, filterable: true, configurable: true },
             { colId: 'jobTitle', field: 'jobTitle', header: 'Job Title', type: 'string', width: 180, groupable: true },
-            { colId: 'salary', field: 'salary',  aggFunc: 'max', header: 'Salary', type: 'currency', width: 140 },
+            { colId: 'salary', field: 'salary',  aggFunc: 'max', header: 'Salary', type: 'currency', width: 140, filterable: true, configurable: true },
             { colId: 'age', field: 'age', header: 'Age', aggFunc: 'avg', type: 'number', width: 90 },
             { colId: 'experience', field: 'experience', header: 'Experience', aggFunc: 'avg', type: 'number', width: 120 },
             {

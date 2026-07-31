@@ -28,6 +28,14 @@ import { RowDragRenderer } from './row-drag-renderer';
 import { FooterRenderer } from './footer-renderer';
 import { OverlayRenderer } from './overlay-renderer';
 import { ColumnStyleManager } from './column-style-manager';
+import { ColumnAnimator, computeColumnPositions, type ColumnPosition } from './column-animator';
+import {
+  ColumnChangeKind,
+  EMPTY_COLUMN_LAYOUT,
+  captureColumnLayout,
+  diffColumnLayout,
+  type ColumnLayoutSnapshot,
+} from './column-layout-diff';
 import { RowPositionSheet } from './row-position-sheet';
 import { ScrollController } from './scroll-controller';
 import { MAX_ELEMENT_HEIGHT_PX } from './scroll-track';
@@ -101,6 +109,20 @@ export class GridRenderer {
 
   /** Exposed for {@link DisplayGroupEngine} construction in `GridCore`. */
   readonly colStyles: ColumnStyleManager;
+
+  /**
+   * FLIP animator for structural column changes (hide/show/reorder). Owned
+   * here rather than by `HeaderRenderer` because the animation spans the header
+   * *and* every body cell, and this class is the only one that sees both sides
+   * of a rebuild.
+   */
+  private readonly columnAnimator = new ColumnAnimator();
+
+  /** Column offsets as of the last committed render — the "before" frame every column FLIP inverts against. */
+  private lastColumnPositions: ColumnPosition[] = [];
+
+  /** Layout of the last `columns` store value, used to classify the next change. Seeded empty so the first render never animates. */
+  private lastColumnLayout: ColumnLayoutSnapshot = EMPTY_COLUMN_LAYOUT;
   private rowPositionSheet: RowPositionSheet;
   private scrollController: ScrollController;
   private headerRenderer: HeaderRenderer;
@@ -345,6 +367,7 @@ export class GridRenderer {
 
   mount(): void {
     this.colStyles.mount();
+    this.columnAnimator.mount();
     this.rowPositionSheet.mount();
     this.buildLayout();
     if (this.wrapperEl && this.bodyWrapEl) {
@@ -1184,6 +1207,7 @@ export class GridRenderer {
     this.groupDragHandler?.destroy();
     this.rowPositionSheet.destroy();
     this.rowAnimator.destroy();
+    this.columnAnimator.destroy();
     this.colStyles.destroy();
     this.autoScroller?.stop();
     this.autoScroller = null;
@@ -1218,6 +1242,8 @@ export class GridRenderer {
     // parent and its nested grid) sharing a user-provided colId like "year"
     // would resize each other via the same unscoped [data-col-id] selector.
     this.colStyles.setScopeId(gridId);
+    this.columnAnimator.setScopeId(gridId);
+    this.columnAnimator.setRoot(this.wrapperEl);
     if (this.masterDetailEnabledAtConstruction) {
       // Pinned left/right panels are full-height, `pointer-events: auto`
       // (default) blocks regardless of whether they have a row at a given Y
@@ -1734,6 +1760,26 @@ export class GridRenderer {
 
   // ─── Render ───────────────────────────────────────────────────────────────
 
+  /**
+   * Per-panel column offsets for the current layout, from `colStyles`' resolved
+   * widths rather than the DOM — so a column FLIP forces no layout, and center
+   * columns outside the virtual window are still positioned correctly.
+   */
+  private captureColumnPositions(
+    leftCols: ColumnDef[],
+    centerCols: ColumnDef[],
+    rightCols: ColumnDef[],
+  ): ColumnPosition[] {
+    return computeColumnPositions(
+      {
+        left: leftCols.map((c) => c.colId),
+        center: centerCols.map((c) => c.colId),
+        right: rightCols.map((c) => c.colId),
+      },
+      (colId) => this.colStyles.getWidth(colId),
+    );
+  }
+
   private performRender(): void {
     const rows       = this.store.get('visibleRows') as RowNode[];
     const rawCols    = this.store.get('columns') as ColumnDef[];
@@ -2249,6 +2295,19 @@ export class GridRenderer {
       );
     }
 
+    // ── Column animation (hide / show / reorder) ─────────────────────────────
+    // Same FLIP contract as rows, one axis over: the columns store watcher
+    // captured the outgoing offsets before the rebuild, and the DOM now shows
+    // the incoming ones. Positions come from `colStyles`' resolved widths, so
+    // this reads no layout — see `computeColumnPositions`.
+    //
+    // The snapshot is refreshed on every render, not only animating ones, so
+    // the next structural change always inverts against what is actually on
+    // screen (a resize or a flex re-resolve moves columns without animating).
+    const columnPositions = this.captureColumnPositions(leftCols, centerCols, rightCols);
+    if (this.columnAnimator.hasPending()) this.columnAnimator.animate(columnPositions);
+    this.lastColumnPositions = columnPositions;
+
     // Footer
     if (this.footerContainerEl) {
       if (!this.footerContainerEl.hasChildNodes()) {
@@ -2282,7 +2341,14 @@ export class GridRenderer {
 
       this.store.watch('loading', () => this.scheduleRender()),
 
-      this.store.watch('columns', () => {
+      this.store.watch('columns', (cols) => {
+        // Classify before anything else — a resize writes the columns store on
+        // every pointer move, and animating those would fight the drag rather
+        // than accompany it.
+        const nextLayout = captureColumnLayout(cols as ColumnDef[]);
+        const changeKind = diffColumnLayout(this.lastColumnLayout, nextLayout);
+        this.lastColumnLayout = nextLayout;
+
         if (this.headerRenderer.isDraggingCol || this.displayGroupEngine?.isDraggingGroup) {
           // Live drag (leaf column or group): skip header destroy so drag state
           // and live-preview group rows are preserved. Only reset body + virtual
@@ -2297,6 +2363,18 @@ export class GridRenderer {
           });
           return;
         }
+
+        // Hiding a column from the context menu, dropping one outside the grid,
+        // or reordering programmatically all land here as a full rebuild, which
+        // would snap the survivors to their new offsets in a single frame.
+        // Capturing the outgoing layout lets `performRender` FLIP them across
+        // that rebuild on the same 180 ms curve the live drag shift uses.
+        if (changeKind === ColumnChangeKind.STRUCTURAL) {
+          this.columnAnimator.capture(this.lastColumnPositions, 'visibility');
+        } else if (changeKind === ColumnChangeKind.ORDER_ONLY) {
+          this.columnAnimator.capture(this.lastColumnPositions, 'reorder');
+        }
+
         this.headerRendered = false;
         this.lastCenterColStart = -1;
         this.lastCenterColEnd = -1;

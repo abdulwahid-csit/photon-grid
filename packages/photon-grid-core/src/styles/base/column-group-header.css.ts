@@ -151,6 +151,40 @@ export const columnGroupHeaderCss = `/* ─────────────�
   transition: none !important;
 }
 
+/* ── Structural column-shift animation (ColumnAnimator) ──────────────────────
+ * Hiding or showing a column rebuilds the header and every row, so survivors
+ * would otherwise jump to their new offsets in one frame. ColumnAnimator FLIPs
+ * them across that rebuild through --pg-col-shift-x, deliberately reusing the
+ * duration and curve of the live-drag shift above so a column removed from the
+ * context menu settles exactly like one dragged out of the way.
+ *
+ * Separate custom properties from --pg-drag-x on purpose: the two can never be
+ * active at once (a drag is not a structural rebuild), and sharing one variable
+ * would mean a stale value from either path silently displacing the other. */
+.pg-grid--col-animating .pg-th[data-col-id],
+.pg-grid--col-animating .pg-filter-cell[data-col-id],
+.pg-grid--col-animating .pg-cell[data-col-id] {
+  transform: translateX(var(--pg-col-shift-x, 0px));
+  opacity: var(--pg-col-shift-opacity, 1);
+  transition:
+    transform 180ms cubic-bezier(0.25, 0.46, 0.45, 0.94),
+    opacity 180ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  will-change: transform;
+}
+/* Flat (ungrouped) header cells carry a vertical offset of their own; preserve
+   it so an animating grid with column groups does not drop them a row. */
+.pg-grid--col-animating .pg-th--no-group[data-col-id] {
+  transform: translate(var(--pg-col-shift-x, 0px), calc(var(--pg-group-rows-count, 0) * -1 * var(--pg-header-row-height, 44px)));
+}
+/* Invert frame: the offsets are written with transitions off, so the columns
+   teleport back to where they visually were instead of animating there. Removed
+   one frame later, which is what starts the actual movement. */
+.pg-grid--col-animating-invert .pg-th[data-col-id],
+.pg-grid--col-animating-invert .pg-filter-cell[data-col-id],
+.pg-grid--col-animating-invert .pg-cell[data-col-id] {
+  transition: none;
+}
+
 /* ── Group-header CSS-transform drag ─────────────────────────────────────────
  * Cells shift via --pg-drag-x.  The --pg-drag-transition variable is 0ms for
  * the actively-dragged group (injected by display-group-drag-handler.ts) and

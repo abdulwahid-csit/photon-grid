@@ -323,7 +323,7 @@ export class RealtimeGridComponent implements OnInit, OnDestroy {
          * evaluated against the row that was actually clicked.
          */
         rowMenu: {
-            // suppressItems: ['paste', 'copy', 'export', 'copyWithHeaders', 'chartRange'],
+            suppressItems: ['paste', 'copy', 'export', 'copyWithHeaders', 'chartRange'],
             items: [
                 {
                     // A checkbox reads its state from the row. Toggles keep the
@@ -814,7 +814,7 @@ export class RealtimeGridComponent implements OnInit, OnDestroy {
                 width: 250,
                 minWidth: 250,
                 sparkline: {
-                    type: 'column',
+                    type: 'area',
                     // The default 'auto' baseline scales the axis to this
                     // series' own min…max, so the bars encode the price
                     // variation. With `baseline: 'zero'`, a series sitting

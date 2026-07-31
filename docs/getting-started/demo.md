@@ -31,12 +31,28 @@ A minimal grid: four columns, plain row data, default theme.
   ];
 
   const rowData = [
-    { id: 1, name: "John Smith", department: "Engineering", salary: 85000 },
-    { id: 2, name: "Sarah Johnson", department: "Finance", salary: 72000 },
-    { id: 3, name: "Michael Brown", department: "Marketing", salary: 68000 },
-    { id: 4, name: "Emma Wilson", department: "Human Resources", salary: 61000 },
-    { id: 5, name: "David Miller", department: "Engineering", salary: 93000 }
-  ];
+  { id: 1, name: "John Smith", department: "Engineering", salary: 85000 },
+  { id: 2, name: "Sarah Johnson", department: "Finance", salary: 72000 },
+  { id: 3, name: "Michael Brown", department: "Marketing", salary: 68000 },
+  { id: 4, name: "Emma Wilson", department: "Human Resources", salary: 61000 },
+  { id: 5, name: "David Miller", department: "Engineering", salary: 93000 },
+  { id: 6, name: "Olivia Davis", department: "Sales", salary: 74000 },
+  { id: 7, name: "James Anderson", department: "IT Support", salary: 65000 },
+  { id: 8, name: "Sophia Martinez", department: "Operations", salary: 79000 },
+  { id: 9, name: "William Taylor", department: "Legal", salary: 98000 },
+  { id: 10, name: "Isabella Thomas", department: "Procurement", salary: 70000 },
+  { id: 11, name: "Benjamin Harris", department: "Research", salary: 91000 },
+  { id: 12, name: "Mia Clark", department: "Finance", salary: 76000 },
+  { id: 13, name: "Lucas Lewis", department: "Engineering", salary: 89000 },
+  { id: 14, name: "Charlotte Walker", department: "Marketing", salary: 67000 },
+  { id: 15, name: "Henry Hall", department: "Customer Success", salary: 64000 },
+  { id: 16, name: "Amelia Allen", department: "Human Resources", salary: 73000 },
+  { id: 17, name: "Alexander Young", department: "Engineering", salary: 102000 },
+  { id: 18, name: "Evelyn King", department: "Design", salary: 81000 },
+  { id: 19, name: "Daniel Wright", department: "Product", salary: 95000 },
+  { id: 20, name: "Harper Scott", department: "Quality Assurance", salary: 69000 }
+];
+  
 
   new PhotonGrid.GridCore(document.getElementById("grid"), {
     columns,
@@ -59,11 +75,26 @@ const columns = [
 ];
 
 const rowData = [
-  { id: 1, name: 'John Smith', department: 'Engineering', salary: 85000 },
-  { id: 2, name: 'Sarah Johnson', department: 'Finance', salary: 72000 },
-  { id: 3, name: 'Michael Brown', department: 'Marketing', salary: 68000 },
-  { id: 4, name: 'Emma Wilson', department: 'Human Resources', salary: 61000 },
-  { id: 5, name: 'David Miller', department: 'Engineering', salary: 93000 },
+  { id: 1, name: "John Smith", department: "Engineering", salary: 85000 },
+  { id: 2, name: "Sarah Johnson", department: "Finance", salary: 72000 },
+  { id: 3, name: "Michael Brown", department: "Marketing", salary: 68000 },
+  { id: 4, name: "Emma Wilson", department: "Human Resources", salary: 61000 },
+  { id: 5, name: "David Miller", department: "Engineering", salary: 93000 },
+  { id: 6, name: "Olivia Davis", department: "Sales", salary: 74000 },
+  { id: 7, name: "James Anderson", department: "IT Support", salary: 65000 },
+  { id: 8, name: "Sophia Martinez", department: "Operations", salary: 79000 },
+  { id: 9, name: "William Taylor", department: "Legal", salary: 98000 },
+  { id: 10, name: "Isabella Thomas", department: "Procurement", salary: 70000 },
+  { id: 11, name: "Benjamin Harris", department: "Research", salary: 91000 },
+  { id: 12, name: "Mia Clark", department: "Finance", salary: 76000 },
+  { id: 13, name: "Lucas Lewis", department: "Engineering", salary: 89000 },
+  { id: 14, name: "Charlotte Walker", department: "Marketing", salary: 67000 },
+  { id: 15, name: "Henry Hall", department: "Customer Success", salary: 64000 },
+  { id: 16, name: "Amelia Allen", department: "Human Resources", salary: 73000 },
+  { id: 17, name: "Alexander Young", department: "Engineering", salary: 102000 },
+  { id: 18, name: "Evelyn King", department: "Design", salary: 81000 },
+  { id: 19, name: "Daniel Wright", department: "Product", salary: 95000 },
+  { id: 20, name: "Harper Scott", department: "Quality Assurance", salary: 69000 }
 ];
 
 export function BasicGrid() {
@@ -88,7 +119,7 @@ import { PhotonGridComponent } from 'photon-grid-angular';
   imports: [PhotonGridComponent],
   template: `
     <div style="width: 100%; height: 340px;">
-      <photon-grid [columns]="columns" [dataSet]="rowData"></photon-grid>
+      <photon-grid-angular [columns]="columns" [dataSet]="rowData"></photon-grid-angular>
     </div>
   `,
 })
@@ -100,13 +131,28 @@ export class BasicGridComponent {
     { field: 'salary', header: 'Salary', colId: 'salary', type: 'number', flex: 1, minWidth: 120 },
   ];
 
-  rowData = [
-    { id: 1, name: 'John Smith', department: 'Engineering', salary: 85000 },
-    { id: 2, name: 'Sarah Johnson', department: 'Finance', salary: 72000 },
-    { id: 3, name: 'Michael Brown', department: 'Marketing', salary: 68000 },
-    { id: 4, name: 'Emma Wilson', department: 'Human Resources', salary: 61000 },
-    { id: 5, name: 'David Miller', department: 'Engineering', salary: 93000 },
-  ];
+ const rowData = [
+  { id: 1, name: "John Smith", department: "Engineering", salary: 85000 },
+  { id: 2, name: "Sarah Johnson", department: "Finance", salary: 72000 },
+  { id: 3, name: "Michael Brown", department: "Marketing", salary: 68000 },
+  { id: 4, name: "Emma Wilson", department: "Human Resources", salary: 61000 },
+  { id: 5, name: "David Miller", department: "Engineering", salary: 93000 },
+  { id: 6, name: "Olivia Davis", department: "Sales", salary: 74000 },
+  { id: 7, name: "James Anderson", department: "IT Support", salary: 65000 },
+  { id: 8, name: "Sophia Martinez", department: "Operations", salary: 79000 },
+  { id: 9, name: "William Taylor", department: "Legal", salary: 98000 },
+  { id: 10, name: "Isabella Thomas", department: "Procurement", salary: 70000 },
+  { id: 11, name: "Benjamin Harris", department: "Research", salary: 91000 },
+  { id: 12, name: "Mia Clark", department: "Finance", salary: 76000 },
+  { id: 13, name: "Lucas Lewis", department: "Engineering", salary: 89000 },
+  { id: 14, name: "Charlotte Walker", department: "Marketing", salary: 67000 },
+  { id: 15, name: "Henry Hall", department: "Customer Success", salary: 64000 },
+  { id: 16, name: "Amelia Allen", department: "Human Resources", salary: 73000 },
+  { id: 17, name: "Alexander Young", department: "Engineering", salary: 102000 },
+  { id: 18, name: "Evelyn King", department: "Design", salary: 81000 },
+  { id: 19, name: "Daniel Wright", department: "Product", salary: 95000 },
+  { id: 20, name: "Harper Scott", department: "Quality Assurance", salary: 69000 }
+];
 }
 ```
 
@@ -201,7 +247,7 @@ const columns = [
 export function RichGrid() {
   return (
     <div style={{ width: '100%', height: 380 }}>
-      <PhotonGrid columns={columns} dataSet={rowData} options={{ rowHeight: 52 }} />
+      <PhotonGrid columns={columns} dataSet={rowData} options={{ rowHeight: 52, variant: 'ion' }} />
     </div>
   );
 }

@@ -5,14 +5,16 @@
 
 .livegrid {
   margin: 1.6rem 0;
+  border-radius: 6px;
+  overflow: hidden;
 }
 .livegrid__frame {
   position: relative;
-  border: 1px solid var(--ifm-toc-border-color);
-  border-radius: 14px;
+  /* border: 1px solid var(--ifm-toc-border-color); */
+  /* border-radius: 14px; */
   overflow: hidden;
-  background: var(--ifm-background-color);
-  box-shadow: var(--pg-shadow-md, 0 6px 20px rgba(88, 28, 135, .1));
+  /* background: var(--ifm-background-color); */
+  /* box-shadow: var(--pg-shadow-md, 0 6px 20px rgba(88, 28, 135, .1)); */
 }
 .livegrid__mount {
   width: 100%;

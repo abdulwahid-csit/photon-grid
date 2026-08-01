@@ -391,15 +391,15 @@ setTimeout(() => {
             // A — label column, referenced by nothing but keeps the sheet readable.
             { colId: 'product', field: 'product', header: 'Product (A)', type: 'string', minWidth: 160, flex: 1 },
             // B — quantity input.
-            { colId: 'quantity', field: 'quantity', header: 'Qty (B)', type: 'number', width: 110, editable: true },
+            { colId: 'quantity', field: 'quantity', header: 'Qty (B)', type: 'number',  editable: true, flex: 1  },
             // C — unit price input.
-            { colId: 'unitPrice', field: 'unitPrice', header: 'Unit Price (C)', type: 'currency', width: 140, editable: true },
+            { colId: 'unitPrice', field: 'unitPrice', header: 'Unit Price (C)', type: 'currency', editable: true, flex: 1  },
             // D — computed line total: seeded with `=B*C`, editable so users can retype formulas.
-            { colId: 'total', field: 'total', header: 'Total (D)', type: 'currency', width: 150, editable: true, allowFormula: true },
+            { colId: 'total', field: 'total', header: 'Total (D)', type: 'currency', editable: true, flex: 1 , allowFormula: true,  },
             // E — tax rate input (e.g. 0.08 = 8%).
-            { colId: 'taxRate', field: 'taxRate', header: 'Tax Rate (E)', type: 'number', width: 120, editable: true },
+            { colId: 'taxRate', field: 'taxRate', header: 'Tax Rate (E)', type: 'number', editable: true, flex: 1  },
             // F — computed grand total: seeded with `=D*(1+E)`.
-            { colId: 'grandTotal', field: 'grandTotal', header: 'Grand Total (F)', type: 'currency', width: 160, editable: true, allowFormula: true },
+            { colId: 'grandTotal', field: 'grandTotal', header: 'Grand Total (F)', type: 'currency', editable: true, flex: 1 , allowFormula: true },
         ];
     }
 
@@ -411,12 +411,30 @@ setTimeout(() => {
     private buildFormulaData(): Record<string, unknown>[] {
         return [
             { product: 'Wireless Mouse',     quantity: 12, unitPrice: 25,  taxRate: 0.08 },
+            { product: 'Noise-cancel Headset', quantity: 8, unitPrice: 150, taxRate: 0.08 },
             { product: 'Mechanical Keyboard', quantity: 7,  unitPrice: 89,  taxRate: 0.08 },
             { product: '27" Monitor',        quantity: 4,  unitPrice: 240, taxRate: 0.05 },
             { product: 'USB-C Dock',         quantity: 9,  unitPrice: 130, taxRate: 0.08 },
             { product: 'Laptop Stand',       quantity: 15, unitPrice: 45,  taxRate: 0.05 },
             { product: 'Webcam 1080p',       quantity: 6,  unitPrice: 60,  taxRate: 0.08 },
-            { product: 'Noise-cancel Headset', quantity: 8, unitPrice: 150, taxRate: 0.08 },
+            { product: 'Desk Lamp',          quantity: 20, unitPrice: 30,  taxRate: 0.05 },
+            { product: 'Mechanical Keyboard', quantity: 7,  unitPrice: 89,  taxRate: 0.08 },
+            { product: '27" Monitor',        quantity: 4,  unitPrice: 240, taxRate: 0.05 },
+            { product: 'USB-C Dock',         quantity: 9,  unitPrice: 130, taxRate: 0.08 },
+            { product: 'Laptop Stand',       quantity: 15, unitPrice: 45,  taxRate: 0.05 },
+            { product: 'Webcam 1080p',       quantity: 6,  unitPrice: 60,  taxRate: 0.08 },
+            { product: 'Desk Lamp',          quantity: 20, unitPrice: 30,  taxRate: 0.05 },
+            { product: 'Mechanical Keyboard', quantity: 7,  unitPrice: 89,  taxRate: 0.08 },
+            { product: '27" Monitor',        quantity: 4,  unitPrice: 240, taxRate: 0.05 },
+            { product: 'USB-C Dock',         quantity: 9,  unitPrice: 130, taxRate: 0.08 },
+            { product: 'Laptop Stand',       quantity: 15, unitPrice: 45,  taxRate: 0.05 },
+            { product: 'Webcam 1080p',       quantity: 6,  unitPrice: 60,  taxRate: 0.08 },
+            { product: 'Desk Lamp',          quantity: 20, unitPrice: 30,  taxRate: 0.05 },
+            { product: 'Mechanical Keyboard', quantity: 7,  unitPrice: 89,  taxRate: 0.08 },
+            { product: '27" Monitor',        quantity: 4,  unitPrice: 240, taxRate: 0.05 },
+            { product: 'USB-C Dock',         quantity: 9,  unitPrice: 130, taxRate: 0.08 },
+            { product: 'Laptop Stand',       quantity: 15, unitPrice: 45,  taxRate: 0.05 },
+            { product: 'Webcam 1080p',       quantity: 6,  unitPrice: 60,  taxRate: 0.08 },
             { product: 'Desk Lamp',          quantity: 20, unitPrice: 30,  taxRate: 0.05 },
             // Totals row — its formulas aggregate the eight product rows above.
             { product: 'TOTAL' },

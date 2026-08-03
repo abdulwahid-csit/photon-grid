@@ -126,7 +126,8 @@ export const headerCss = `/* ─────────────────
 }
 .pg-th:hover .pg-th__filter-btn,
 .pg-th__filter-btn--active { display: flex; }
-/* Always-visible mode — opt in via headerIcons.filter / ColumnDef.filterIconDisplay */
+/* Default mode — the funnel is permanently visible (HeaderIconDisplay.ALWAYS).
+   Opt out to reveal-on-hover via headerIcons.filter / ColumnDef.filterIconDisplay. */
 .pg-th__filter-btn--always { display: flex; }
 .pg-th__filter-btn:hover { opacity: 1; background: var(--pg-colors-background-alt, #f1f5f9); }
 .pg-th__filter-btn--active {
@@ -147,7 +148,8 @@ export const headerCss = `/* ─────────────────
 }
 .pg-th:hover .pg-th__menu-btn,
 .pg-th__menu-btn--active { display: flex; }
-/* Always-visible mode — opt in via headerIcons.menu / ColumnDef.menuIconDisplay */
+/* Default mode — the "⋯" button is permanently visible (HeaderIconDisplay.ALWAYS).
+   Opt out to reveal-on-hover via headerIcons.menu / ColumnDef.menuIconDisplay. */
 .pg-th__menu-btn--always { display: flex; }
 .pg-th__menu-btn:hover { opacity: 1; background: var(--pg-colors-background-alt, #f1f5f9); }
 .pg-th__menu-btn--active { opacity: 1; background: var(--pg-colors-border, #e2e8f0); }

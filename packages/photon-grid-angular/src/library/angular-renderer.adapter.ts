@@ -38,6 +38,20 @@ type RendererMount =
 type GridLifecycleMethod = 'pgGridInit' | 'pgGridRefresh' | 'pgGridDestroy';
 
 /**
+ * `true` when `renderer` is the per-slot override map rather than one of the
+ * core's shorthand forms (a built-in name, a `{ name, options }` spec, or a
+ * bare display function).
+ *
+ * A type predicate rather than an inline `typeof` chain because the core's
+ * `ColumnRenderer` includes `string & {}` — the trick that keeps editor
+ * completion on the built-in names while still admitting a custom one — and
+ * `typeof x !== 'object'` does not narrow that away.
+ */
+function isRendererSlotMap(renderer: unknown): renderer is ColumnRendererMap {
+    return typeof renderer === 'object' && renderer !== null && !('name' in renderer);
+}
+
+/**
  * Bridges the framework-agnostic `ColumnRendererMap` (plain functions
  * returning `HTMLElement | string`) to Angular components and templates.
  *
@@ -144,7 +158,17 @@ export class RendererAdapter {
         const { renderer, children, ...rest } = column;
         const adapted = { ...rest } as ColumnDef;
 
-        if (renderer) {
+        // A built-in renderer selected by name (`renderer: 'country'`), a
+        // configured one (`{ name, options }`), or a bare display function all
+        // pass through untouched — there is nothing Angular-flavoured to adapt.
+        // Only the slot map needs converting.
+        //
+        // The order matters. A string is truthy and `'country'.display` is
+        // `undefined`, so running the per-slot rebuild over one would produce an
+        // object of eight undefined slots, which the core reads as "slot map
+        // with no display" and silently falls back to the column's inferred
+        // renderer. The named renderer would vanish with no error anywhere.
+        if (isRendererSlotMap(renderer)) {
             // Adapted per-slot (rather than via a generic loop over the
             // slot names) so each call keeps its own TParams/TOutput pair —
             // looping over a union of keys would force `adaptRenderer` to
@@ -162,6 +186,8 @@ export class RendererAdapter {
                 summary: this.adaptRenderer(renderer.summary),
             };
             adapted.renderer = adaptedRenderer as any;
+        } else if (renderer) {
+            adapted.renderer = renderer as ColumnDef['renderer'];
         }
 
         if (children) {

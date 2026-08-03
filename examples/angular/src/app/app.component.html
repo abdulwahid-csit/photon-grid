@@ -29,6 +29,22 @@
     </photon-grid-angular>
   </section> -->
 
+  <!-- Timeline scheduler: employees as pinned grid columns, the timeline as a
+       plugin-owned virtualized layer beside them. Events live in their own
+       index, not inside row data. -->
+  <app-scheduler-demo></app-scheduler-demo>
+
+  <!-- One column per built-in renderer, so the whole set is visible side by
+       side. Two columns declare only a `type` and let the grid infer their
+       renderer — the path most real columns take. -->
+  <app-renderer-showcase-grid></app-renderer-showcase-grid>
+
+  <!-- Customer Orders: every column drawn by a custom cell renderer, with a
+       theme picker in its top-right corner. Because the renderers are composed
+       from Photon theme tokens rather than literal colours, switching between
+       ion / neon / photon / quantum restyles the cell contents too. -->
+  <app-customer-orders-grid></app-customer-orders-grid>
+
   <!-- Streaming demo for the viewport Virtual DOM: custom cell renderers fed by
        a setInterval market simulation, patched cell-by-cell with no re-render. -->
   <app-realtime-grid></app-realtime-grid>
@@ -36,14 +52,14 @@
   <!-- Master/Detail: each account row expands into its own nested Photon Grid
        of orders — lazily fetched, auto-sized, independently sortable, and
        bubbling its row clicks back up to the parent. -->
-  <!-- <app-master-detail-grid></app-master-detail-grid> -->
+  <app-master-detail-grid></app-master-detail-grid>
 
   <!-- <app-nested-cols></app-nested-cols> -->
 
   <!-- Infinite scrolling over a million rows from a mock backend: pages load on
        demand with prefetch, are cached LRU, and unloaded rows render as
        skeletons. Memory stays flat however far you scroll. -->
-  <!-- <app-infinite-grid></app-infinite-grid> -->
+  <app-infinite-grid></app-infinite-grid>
 
   <!-- <header class="page__header page__header--formula">
     <h2 class="page__title">Formula Playground</h2>
@@ -58,16 +74,16 @@
     </p>
   </header>
 
-  <section class="grid-wrapper grid-wrapper--formula">
-    <photon-grid-angular
-      [columns]="formulaColumns"
-      [dataSet]="formulaData"
-      [options]="formulaOptions"
-      (gridReady)="onFormulaGridReady($event)"
-      (toolbarTabChanged)="onToolbarTabChanged($event)"
-      (toolbarSearchChanged)="onToolbarSearchChanged($event)"
-      >
-    </photon-grid-angular>
+    <section class="grid-wrapper grid-wrapper--formula">
+      <photon-grid-angular
+        [columns]="formulaColumns"
+        [dataSet]="formulaData"
+        [options]="formulaOptions"
+        (gridReady)="onFormulaGridReady($event)"
+        (toolbarTabChanged)="onToolbarTabChanged($event)"
+        (toolbarSearchChanged)="onToolbarSearchChanged($event)"
+        >
+      </photon-grid-angular>
   </section>
 
   <header class="page__header page__header--formula">

@@ -164,9 +164,46 @@ export { CssVarInjector } from './theme/css-var-injector';
 export { lightTheme } from './theme/themes/light-theme';
 export { darkTheme } from './theme/themes/dark-theme';
 
+// ── Icons ────────────────────────────────────────────────────────────────────
+// Icon resolution is layered: host overrides → the active variant's pack →
+// `coreIcons`. Hosts supply their own through `GridOptions.icons` /
+// `GridOptions.variantIcons`, or at runtime via the icon methods on `GridApi`.
 export { IconRegistry } from './icons/icon-registry';
+export type { IconRegistryOptions } from './icons/icon-registry';
 export { IconRenderer } from './icons/icon-renderer';
+export type { IconOptions } from './icons/icon-renderer';
 export { coreIcons } from './icons/icon-sets/core-icons';
+export { variantIconSets } from './icons/icon-sets/variant-icon-sets';
+export { ionIcons } from './icons/icon-sets/ion-icons';
+export { neonIcons } from './icons/icon-sets/neon-icons';
+export { photonIcons } from './icons/icon-sets/photon-icons';
+export { quantumIcons } from './icons/icon-sets/quantum-icons';
+export { repaintIcons, iconRepaintRoots } from './icons/icon-repainter';
+export type { IconSet, VariantIconSets } from './types/icon.types';
+
+// ── Plugins ──────────────────────────────────────────────────────────────────
+// The extension seam for optional feature subsystems. Only the *contract* is
+// exported here; plugin implementations ship behind their own subpath entries
+// (e.g. `photon-grid-core/plugins/scheduler`) so they stay out of the default
+// module graph and out of bundles that never register them.
+export type {
+  GridPlugin,
+  PluginContext,
+  PluginLayerOptions,
+  RenderWindow,
+  ScrollMetrics,
+} from './plugins/plugin.types';
+
+// -- Scheduler --
+// Types only, deliberately. The framework wrappers need the event-renderer
+// contract to compile their component factories against, but a value export
+// here would pull the scheduler's module graph into the default bundle for every
+// consumer, which is exactly what the subpath entry exists to prevent.
+export type {
+  SchedulerEventComponent,
+  SchedulerEventComponentConstructor,
+  SchedulerEventRenderParams,
+} from './plugins/scheduler/scheduler.config';
 
 export { GridRenderer } from './renderer/grid-renderer';
 export { ColumnChooser } from './renderer/column-chooser';
@@ -378,6 +415,28 @@ export type {
   VirtualRow,
 } from './renderer/vdom/vdom.types';
 
+// ── Toast Notification System ───────────────────────────────────────────────
+// Configured through `GridOptions.toast` and driven at runtime through
+// `GridApi.toasts`. Both reference the enums and types below, so they are part
+// of the public surface: `toast: { position: ToastPosition.TopRight }` cannot
+// be written without them.
+export { ToastService, DEFAULT_TOAST_CONFIG } from './toast/toast-service';
+export {
+  ToastAnimation,
+  ToastDismissReason,
+  ToastPosition,
+  ToastType,
+} from './toast/toast.types';
+export type {
+  Toast,
+  ToastAction,
+  ToastHandle,
+  ToastOptions,
+  ToastServiceConfig,
+  ToastServiceConfigInput,
+  ToastUpdate,
+} from './toast/toast.types';
+
 export type { GridOptions, GridState, GridDimensions, SortConfig, PaginationConfig, SelectionConfig, EditingConfig, CellRange, ColumnGroupConfig, HeaderIconsConfig, FiltersToolPanelConfig } from './types/grid.types';
 export type { ColumnDef, ColumnDefInput, Column, ColumnState, ColumnGroup, ColumnDropdownOption, ColumnDataType, ColumnPinPosition, AggFunc } from './types/column.types';
 export { HeaderIconDisplay } from './types/column.types';
@@ -410,7 +469,60 @@ export type {
   GroupRendererParams,
   HeaderRendererParams,
   SummaryRendererParams,
+  ColumnRenderer,
+  DisplayRendererFn,
 } from './types/renderer.types';
+
+// ── Built-in cell renderers ─────────────────────────────────────────────────
+export {
+  BuiltInRendererRegistry,
+  createDefaultRenderers,
+  cellRenderers,
+} from './renderer/built-in/registry';
+export { DEFAULT_RENDERER_BY_TYPE } from './renderer/built-in/default-renderer-map';
+export {
+  normalizeCountry,
+  registerCountries,
+  getCountry,
+  getAllCountries,
+  flagEmoji,
+  flagImageUrl,
+  FLAG_CDN_HOST,
+  DEFAULT_FLAG_SIZE,
+} from './renderer/built-in/country/country-registry';
+export type {
+  BuiltInRenderer,
+  BuiltInRendererSpec,
+  BuiltInRendererDefinition,
+  BuiltInRenderContext,
+  BuiltInRendererOptionsMap,
+  BaseRendererOptions,
+  CountryEntry,
+  CountryRendererOptions,
+  TextRendererOptions,
+  MultilineRendererOptions,
+  NumericRendererOptions,
+  CurrencyRendererOptions,
+  PercentageRendererOptions,
+  BooleanRendererOptions,
+  DateRendererOptions,
+  DurationRendererOptions,
+  LinkRendererOptions,
+  ImageRendererOptions,
+  AvatarRendererOptions,
+  CheckboxRendererOptions,
+  BadgeRendererOptions,
+  ChipRendererOptions,
+  TagRendererOptions,
+  IconRendererOptions,
+  ProgressRendererOptions,
+  RatingRendererOptions,
+  ListRendererOptions,
+  JsonRendererOptions,
+  ButtonRendererOptions,
+  HtmlRendererOptions,
+} from './types/built-in-renderer.types';
+
 export type {
   IColumnGroupNode,
   IColumnLeafNode,
@@ -432,7 +544,10 @@ export type { ColumnGroupStateDiff } from './column-groups/column-group-state-ma
 export type { RowNode, RowGroupNode, RowGroupFooterNode, RowDataNode, RowDropPayload, RowClickPayload, RowEditPayload } from './types/row.types';
 export type { RowDragOptions, RowDragStartPayload, RowDragEndPayload } from './types/row-drag.types';
 export type { FilterModel, ColumnFilter, FilterCondition, FilterOperator, QuickFilterConfig, FilterSetOption } from './types/filter.types';
-export type { Theme, ThemeTokens, ColorTokens, BuiltInThemeName } from './types/theme.types';
+// `ThemeMode` / `ThemeVariant` name the two theming axes: `GridOptions.mode` /
+// `GridOptions.variant` and `GridApi.setMode` / `GridApi.setVariant` are all
+// typed by them, so a host cannot write a theme switcher without them.
+export type { Theme, ThemeTokens, ColorTokens, BuiltInThemeName, ThemeMode, ThemeVariant } from './types/theme.types';
 export type { GridEvent, GridEventMap } from './types/event.types';
 export type {
   ReadyEvent,
@@ -445,6 +560,7 @@ export type {
   RowMenuItemErrorEvent,
   RowMenuClosedEvent,
   CellSelectionChangedEvent,
+  CellButtonClickedEvent,
   ColumnResizedEvent,
   ColumnMovedEvent,
   ColumnSortedEvent,

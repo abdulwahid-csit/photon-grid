@@ -56,7 +56,7 @@ export const rowsCss = `/* ─────────────────�
 .pg-row--group {
   background: var(--pg-colors-group-row-background, #f8fafc);
   font-weight: var(--pg-typography-font-weight-semi-bold, 600);
-  // border-left: var(--pg-group-row-border-width, 3px) solid var(--pg-colors-primary, #2563eb);
+  /* border-left: var(--pg-group-row-border-width, 3px) solid var(--pg-colors-primary, #2563eb); */
   cursor: pointer;
 }
 .pg-row--group:hover,

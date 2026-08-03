@@ -211,6 +211,13 @@ export class CellSelectionEngine {
     private clipboardEngine: ClipboardEngine,
     /** Optional undo/redo engine. When provided, cut, paste, and edit operations are recorded. */
     private undoRedoEngine?: UndoRedoEngine,
+    /**
+     * Resolves the cell context menu's icons through the shared registry, so
+     * they follow the active theme's icon pack like the rest of the grid.
+     * Optional only so existing test harnesses can omit it; the menu falls back
+     * to no glyph rather than to hardcoded markup.
+     */
+    private iconRenderer?: IconRenderer,
   ) {
     this.boundKeydown = this.onKeydown.bind(this);
     this.boundHideCtx = () => this.hideContextMenu();
@@ -2377,11 +2384,15 @@ export class CellSelectionEngine {
   }
 
   private buildContextMenu(): void {
-    const ICON_CUT = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>`;
-    const ICON_COPY = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
-    const ICON_PASTE = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg>`;
-    const ICON_CHART = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>`;
-    const ICON_EXPORT = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`;
+    // Resolved through the registry rather than inlined, so the menu follows the
+    // active theme's icon pack — and so `repaintIcons` can find these glyphs
+    // when the pack changes (they carry `data-icon`).
+    const icon = (name: string): string => this.iconRenderer?.renderToString(name, 13) ?? '';
+    const ICON_CUT = icon('cut');
+    const ICON_COPY = icon('copy');
+    const ICON_PASTE = icon('paste');
+    const ICON_CHART = icon('chart');
+    const ICON_EXPORT = icon('download');
 
     const el = document.createElement('div');
     el.className = 'pg-context-menu';

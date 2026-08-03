@@ -32,6 +32,19 @@ interface ResolvedLegacyTheme {
  *
  * Mode tokens are additionally mirrored onto `:root` so fixed/portal elements
  * (menus, dropdowns, overlays appended to `<body>`) inherit the palette.
+ *
+ * The active `data-pg-mode` / `data-pg-variant` attributes are mirrored onto
+ * `document.documentElement` for the same reason: overlays are portaled to
+ * `<body>`, i.e. **outside** the grid container, so a selector rooted at the
+ * container can never reach them. Variant and dark-mode stylesheets target
+ * `[data-pg-variant="…"] .pg-context-menu` / `[data-pg-mode="dark"] …` and
+ * match from the document root down, covering in-grid and portaled nodes alike.
+ *
+ * With several grids on one page that mirror is last-writer-wins. This is
+ * acceptable because only one overlay is ever open at a time — but it does mean
+ * an overlay belonging to grid A can be skinned by grid B's variant if B applied
+ * its variant more recently. Per-instance chrome is unaffected: those rules stay
+ * scoped to `.pg-<variant>-theme .pg-grid`.
  */
 export class ThemeManager {
   /** Per-instance stylesheet carrying the active mode's tokens. */
@@ -45,6 +58,15 @@ export class ThemeManager {
   private scopeEl: HTMLElement | null = null;
   /** Names of inline token overrides applied via {@link applyTokenOverrides}, for clean removal. */
   private readonly tokenOverrideKeys = new Set<string>();
+  /**
+   * Notified whenever the active variant changes, so subsystems that are not
+   * CSS-driven can follow the skin. Currently drives the per-variant icon pack
+   * swap (see `IconThemeController`).
+   *
+   * Injected rather than imported so the theme layer stays free of any
+   * dependency on the icon layer.
+   */
+  private onVariantChange: ((variant: ThemeVariant | 'none') => void) | null = null;
 
   /** Monotonic source for unique per-instance scope ids. */
   private static scopeSeq = 0;
@@ -58,6 +80,15 @@ export class ThemeManager {
   /** Register (or replace) a mode theme so it can be resolved by name. */
   registerTheme(theme: Theme): void {
     this.registry.set(theme.name, theme);
+  }
+
+  /**
+   * Registers the callback notified on every variant change, including the
+   * initial one applied at construction. Pass `null` to unhook (see
+   * `GridCore.destroy`, which must break the cycle).
+   */
+  setVariantChangeHandler(handler: ((variant: ThemeVariant | 'none') => void) | null): void {
+    this.onVariantChange = handler;
   }
 
   /**
@@ -82,9 +113,14 @@ export class ThemeManager {
       target.style.colorScheme = theme.mode;
     } else {
       this.injector.injectAsStylesheet(theme.tokens, ':root');
-      document.documentElement.setAttribute('data-pg-mode', theme.mode);
       document.documentElement.style.colorScheme = theme.mode;
     }
+
+    // Mirror the mode onto the document root unconditionally: `[data-pg-mode]`
+    // rules in the base stylesheet (selection tints, flash animations, the
+    // loading overlay) have to reach overlays portaled to `<body>`, which sit
+    // outside the container the scoped branch above marks.
+    document.documentElement.setAttribute('data-pg-mode', theme.mode);
 
     // Always mirror variables to :root so fixed/portal elements pick them up.
     this.rootInjector.inject(theme.tokens, document.documentElement);
@@ -109,9 +145,17 @@ export class ThemeManager {
     if (variant !== 'none') {
       target.classList.add(THEME_VARIANT_CLASS[variant]);
       target.setAttribute('data-pg-variant', variant);
+      // Mirrored to the document root so variant rules can reach overlays
+      // portaled to `<body>` — see the class doc for the multi-grid caveat.
+      document.documentElement.setAttribute('data-pg-variant', variant);
     } else {
       target.removeAttribute('data-pg-variant');
+      document.documentElement.removeAttribute('data-pg-variant');
     }
+
+    // Fired synchronously, after the class swap, so the CSS skin and anything
+    // that follows it (the icon pack) are never out of step for a frame.
+    this.onVariantChange?.(variant);
   }
 
   /**

@@ -3,7 +3,7 @@ import { ChangeDetectionStrategy, Component, OnInit, TemplateRef, ViewChild } fr
 import { PhotonGridComponent } from 'photon-grid-angular';
 import type { ColumnDef, RendererContext } from 'photon-grid-angular';
 import type { CellRange, DisplayRendererParams, GridApi, GridOptions } from 'photon-grid-core';
-import { PhotonAIProviderType, HeaderIconDisplay, AutoFillDetectorName, ColumnGroupResizeStrategy, ToolbarSearchPosition } from 'photon-grid-core';
+import { PhotonAIProviderType, HeaderIconDisplay, AutoFillDetectorName, ColumnGroupResizeStrategy, ToastPosition, ToolbarSearchPosition } from 'photon-grid-core';
 import type { RowClickPayload, RowSelectedEvent, ToolbarTabChangedEvent, ToolbarSearchChangedEvent } from 'photon-grid-core';
 import type {
     ServerSideDatasource,
@@ -23,9 +23,11 @@ import { EmployeeCellComponent } from './employee-cell.component';
 import { RealtimeGridComponent } from './realtime-grid.component';
 import { InfiniteGridComponent } from './infinite-grid.component';
 import { MasterDetailGridComponent } from './master-detail-grid.component';
+import { CustomerOrdersGridComponent } from './customer-orders-grid.component';
+import { RendererShowcaseGridComponent } from './renderer-showcase-grid.component';
+import { SchedulerDemoComponent } from './scheduler/scheduler-demo.component';
 import { CommonModule } from '@angular/common';
 import { environment } from '../environments/environment';
-import { ToastPosition } from '../../../../packages/photon-grid-core/dist/toast/toast.types';
 import { NestedColComponent } from "./nested-cols-data.component";
 
 /** Emoji flags for the fixed country list used by `generateData` below. */
@@ -38,7 +40,7 @@ import { NestedColComponent } from "./nested-cols-data.component";
 @Component({
     selector: 'app-root',
     standalone: true,
-    imports: [PhotonGridComponent, CommonModule, RealtimeGridComponent, InfiniteGridComponent, MasterDetailGridComponent, NestedColComponent],
+    imports: [PhotonGridComponent, CommonModule, RealtimeGridComponent, InfiniteGridComponent, MasterDetailGridComponent, CustomerOrdersGridComponent, RendererShowcaseGridComponent, SchedulerDemoComponent, NestedColComponent],
     templateUrl: './app.component.html', 
     styleUrls: ['./app.component.scss', './linear-theme.scss'],
     changeDetection: ChangeDetectionStrategy.OnPush,

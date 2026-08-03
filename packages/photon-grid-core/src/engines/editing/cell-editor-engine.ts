@@ -8,6 +8,19 @@ import { parseValue, validateValue } from './value-parser';
 import { getCellValue, setCellValue } from './value-accessor';
 import { isFormulaSource } from '../../formula/compile';
 
+/**
+ * Native `<input type>` for column types whose editor is a plain text field.
+ *
+ * Picking the right one is not cosmetic: it decides which keyboard a phone
+ * shows and which validation the browser applies for free. Anything absent here
+ * falls back to `'text'`.
+ */
+const TEXT_INPUT_TYPE_BY_COLUMN_TYPE: Readonly<Record<string, string>> = {
+  email: 'email',
+  url: 'url',
+  phone: 'tel',
+};
+
 export interface EditSession {
   rowNode: RowNode;
   colDef: ColumnDef;
@@ -267,7 +280,8 @@ export class CellEditorEngine {
 
       case 'number':
       case 'currency':
-      case 'percentage': {
+      case 'percentage':
+      case 'duration': {
         const numInput = document.createElement('input');
         numInput.type = 'number';
         numInput.value = String(value ?? '');
@@ -289,6 +303,18 @@ export class CellEditorEngine {
         break;
       }
 
+      case 'datetime': {
+        const dtInput = document.createElement('input');
+        dtInput.type = 'datetime-local';
+        // `datetime-local` wants `YYYY-MM-DDTHH:mm` — the ISO string minus its
+        // seconds and zone suffix.
+        dtInput.value = value ? new Date(value as string).toISOString().slice(0, 16) : '';
+        dtInput.className = 'pg-editor pg-editor--datetime';
+        dtInput.addEventListener('change', () => this.updateValue(dtInput.value));
+        input = dtInput;
+        break;
+      }
+
       case 'time': {
         const timeInput = document.createElement('input');
         timeInput.type = 'time';
@@ -301,7 +327,9 @@ export class CellEditorEngine {
 
       default: {
         const textInput = document.createElement('input');
-        textInput.type = colDef.type === 'email' ? 'email' : 'text';
+        // The native input type gives mobile keyboards the right layout and the
+        // browser its own validation, for free.
+        textInput.type = TEXT_INPUT_TYPE_BY_COLUMN_TYPE[colDef.type] ?? 'text';
         textInput.value = String(value ?? '');
         textInput.className = 'pg-editor pg-editor--text';
         textInput.addEventListener('input', () => this.updateValue(textInput.value));

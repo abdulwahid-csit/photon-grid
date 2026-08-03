@@ -107,6 +107,32 @@ export const contextMenuCss = `/* ─── Context menu ─── */
 }
 .pg-cell--bool-true { color: var(--pg-colors-success, #16a34a); }
 .pg-cell--bool-false { color: var(--pg-colors-text-disabled, #94a3b8); }
+/* A boolean column renders a real checkbox rather than a tick glyph, so both
+   states are legible: an unchecked box means false, an empty cell means no
+   value at all. It follows the cell's own text alignment via the wrapper. */
+.pg-cell__value--bool {
+  display: inline-flex;
+  align-items: center;
+}
+.pg-cell-checkbox {
+  width: var(--pg-sizing-checkbox-size, 16px);
+  height: var(--pg-sizing-checkbox-size, 16px);
+  margin: 0;
+  accent-color: var(--pg-colors-primary, #2563eb);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+/* Non-editable / locked columns, and grids with editing switched off: the value
+   still reads clearly, but the control is visibly not something to click. */
+.pg-cell-checkbox:disabled {
+  cursor: default;
+  accent-color: var(--pg-colors-text-disabled, #94a3b8);
+  opacity: var(--pg-opacity-disabled, 0.65);
+}
+.pg-cell-checkbox:focus-visible {
+  outline: var(--pg-borders-width-focus, 2px) solid var(--pg-colors-primary, #2563eb);
+  outline-offset: 1px;
+}
 .pg-cell__image { border-radius: var(--pg-borders-radius-sm, 4px); object-fit: cover; }
 .pg-badge {
   display: inline-flex;

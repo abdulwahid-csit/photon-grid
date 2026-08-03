@@ -132,7 +132,7 @@ export const sparklineCss = `/* ────────────────
 }
 .pg-confirm__title {
   font-size: var(--pg-typography-font-size-lg, 15px);
-  font-weight: var(--pg-typography-font-weight-semibold, 600);
+  font-weight: var(--pg-typography-font-weight-semi-bold, 600);
   margin-bottom: 6px;
 }
 .pg-confirm__message {

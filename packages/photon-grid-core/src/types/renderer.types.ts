@@ -1,4 +1,5 @@
 import type { AggFunc, ColumnDef, ColumnDropdownOption } from './column.types';
+import type { AnyBuiltInRendererSpec, BuiltInRenderer } from './built-in-renderer.types';
 import type { ColumnFilter, FilterSetOption } from './filter.types';
 import type { RowNode } from './row.types';
 
@@ -155,12 +156,54 @@ export interface SummaryRendererParams {
  * ```
  */
 export interface ColumnRendererMap {
-  display?: (params: DisplayRendererParams) => RendererOutput;
+  display?: DisplayRendererFn;
   editor?: (params: EditorRendererParams) => HTMLElement;
   option?: (params: OptionRendererParams) => RendererOutput;
   filter?: (params: FilterRendererParams) => HTMLElement;
   tooltip?: (params: TooltipRendererParams) => RendererOutput;
-  group?: (params: GroupRendererParams) => RendererOutput; 
+  group?: (params: GroupRendererParams) => RendererOutput;
   header?: (params: HeaderRendererParams) => RendererOutput;
   summary?: (params: SummaryRendererParams) => RendererOutput;
 }
+
+/**
+ * Draws a data cell's value. The `display` slot's contract, named so it can be
+ * used on its own — `renderer: (params) => …` is shorthand for
+ * `renderer: { display: (params) => … }`.
+ */
+export type DisplayRendererFn = (params: DisplayRendererParams) => RendererOutput;
+
+/**
+ * Everything {@link ColumnDef.renderer} accepts.
+ *
+ * Four forms, in the order you are likely to reach for them:
+ *
+ * ```ts
+ * renderer: 'currency'                              // a built-in, by name
+ * renderer: { name: 'progress', options: { max: 10 } }  // a built-in, configured
+ * renderer: ({ value }) => `<b>${value}</b>`        // a custom display function
+ * renderer: { display: fn, editor: fn, filter: fn } // per-slot overrides
+ * ```
+ *
+ * The forms are told apart by shape: a `string`, then a `function`, then an
+ * object carrying `name` (a built-in spec) versus one that does not (the slot
+ * map). Framework components and `TemplateRef`s are not listed here on purpose
+ * — the React/Angular wrappers convert those into plain functions before the
+ * column reaches the core, which is what keeps the core framework-agnostic.
+ *
+ * The string form is `BuiltInRenderer | (string & {})` rather than a bare
+ * `BuiltInRenderer`: the union keeps editor completion listing the built-in
+ * names, while `string & {}` still admits a name registered at runtime through
+ * `BuiltInRendererRegistry.register`. Without it the registry would be
+ * write-only from outside the package.
+ *
+ * @see BuiltInRenderer for the list of built-in names.
+ */
+export type ColumnRenderer =
+  | BuiltInRenderer
+  // eslint-disable-next-line @typescript-eslint/ban-types -- widens to any string without losing completion
+  | (string & {})
+  | AnyBuiltInRendererSpec
+  | DisplayRendererFn
+  | ColumnRendererMap;
+

@@ -11,6 +11,15 @@ export const lightTheme: Theme = {
       primaryActive: '#1e40af',
       primaryText: '#ffffff',
 
+      /* Accent ramp — subtle < soft < light. Tints and state layers build from
+         these, so a variant re-skins the accent everywhere by setting them. */
+      primarySubtle: 'rgba(37, 99, 235, 0.06)',
+      primarySubtleHover: 'rgba(37, 99, 235, 0.10)',
+      primarySoft: 'rgba(37, 99, 235, 0.14)',
+      primaryLight: '#dbeafe',
+      primaryContrast: '#ffffff',
+      onPrimary: '#ffffff',
+
       secondary: '#64748b',
       secondaryHover: '#475569',
 
@@ -55,6 +64,7 @@ export const lightTheme: Theme = {
 
       pinnedBackground: '#ffffff',
       pinnedShadow: '4px 0 6px -2px rgba(15,23,42,0.08)',
+      pinnedBorder: '#e2e8f0',
 
       filterBackground: '#f8fafc',
       filterBorder: '#e2e8f0',
@@ -64,6 +74,7 @@ export const lightTheme: Theme = {
       scrollbarTrack: '#f1f5f9',
       scrollbarThumb: '#cbd5e1',
       scrollbarThumbHover: '#94a3b8',
+      scrollbarBg: '#f8fafc',
 
       resizeHandleColor: '#e2e8f0',
       resizeHandleActiveColor: '#2563eb',
@@ -71,6 +82,9 @@ export const lightTheme: Theme = {
       dragPreviewBackground: '#ffffff',
       dragPreviewBorder: '#e2e8f0',
       dragOverHighlight: 'rgba(37, 99, 235, 0.06)',
+      dragGhostBackground: '#ffffff',
+      dragGhostBorderColor: '#cbd5e1',
+      rowDragGhost: '#ffffff',
 
       checkboxBackground: '#ffffff',
       checkboxCheckedBackground: '#2563eb',
@@ -78,22 +92,41 @@ export const lightTheme: Theme = {
 
       badgeBackground: '#eff6ff',
       badgeText: '#1d4ed8',
+      chipBackground: '#eff6ff',
+      chipText: '#1d4ed8',
 
       groupRowBackground: '#f8fafc',
       groupRowBorder: '#e2e8f0',
+      groupRowHover: '#f1f5f9',
+      groupRowText: '#0f172a',
+      groupToggleHover: 'rgba(15,23,42,0.06)',
+      groupFooterBackground: '#f8fafc',
+      groupFooterHover: '#f1f5f9',
+      groupZoneOver: 'rgba(37,99,235,0.08)',
+      aggText: '#475569',
 
       tooltipBackground: '#1e293b',
       tooltipText: '#f1f5f9',
+      borderCtxtMenu: '#e2e8f0',
+
+      overlay: 'rgba(15, 23, 42, 0.45)',
+      overlayLoading: 'rgba(255, 255, 255, 0.75)',
+
+      skeleton: '#e2e8f0',
+      skeletonHighlight: '#f1f5f9',
 
       success: '#16a34a',
       warning: '#d97706',
       error: '#dc2626',
       info: '#0284c7',
+      danger: '#dc2626',
 
       successLight: '#dcfce7',
       warningLight: '#fef3c7',
       errorLight: '#fee2e2',
       infoLight: '#e0f2fe',
+      dangerSoft: 'rgba(220, 38, 38, 0.12)',
+      errorSubtle: 'rgba(220, 38, 38, 0.08)',
       
     },
     typography: {
@@ -108,6 +141,7 @@ export const lightTheme: Theme = {
       fontWeightMedium: '500',
       fontWeightSemiBold: '600',
       fontWeightBold: '700',
+      headerFontWeight: '600',
       lineHeightTight: '1.2',
       lineHeightBase: '1.5',
       lineHeightRelaxed: '1.75',
@@ -147,6 +181,7 @@ export const lightTheme: Theme = {
       widthBase: '1px',
       widthThick: '2px',
       styleBase: 'solid',
+      widthFocus: '2px',
     },
     shadows: {
       none: 'none',
@@ -159,6 +194,7 @@ export const lightTheme: Theme = {
       dropdown: '0 8px 24px rgba(15,23,42,0.12), 0 2px 8px rgba(15,23,42,0.08)',
       tooltip: '0 4px 12px rgba(15,23,42,0.15)',
       dragPreview: '0 8px 24px rgba(15,23,42,0.18), 0 2px 8px rgba(15,23,42,0.10)',
+      dialog: '0 24px 48px rgba(15,23,42,0.24), 0 8px 16px rgba(15,23,42,0.12)',
     },
     transitions: {
       durationFast: '100ms',
@@ -167,6 +203,9 @@ export const lightTheme: Theme = {
       easingBase: 'cubic-bezier(0.4, 0, 0.2, 1)',
       easingDecelerate: 'cubic-bezier(0, 0, 0.2, 1)',
       easingAccelerate: 'cubic-bezier(0.4, 0, 1, 1)',
+    },
+    opacity: {
+      disabled: '0.5',
     },
   },
 };

@@ -56,6 +56,10 @@ export const GridEventType = {
   CELL_EDIT_START: 'cell:editStart',
   CELL_EDIT_STOP: 'cell:editStop',
   CELL_SELECTION_CHANGED: 'cell:selectionChanged',
+  /** A `button` cell renderer's button was activated. @see CellButtonClickedEvent */
+  CELL_BUTTON_CLICKED: 'cell:buttonClicked',
+  /** A member row in an `avatarGroup` roster was activated. @see AvatarGroupMemberClickedEvent */
+  AVATAR_GROUP_MEMBER_CLICKED: 'cell:avatarGroupMemberClicked',
 
   COLUMN_RESIZED: 'column:resized',
   COLUMN_MOVED: 'column:moved',
@@ -260,6 +264,41 @@ export interface RowMenuItemErrorEvent {
 export interface CellSelectionChangedEvent {
   ranges: CellRange[];
 }
+
+/**
+ * Emitted when a `button` cell renderer's button is activated.
+ *
+ * The grid does nothing with the click beyond reporting it — a button column is
+ * an application action, and only the application knows what it means.
+ */
+/**
+ * Emitted when a member row in an `avatarGroup` roster overlay is activated.
+ *
+ * Only fires when the column's renderer opted into interactive rows; a purely
+ * informational roster emits nothing.
+ */
+export interface AvatarGroupMemberClickedEvent {
+  /** The resolved member, including the original item as `source`. */
+  member: import('./built-in-renderer.types').AvatarGroupMember;
+  row: RowNode;
+  colDef: ColumnDef;
+  rowIndex: number;
+  event: MouseEvent;
+}
+
+export interface CellButtonClickedEvent {  /**
+   * The `action` declared in the renderer's options, or `''`.
+   *
+   * Lets one handler serve several button columns without comparing `colDef`.
+   */
+  action: string;
+  row: RowNode;
+  colDef: ColumnDef;
+  /** Cell value, before any `label` option was applied. */
+  value: unknown;
+  rowIndex: number;
+  event: MouseEvent;
+}
 export interface ColumnResizedEvent {
   colDef: ColumnDef;
   newWidth: number;
@@ -443,6 +482,8 @@ export type GridEventMap = {
   [GridEventType.ROW_MENU_ITEM_ERROR]: RowMenuItemErrorEvent;
   [GridEventType.ROW_MENU_CLOSED]: RowMenuClosedEvent;
   [GridEventType.CELL_SELECTION_CHANGED]: CellSelectionChangedEvent;
+  [GridEventType.CELL_BUTTON_CLICKED]: CellButtonClickedEvent;
+  [GridEventType.AVATAR_GROUP_MEMBER_CLICKED]: AvatarGroupMemberClickedEvent;
   [GridEventType.COLUMN_RESIZED]: ColumnResizedEvent;
   [GridEventType.COLUMN_MOVED]: ColumnMovedEvent;
   [GridEventType.COLUMN_SORTED]: ColumnSortedEvent;

@@ -33,7 +33,7 @@ export const rowDragCss = `/* ────────────────�
   padding: 5px 10px;
   height: var(--pg-drag-ghost-height, 28px);
   border-radius: var(--pg-borders-radius-sm, 4px);
-  // border: 1.5px solid var(--pg-colors-primary, #2563eb);
+  /* border: 1.5px solid var(--pg-colors-primary, #2563eb); */
   border: 2px solid var(--pg-colors-drag-ghost-border-color, #ddd);
   background: var(--pg-colors-surface, #fff);
   color: var(--pg-colors-row-drag-ghost, #2c2c2c);

@@ -2,6 +2,7 @@ import type { TemplateRef, Type } from '@angular/core';
 
 import type {
     ColumnDefInput as CoreColumnDefInput,
+    ColumnRenderer as CoreColumnRenderer,
     DetailContext,
     DetailRenderer as CoreDetailRenderer,
     DisplayRendererParams,
@@ -90,7 +91,13 @@ export interface ColumnRendererMap {
  * component/template specs above in addition to plain functions.
  */
 export type ColumnDef = Omit<CoreColumnDefInput, 'renderer' | 'children'> & {
-    renderer?: ColumnRendererMap;
+    /**
+     * Accepts everything the core does — a built-in renderer by name
+     * (`'country'`), a configured one (`{ name, options }`), a bare display
+     * function — plus the Angular-flavoured component/template specs in the
+     * slot map below, which the adapter converts to plain functions.
+     */
+    renderer?: ColumnRendererMap | CoreColumnRenderer;
     children?: ColumnDef[];
 };
 

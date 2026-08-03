@@ -21,6 +21,11 @@
       "import": "./dist/engines/import/adapters/sheetjs-workbook-parser.js",
       "default": "./dist/engines/import/adapters/sheetjs-workbook-parser.js"
     },
+    "./plugins/scheduler": {
+      "types": "./dist/plugins/scheduler/index.d.ts",
+      "import": "./dist/plugins/scheduler/index.js",
+      "default": "./dist/plugins/scheduler/index.js"
+    },
     "./styles/*": "./styles/*",
     "./package.json": "./package.json"
   },

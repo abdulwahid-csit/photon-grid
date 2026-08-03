@@ -36,7 +36,7 @@ export const columnGroupHeaderCss = `/* ─────────────�
   background: var(--pg-colors-background-alt, #f1f5f9);
   justify-content: center;
 }
-// .pg-th--group--collapsed .pg-th__label { display: none; }
+/* .pg-th--group--collapsed .pg-th__label { display: none; } */
 .pg-th__collapse-btn {
   flex-shrink: 0;
   display: flex;
@@ -45,7 +45,7 @@ export const columnGroupHeaderCss = `/* ─────────────�
   width: 20px;
   height: 20px;
   margin-right: 4px;
-  border-radius: var(--pg-sizing-border-radius, 4px);
+  border-radius: var(--pg-borders-radius-sm, 4px);
   color: var(--pg-colors-text-secondary, #475569);
   transition: background var(--pg-transitions-duration-fast, 100ms),
               color var(--pg-transitions-duration-fast, 100ms);

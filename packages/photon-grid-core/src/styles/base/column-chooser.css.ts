@@ -68,7 +68,7 @@ export const columnChooserCss = `/* ──────────────�
   background: transparent;
   color: var(--pg-colors-text-secondary, #64748b);
   cursor: pointer;
-  transition: background var(--pg-transitions-fast, 80ms ease), color var(--pg-transitions-fast, 80ms ease);
+  transition: background var(--pg-transitions-duration-fast, 80ms ease), color var(--pg-transitions-duration-fast, 80ms ease);
 }
 .pg-col-chooser__close:hover {
   background: var(--pg-colors-background-alt, #f1f5f9);
@@ -99,7 +99,7 @@ export const columnChooserCss = `/* ──────────────�
   font-family: inherit;
   font-size: inherit;
   outline: none;
-  transition: border-color var(--pg-transitions-fast, 80ms ease), box-shadow var(--pg-transitions-fast, 80ms ease);
+  transition: border-color var(--pg-transitions-duration-fast, 80ms ease), box-shadow var(--pg-transitions-duration-fast, 80ms ease);
 }
 .pg-col-chooser__search-input:focus {
   border-color: var(--pg-colors-primary, #2563eb);
@@ -137,7 +137,7 @@ export const columnChooserCss = `/* ──────────────�
   border-radius: var(--pg-borders-radius-sm, 4px);
   cursor: pointer;
   user-select: none;
-  transition: background var(--pg-transitions-fast, 80ms ease);
+  transition: background var(--pg-transitions-duration-fast, 80ms ease);
 }
 .pg-col-chooser__row:hover {
   background: var(--pg-colors-background-alt, #f1f5f9);
@@ -182,14 +182,14 @@ export const columnChooserCss = `/* ──────────────�
   background: var(--pg-colors-background, #ffffff);
   color: transparent;
   cursor: pointer;
-  transition: background var(--pg-transitions-fast, 80ms ease), border-color var(--pg-transitions-fast, 80ms ease);
+  transition: background var(--pg-transitions-duration-fast, 80ms ease), border-color var(--pg-transitions-duration-fast, 80ms ease);
 }
 .pg-col-chooser__checkbox > .pg-icon,
 .pg-col-chooser__checkbox > svg {
   width: 12px;
   height: 12px;
   opacity: 0;
-  transition: opacity var(--pg-transitions-fast, 80ms ease);
+  transition: opacity var(--pg-transitions-duration-fast, 80ms ease);
 }
 .pg-col-chooser__checkbox--checked {
   background: var(--pg-colors-primary, #2563eb);

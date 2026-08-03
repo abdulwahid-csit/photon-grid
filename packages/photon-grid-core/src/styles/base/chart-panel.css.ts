@@ -12,9 +12,9 @@ export const chartPanelCss = `/* ───────────────�
   overflow: hidden;
   pointer-events: none;
 }
-// .pg-chart-panel-backdrop--open {
-//   pointer-events: auto;
-// }
+/* .pg-chart-panel-backdrop--open { */
+/*   pointer-events: auto; */
+/* } */
 .pg-chart-panel-backdrop--fullscreen {
   position: fixed !important;
   background: rgba(0,0,0,0.40) !important;

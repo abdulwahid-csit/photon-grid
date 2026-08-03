@@ -20,7 +20,8 @@ import type {
     RowMenuItemErrorEvent,
     VDomStats,
 } from 'photon-grid-core';
-import { GridEventType } from 'photon-grid-core';
+import { GridEventType, PhotonAIProviderType } from 'photon-grid-core';
+import { environment } from '../environments/environment';
 
 /** One instrument in the simulated market feed. */
 interface Tick {
@@ -451,6 +452,19 @@ export class RealtimeGridComponent implements OnInit, OnDestroy {
         rowShading: false,
         mode: 'light',
         showGroupingBar: true,
+         photonAI: {
+            enabled: true,
+            provider: {
+            // Groq exposes an OpenAI-compatible Chat Completions API, so the
+            // built-in OpenAI preset works as-is — just point apiUrl at Groq
+            // and supply the Groq key + a Groq model. No custom transformers
+            // needed (Bearer auth + response_format json_object are handled).
+            type: PhotonAIProviderType.OpenAI,
+            apiKey: environment.groqApiKey,
+            apiUrl: 'https://api.groq.com/openai/v1/chat/completions',
+            model: 'llama-3.3-70b-versatile',
+        },
+    },
         
         
         // variant: 'quantum',

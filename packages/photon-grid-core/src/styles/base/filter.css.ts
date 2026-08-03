@@ -325,8 +325,8 @@ export const filterCss = `/* ─────────────────
   align-items: center;
   justify-content: flex-end;
   padding: 8px 10px;
-  // border-top: 1px solid var(--pg-colors-border, #e2e8f0);
-  // background: var(--pg-colors-background, #f8fafc);
+  /* border-top: 1px solid var(--pg-colors-border, #e2e8f0); */
+  /* background: var(--pg-colors-background, #f8fafc); */
 }
 
 .pg-filter-panel__clear-btn {

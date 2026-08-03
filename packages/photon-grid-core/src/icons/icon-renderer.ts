@@ -19,6 +19,9 @@ export class IconRenderer {
     wrapper.setAttribute('data-icon', name);
 
     const size = options.size ?? 16;
+    // Recorded so a later repaint can restore the size this icon was built at
+    // — sizes vary from 11px to 48px across the grid.
+    wrapper.setAttribute('data-icon-size', String(size));
     wrapper.style.cssText = `
       display: inline-flex;
       align-items: center;
@@ -56,25 +59,55 @@ export class IconRenderer {
     return wrapper;
   }
 
+  /**
+   * Renders an icon to a raw SVG string, for assignment into `innerHTML`.
+   *
+   * The emitted `<svg>` carries `data-icon` / `data-icon-size`, which is what
+   * makes a rendered icon findable again: swapping the active icon pack is a
+   * `querySelectorAll('[data-icon]')` sweep (see `repaintIcons`) rather than a
+   * teardown and rebuild of every subsystem that ever drew one.
+   *
+   * `width`/`height`/`style` are injected ahead of anything the source markup
+   * carries. The HTML parser keeps the *first* of a duplicate attribute, so
+   * these win — which is why icon sets must not declare their own.
+   *
+   * @param name - Registry name. Returns `''` when unresolved, so a missing
+   *   icon collapses to nothing rather than throwing.
+   * @param size - Edge length in px.
+   */
   renderToString(name: string, size = 16): string {
     const svg = this.registry.get(name);
     if (!svg) return '';
-    return svg
-      .replace('<svg', `<svg width="${size}" height="${size}" style="display:block;"`)
-      .replace(/currentColor/g, 'currentColor');
+    return svg.replace(
+      '<svg',
+      `<svg data-icon="${name}" data-icon-size="${size}" width="${size}" height="${size}" style="display:block;"`,
+    );
   }
 
+  /**
+   * Replaces the glyph inside an existing icon container, in place.
+   *
+   * Used both to reflect a state change (sort direction, filter active) and by
+   * the icon repainter when the theme's pack changes.
+   */
   updateIcon(el: HTMLElement, name: string, options: IconOptions = {}): void {
     el.setAttribute('data-icon', name);
     const size = options.size ?? 16;
+    el.setAttribute('data-icon-size', String(size));
+
     const svgContent = this.registry.get(name);
-    if (svgContent) {
-      el.innerHTML = svgContent;
-      const svg = el.querySelector('svg');
-      if (svg) {
-        svg.setAttribute('width', String(size));
-        svg.setAttribute('height', String(size));
-      }
+    if (!svgContent) {
+      // Clearing rather than leaving the previous glyph in place: a name that no
+      // longer resolves should read as "no icon", not as the last one that did.
+      el.innerHTML = '';
+      return;
+    }
+
+    el.innerHTML = svgContent;
+    const svg = el.querySelector('svg');
+    if (svg) {
+      svg.setAttribute('width', String(size));
+      svg.setAttribute('height', String(size));
     }
   }
 

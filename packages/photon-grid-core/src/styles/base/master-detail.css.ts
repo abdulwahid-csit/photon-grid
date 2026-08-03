@@ -189,17 +189,28 @@ export const masterDetailCss = `/* ───────────────
   height: 100%;
 }
 /* Content wrapper for a custom detail component (masterDetail.renderer).
-   Deliberately has NO height of its own: that is what makes its measured
-   size the component's natural content height rather than an echo of the
-   row height Photon just assigned it, which is what keeps
-   DetailComponentHost's ResizeObserver free of a feedback loop. */
+   Must have NO height of its own: that is what makes its measured size the
+   component's natural content height rather than an echo of the row height
+   Photon just assigned it, which is what keeps DetailComponentHost's
+   ResizeObserver free of a feedback loop.
+
+   align-self is what actually enforces that. The container also carries
+   .pg-row, which is display:flex + align-items:stretch — so without this the
+   host would be a stretched flex item with a *definite* cross size equal to
+   the row's content box, and every measurement would read back the height
+   Photon had just set. Combined with the Math.ceil in measureContentHeight, a
+   fractional layout height (device-pixel snapping on a scaled display) then
+   ratchets the panel one pixel taller per measurement instead of settling. */
 .pg-detail-component-host {
   width: 100%;
+  align-self: flex-start;
 }
 /* Fixed-height / user-resizable rows take their height from somewhere other
    than the content, so the host fills the row instead of measuring it —
-   applied when detailAutoHeight is false or detailResizable is on. */
+   applied when detailAutoHeight is false or detailResizable is on. There is no
+   measurement to protect on that path, so the stretch is restored. */
 .pg-detail-component-host--fill {
+  align-self: stretch;
   height: 100%;
 }
 .pg-detail-loading {

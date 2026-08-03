@@ -62,15 +62,15 @@ export const scrollbarsCss = `/* ───────────────�
 .pg-scrollbar-h-native,
 .pg-scrollbar-h-spacer--left,
 .pg-scrollbar-h-spacer--right {
-  // scrollbar-width: thin;
+  /* scrollbar-width: thin; */
   scrollbar-color: var(--pg-colors-scrollbar-thumb, #ffffff) var(--pg-colors-scrollbar-track, var(--pg-colors-scrollbar-bg, #f8fafc));
 }
 .pg-scrollbar-v-native::-webkit-scrollbar,
 .pg-scrollbar-h-native::-webkit-scrollbar,
 .pg-scrollbar-h-spacer--left::-webkit-scrollbar,
 .pg-scrollbar-h-spacer--right::-webkit-scrollbar {
-  // width: var(--pg-scrollbar-v-width, 12px);
-  // height: var(--pg-scrollbar-h-height, 12px);
+  /* width: var(--pg-scrollbar-v-width, 12px); */
+  /* height: var(--pg-scrollbar-h-height, 12px); */
   background: var(--pg-colors-scrollbar-track, var(--pg-colors-scrollbar-bg, #f8fafc));
 }
 .pg-scrollbar-v-native::-webkit-scrollbar-track,
@@ -84,8 +84,8 @@ export const scrollbarsCss = `/* ───────────────�
 .pg-scrollbar-h-spacer--left::-webkit-scrollbar-thumb,
 .pg-scrollbar-h-spacer--right::-webkit-scrollbar-thumb {
   background: var(--pg-colors-scrollbar-thumb, #cbd5e1);
-  // border-radius: 8px;
-  // border: 3px solid var(--pg-colors-scrollbar-track, var(--pg-colors-scrollbar-bg, #f8fafc));
+  /* border-radius: 8px; */
+  /* border: 3px solid var(--pg-colors-scrollbar-track, var(--pg-colors-scrollbar-bg, #f8fafc)); */
 }
 .pg-scrollbar-v-native::-webkit-scrollbar-thumb:hover,
 .pg-scrollbar-h-native::-webkit-scrollbar-thumb:hover,

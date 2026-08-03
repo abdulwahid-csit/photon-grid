@@ -20,7 +20,7 @@ export const rootCss = `
   font-family: var(--pg-typography-font-family, "Inter", system-ui, sans-serif);
   font-size: var(--pg-typography-font-size-md, 0.8rem);
   text-fit: width; 
-  font-weight: var(--pg-typography-font-weight-normal, 400);
+  font-weight: var(--pg-typography-font-weight-regular, 400);
   box-sizing: border-box;
   position: relative;
   --pg-scroll-x: 0px;

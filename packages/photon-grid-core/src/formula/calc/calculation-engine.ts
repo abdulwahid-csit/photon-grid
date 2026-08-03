@@ -33,10 +33,11 @@ import { ReferenceResolver } from '../reference/reference-resolver';
 import type { NamedRangeManager } from '../named-range-manager';
 import { compileFormula } from '../compile';
 import { ExpressionCache } from '../cache/expression-cache';
-import { extractReferences, containsVolatileFunction } from '../reference-extractor';
+import { extractReferences, containsVolatileFunction, extractNames } from '../reference-extractor';
 import { FormulaError, isFormulaError } from '../error/formula-error';
 import type { CellId, FormulaValue } from '../types/formula.types';
 import { makeCellId, splitCellId } from '../types/formula.types';
+import type { AstNode } from '../parser/ast.types';
 
 /** A source of "now" and randomness, injected so volatile functions are testable. */
 export interface FormulaClock {
@@ -109,10 +110,68 @@ export class CalculationEngine {
    * @returns The cells whose value changed.
    */
   setFormula(nodeId: string, colId: string, source: string): RecalculationResult {
+    const cellId = this.registerFormula(nodeId, colId, source);
+    const dirty = this.buildDirty([], this.formulaSeeds(cellId));
+    return this.recompute(dirty);
+  }
+
+  /**
+   * Bulk-registers many formulas and recomputes once. Each registration defers
+   * its own recompute, so seeding N declarative formulas at load costs a single
+   * ordered pass over the seeded cells plus their dependents (and volatiles) —
+   * not N cascading recomputes. Forward references resolve correctly because the
+   * final pass is topologically ordered.
+   *
+   * @param entries - The formulas to register.
+   * @returns The cells whose value changed.
+   */
+  registerFormulas(entries: readonly { nodeId: string; colId: string; source: string }[]): RecalculationResult {
+    const seeds: CellId[] = this.volatileCellIds();
+    for (let i = 0; i < entries.length; i++) {
+      seeds.push(this.registerFormula(entries[i].nodeId, entries[i].colId, entries[i].source));
+    }
+    if (seeds.length === 0) return EMPTY_RESULT;
+    return this.recompute(this.buildDirty([], seeds));
+  }
+
+  /**
+   * Removes every formula cell owned by any of `nodeIds` (e.g. deleted rows) and
+   * recomputes the dependents that referenced them, so structural row changes
+   * leave no orphaned store/graph entries.
+   *
+   * @param nodeIds - Stable ids of the removed rows.
+   * @returns The cells whose value changed.
+   */
+  purgeNodes(nodeIds: ReadonlySet<string>): RecalculationResult {
+    const toRemove: CellId[] = [];
+    for (const cell of this.store.values()) {
+      if (nodeIds.has(cell.nodeId)) toRemove.push(cell.cellId);
+    }
+    if (toRemove.length === 0) return EMPTY_RESULT;
+    // Seed dependents against the still-present values, then detach the cells.
+    const dirty = this.buildDirty(toRemove, this.volatileCellIds());
+    for (let i = 0; i < toRemove.length; i++) {
+      const cellId = toRemove[i];
+      this.graph.clearDependencies(cellId);
+      this.volatileCells.delete(cellId);
+      this.store.delete(cellId);
+      dirty.delete(cellId);
+    }
+    return this.recompute(dirty);
+  }
+
+  /**
+   * Compiles a formula, stores the cell, and (re)wires its dependency-graph edges
+   * — WITHOUT recomputing. The shared registration step behind {@link setFormula}
+   * and {@link registerFormulas}.
+   *
+   * @returns The cell's stable {@link CellId}.
+   */
+  private registerFormula(nodeId: string, colId: string, source: string): CellId {
     const cellId = makeCellId(nodeId, colId);
     const cfg = this.configManager.get();
-    // Reuse a cached AST for identical sources (the dominant cost when filling a
-    // formula down thousands of rows); bypass when caching is disabled.
+    // Reuse a cached AST for identical sources (the dominant cost when a column
+    // formula is applied down thousands of rows); bypass when caching is disabled.
     const compiled = cfg.enableCaching ? this.cache.compile(source, cfg) : compileFormula(source, cfg);
     const ast = compiled.ast;
     const references = ast ? extractReferences(ast) : [];
@@ -132,6 +191,7 @@ export class CalculationEngine {
 
     if (ast) {
       const deps = this.resolver.resolveDependencies(cellId, references);
+      this.addNameDependencies(nodeId, ast, deps.cells);
       this.graph.setDependencies(cellId, deps.cells, deps.ranges);
     } else {
       this.graph.clearDependencies(cellId);
@@ -139,8 +199,28 @@ export class CalculationEngine {
     if (volatile) this.volatileCells.add(cellId);
     else this.volatileCells.delete(cellId);
 
-    const dirty = this.buildDirty([], this.formulaSeeds(cellId));
-    return this.recompute(dirty);
+    return cellId;
+  }
+
+  /**
+   * Adds per-row precedents for a formula's row-relative bare names (field-name
+   * `quantity` or column-letter `B`). A row-relative reference always points at
+   * the SAME row as the formula cell, so each precedent is `(nodeId, resolvedColId)`.
+   * Named ranges are skipped (resolved at eval time, as today).
+   *
+   * @param nodeId - The formula cell's row (also its precedents' row).
+   * @param ast    - The compiled formula AST.
+   * @param out    - Precedent list to append to (mutated).
+   */
+  private addNameDependencies(nodeId: string, ast: AstNode, out: CellId[]): void {
+    const names = extractNames(ast);
+    for (let i = 0; i < names.length; i++) {
+      const name = names[i];
+      if (this.namedRanges.getTarget(name) != null) continue;
+      const depColId = this.resolver.resolveColumnId(name);
+      if (depColId === null) continue;
+      out.push(makeCellId(nodeId, depColId));
+    }
   }
 
   /**
@@ -277,6 +357,10 @@ export class CalculationEngine {
     for (let i = 0; i < order.length; i++) {
       const cell = this.store.get(order[i]);
       if (!cell) continue;
+      // Tell the evaluator which row this cell lives in so row-relative
+      // references (field-name / column-letter) resolve against it. The AST is
+      // shared across rows, so the row is supplied here, never baked into it.
+      ctx.currentRowIndex = positions.get(order[i])?.rowIndex ?? this.adapter.getRowIndex(cell.nodeId);
       const result = cell.ast ? this.evaluator.evaluate(cell.ast, ctx) : cell.error ?? FormulaError.syntax();
       this.assign(order[i], result, changed);
     }
@@ -306,6 +390,9 @@ export class CalculationEngine {
         const target = this.namedRanges.getTarget(name);
         return target ? this.resolver.parseNamedTarget(target) : null;
       },
+      // Overwritten per cell in `recompute` before each evaluation.
+      currentRowIndex: 0,
+      resolveRowRelative: this.resolver.resolveRowRelative,
       now: this.clock.now,
       random: this.clock.random,
     };

@@ -1,6 +1,6 @@
 {
   "name": "photon-grid-core",
-  "version": "2.0.6",
+  "version": "2.0.7",
   "description": "Professional zero-dependency TypeScript data grid with enterprise-grade features.",
   "author": "Abdul Wahid",
   "license": "MIT",
@@ -15,6 +15,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./import/sheetjs": {
+      "types": "./dist/engines/import/adapters/sheetjs-workbook-parser.d.ts",
+      "import": "./dist/engines/import/adapters/sheetjs-workbook-parser.js",
+      "default": "./dist/engines/import/adapters/sheetjs-workbook-parser.js"
     },
     "./styles/*": "./styles/*",
     "./package.json": "./package.json"
@@ -75,6 +80,14 @@
   },
   "engines": {
     "node": ">=18"
+  },
+  "peerDependencies": {
+    "xlsx": "*"
+  },
+  "peerDependenciesMeta": {
+    "xlsx": {
+      "optional": true
+    }
   },
   "publishConfig": {
     "access": "public"

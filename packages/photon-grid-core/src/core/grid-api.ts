@@ -3,6 +3,7 @@ import type { ColumnDef, ColumnDefInput, ColumnState, ColumnPinPosition } from '
 import type { RowNode } from '../types/row.types';
 import type { FilterModel, ColumnFilter } from '../types/filter.types';
 import type { SortConfig, GridState, CellRange } from '../types/grid.types';
+import { normalizeRange } from '../cell-selection/selection-range';
 import type {
   RowTransaction,
   RowVerticalScrollPosition,
@@ -10,6 +11,15 @@ import type {
   FlashCellsParams,
 } from '../types/grid.types';
 import type { GridEventType } from '../types/event.types';
+import type {
+  GridImportSink,
+  ImportOptions,
+  ImportResult,
+} from '../types/import.types';
+import { ImportSourceType } from '../types/import.types';
+import type { Workbook } from '../engines/import/model/workbook';
+import type { WorkbookParser } from '../engines/import/parser/workbook-parser';
+import type { ToastService } from '../toast/toast-service';
 import type { EventHandler } from '../event-bus/event-bus';
 import type { ChartConfig } from '../chart/chart-engine';
 import type { ChartModel } from '../chart/model/chart-model';
@@ -19,6 +29,14 @@ import type { ColumnGroupSerialState, ColumnGroupSystemState, ColumnTreeNode } f
 import { ColumnGroupStateManager } from '../column-groups/column-group-state-manager';
 import type { PhotonCommandResult } from '../photon-ai/photon-ai.types';
 import type { ThemeMode, ThemeVariant } from '../types/theme.types';
+import type { ServerSideDatasource } from '../types/server-side.types';
+import { ServerRowModel } from '../row-models/server/server-row-model';
+import { InfiniteRowModel } from '../row-models/infinite/infinite-row-model';
+import type { InfiniteStats } from '../types/infinite.types';
+import type { PhotonThemeApi } from '../types/theme-ai.types';
+import type { CellUpdate, CellUpdateResult, VDomStats } from '../renderer/vdom/vdom.types';
+import type { DetailComponent } from '../types/detail-component.types';
+import { DETAIL_ROW_VERTICAL_CHROME_PX } from '../renderer/detail-row-renderer';
 
 export class GridApi {
   private _columnGroupModel: ColumnGroupModel | null = null;
@@ -54,22 +72,210 @@ export class GridApi {
     this.ctx.rowModel.setRowData(data, rowHeight);
     // History from the old dataset is meaningless after a full data swap.
     this.ctx.undoRedoEngine.clear();
+    // Discover declarative formulas (column-level + row-data) for the new rows;
+    // computed values are written into row data before the first paint, so a
+    // plain refresh renders them (rows are freshly built, nothing cached).
+    this.ctx.formulaInitializer.onLoad(
+      this.ctx.columnModel.getAllColumns(),
+      this.ctx.store.get('allRows') as RowNode[],
+    );
     this.refresh();
   }
 
   appendData(data: Record<string, unknown>[]): void {
+    const before = (this.ctx.store.get('allRows') as RowNode[]).length;
     this.ctx.rowModel.appendRowData(data);
+    const all = this.ctx.store.get('allRows') as RowNode[];
+    const changed = this.ctx.formulaInitializer.onRowsAdded(
+      this.ctx.columnModel.getAllColumns(),
+      all.slice(before),
+    );
+    if (changed.size > 0) this.ctx.renderer.invalidateBodyRowsByIds(new Set(changed));
     this.refresh();
   }
 
   updateRow(nodeId: string, data: Partial<Record<string, unknown>>): void {
     this.ctx.rowModel.updateRow(nodeId, data);
+    const row = this.ctx.rowModel.getRowNode(nodeId);
+    if (row) {
+      const changed = this.ctx.formulaInitializer.onRowDataChanged(
+        this.ctx.columnModel.getAllColumns(),
+        row,
+        Object.keys(data),
+      );
+      if (changed.size > 0) this.ctx.renderer.invalidateBodyRowsByIds(new Set(changed));
+    }
     this.refresh();
   }
 
   removeRows(nodeIds: string[]): void {
     this.ctx.rowModel.removeRows(nodeIds);
+    const changed = this.ctx.formulaInitializer.onRowsRemoved(new Set(nodeIds));
+    if (changed.size > 0) this.ctx.renderer.invalidateBodyRowsByIds(new Set(changed));
     this.refresh();
+  }
+
+  // ──────────────────── Real-time cell updates ────────────────────
+
+  /**
+   * Applies a batch of field-level updates and repaints **only the cells whose
+   * values actually changed**.
+   *
+   * This is the high-frequency path. Unlike {@link updateRow} or
+   * {@link applyTransaction}, it does not re-run the row pipeline and does not
+   * rebuild any row DOM: values are merged into the row data in place, and the
+   * renderer's viewport Virtual DOM diffs the rendered window and writes just
+   * the changed cells. Every piece of cell state survives — DOM focus, an open
+   * editor, range selection, hover, and the DOM produced by custom renderers.
+   *
+   * Patches are coalesced to one flush per animation frame, so a feed pushing
+   * thousands of updates per second still touches the DOM at most 60 times.
+   *
+   * **Automatic structural fallback.** If a changed field participates in the
+   * active sort, an active filter, or the current grouping, the update can
+   * change which rows are displayed or in what order — a structural change that
+   * a cell patch cannot express. Those batches transparently fall back to a
+   * full pipeline run, so correctness never depends on the caller knowing the
+   * grid's current state.
+   *
+   * @example
+   * ```ts
+   * // Streaming price ticks — patches ~2 cells per visible row, no re-render.
+   * socket.onmessage = (e) => {
+   *   const ticks = JSON.parse(e.data);
+   *   api.applyCellUpdates(ticks.map((t) => ({
+   *     nodeId: t.symbol,
+   *     values: { price: t.price, change: t.change },
+   *   })));
+   * };
+   * ```
+   *
+   * @param updates - Per-row field updates, matched by `RowNode.nodeId`.
+   * @returns What the batch did — see {@link CellUpdateResult}.
+   */
+  applyCellUpdates(updates: readonly CellUpdate[]): CellUpdateResult {
+    if (updates.length === 0) {
+      return { rowsUpdated: 0, cellsPatched: 0, pipelineRan: false };
+    }
+
+    const touchedFields = new Set<string>();
+    const touchedRows: string[] = [];
+
+    for (const update of updates) {
+      const node = this.ctx.rowModel.mergeRowValues(update.nodeId, update.values);
+      if (!node) continue;
+      touchedRows.push(update.nodeId);
+      for (const field in update.values) touchedFields.add(field);
+    }
+
+    if (touchedRows.length === 0) {
+      return { rowsUpdated: 0, cellsPatched: 0, pipelineRan: false };
+    }
+
+    // A value the grid orders, filters or groups by is structural: the row's
+    // position, not just its text, has to change. Re-run the pipeline for the
+    // ordering — but the cells still repaint through the Virtual DOM below,
+    // because the pipeline does not touch cell content.
+    const structural = this.structuralReason(touchedFields);
+    if (structural !== null) {
+      // Snapshot row positions before the pipeline re-runs so the reorder plays
+      // as a FLIP slide rather than rows teleporting. The sort/filter event
+      // handlers do this for user-driven changes; a data-driven reorder needs
+      // the same treatment, and is in fact where it matters most — the user did
+      // not initiate the move and has no other cue that a row travelled.
+      //
+      // Every batch captures, including while a previous slide is still in
+      // flight: `RowAnimator.animate` finalises in-flight elements before it
+      // measures, so a restart re-targets from the row's committed position
+      // instead of fighting the transform already on it. Skipping the capture
+      // instead would be worse than no animation — the pipeline still moves the
+      // rows, so they would jump silently *and* disturb the slide already
+      // playing.
+      const currentRows = this.ctx.store.get('visibleRows') as Array<{ nodeId: string; top: number }>;
+      if (currentRows.length > 0) {
+        this.ctx.renderer.captureRowAnimation(currentRows, structural);
+      }
+      this.refresh();
+    }
+
+    // Always patch the changed cells — including on the structural path.
+    // Re-running the pipeline reorders rows but *reuses their DOM*, and a reused
+    // row's cells are never re-rendered, so without this a row would slide to
+    // the position its new value earns while still displaying its old one.
+    // Render and patch are both frame-coalesced and converge in either order:
+    // a row rebuilt by the render already carries current values (the diff then
+    // finds nothing), and a row patched first keeps them when the render merely
+    // repositions it.
+    this.ctx.renderer.patchCells(touchedRows);
+
+    return {
+      rowsUpdated: touchedRows.length,
+      cellsPatched: 0,
+      pipelineRan: structural !== null,
+    };
+  }
+
+  /**
+   * Applies queued cell patches immediately rather than on the next frame.
+   *
+   * Needed when the DOM must be consistent synchronously — before measuring,
+   * exporting, or asserting in a test.
+   *
+   * @returns The number of cells written to the DOM.
+   */
+  flushCellUpdates(): number {
+    return this.ctx.renderer.flushCellPatches();
+  }
+
+  /**
+   * Counters describing what the viewport Virtual DOM has done — how many cells
+   * it compared, how many it actually wrote, and how long the last flush took.
+   *
+   * Useful for verifying that a real-time feed patches only what changed.
+   */
+  getVDomStats(): VDomStats {
+    return this.ctx.renderer.getVDomStats();
+  }
+
+  /** Zeroes the Virtual DOM counters returned by {@link getVDomStats}. */
+  resetVDomStats(): void {
+    this.ctx.renderer.resetVDomStats();
+  }
+
+  /**
+   * Classifies why a set of changed fields cannot be expressed as an in-place
+   * cell patch, and therefore how the resulting re-layout should animate.
+   *
+   * @param fields - Fields whose values just changed.
+   * @returns `'sort'` when the change reorders rows, `'filter'` when it can add
+   *          or remove them, or `null` when the change is purely cosmetic and a
+   *          cell patch is sufficient.
+   */
+  private structuralReason(fields: ReadonlySet<string>): 'sort' | 'filter' | null {
+    const sorts = this.ctx.store.get('sortConfig') as SortConfig[];
+    for (const sort of sorts) {
+      if (fields.has(sort.field)) return 'sort';
+    }
+
+    // Grouping re-buckets rows, which reads as rows entering and leaving their
+    // groups rather than sliding — the filter entrance is the right cue.
+    const grouped = this.ctx.store.get('groupedColumnIds') as string[];
+    for (const colId of grouped) {
+      const col = this.ctx.columnModel.getColumn(colId);
+      if (col && fields.has(col.field)) return 'filter';
+    }
+
+    const filterModel = this.ctx.store.get('filterModel') as FilterModel;
+    for (const colId in filterModel) {
+      const col = this.ctx.columnModel.getColumn(colId);
+      if (col && fields.has(col.field)) return 'filter';
+    }
+
+    // A quick filter searches every column, so any change can affect matching.
+    const quickFilter = this.ctx.store.get('quickFilterConfig');
+    if (quickFilter && (quickFilter as { term?: string }).term) return 'filter';
+
+    return null;
   }
 
   getRowNode(nodeId: string): RowNode | undefined {
@@ -207,6 +413,108 @@ export class GridApi {
     this.ctx.renderer.toggleFiltersToolPanel();
   }
 
+  /**
+   * Selects a toolbar tab by id. Requires `GridOptions.toolbar.enabled` with a
+   * matching tab; a no-op otherwise. Emits `TOOLBAR_TAB_CHANGED` on change.
+   */
+  setActiveToolbarTab(id: string): void {
+    this.ctx.renderer.setActiveToolbarTab(id);
+  }
+
+  /** Returns the active toolbar tab id, or `null` when the toolbar is disabled or has no tabs. */
+  getActiveToolbarTab(): string | null {
+    return this.ctx.renderer.getActiveToolbarTab();
+  }
+
+  // ──────────────────── Server-Side Row Model ────────────────────
+
+  /**
+   * Sets (or replaces) the datasource used in server mode and immediately
+   * refetches the current view. A no-op unless `GridOptions.rowModel === 'server'`.
+   * @param datasource - The datasource, or `null` to detach (shows the empty state).
+   */
+  setServerSideDatasource(datasource: ServerSideDatasource | null): void {
+    const strategy = this.ctx.rowModelStrategy;
+    if (strategy instanceof ServerRowModel) strategy.setDatasource(datasource);
+  }
+
+  /**
+   * Forces the Server-Side Row Model to refetch the current view. Pass
+   * `{ purge: true }` to also clear the response cache (fetch fresh even for a
+   * previously-cached page). A no-op unless `rowModel === 'server'`.
+   */
+  refreshServerSide(params: { purge?: boolean } = {}): void {
+    const strategy = this.ctx.rowModelStrategy;
+    if (strategy instanceof ServerRowModel) strategy.refresh(params);
+  }
+
+  // ──────────────────── Infinite Row Model ────────────────────
+
+  /**
+   * Sets (or replaces) the datasource used in infinite mode and reloads from
+   * the current scroll position. A no-op unless `rowModel === 'infinite'`.
+   *
+   * The datasource contract is the same one the Server-Side Row Model uses, so
+   * an implementation can be shared between the two models verbatim.
+   *
+   * @param datasource - The datasource, or `null` to detach (shows the empty state).
+   */
+  setInfiniteDatasource(datasource: ServerSideDatasource | null): void {
+    const strategy = this.ctx.rowModelStrategy;
+    if (strategy instanceof InfiniteRowModel) strategy.setDatasource(datasource);
+  }
+
+  /**
+   * Reloads the pages currently resident. Pass `{ purge: true }` to empty the
+   * page cache first, so previously loaded pages are fetched fresh rather than
+   * served from memory. A no-op unless `rowModel === 'infinite'`.
+   */
+  refreshInfinite(params: { purge?: boolean } = {}): void {
+    const strategy = this.ctx.rowModelStrategy;
+    if (strategy instanceof InfiniteRowModel) strategy.refresh(params);
+  }
+
+  /**
+   * Drops a range of cached pages so they reload when next seen — the targeted
+   * alternative to {@link refreshInfinite} when only part of the dataset went
+   * stale. Omit both bounds to invalidate everything.
+   *
+   * @param from - First page index, inclusive (0-based).
+   * @param to   - Last page index, inclusive.
+   */
+  invalidateInfinitePages(from?: number, to?: number): void {
+    const strategy = this.ctx.rowModelStrategy;
+    if (strategy instanceof InfiniteRowModel) strategy.invalidatePages(from, to);
+  }
+
+  /**
+   * Cache and request diagnostics for the Infinite Row Model — cached pages,
+   * in-flight and queued requests, hit/miss counts and load totals.
+   *
+   * @returns The stats, or `null` when another row model is active.
+   */
+  getInfiniteStats(): InfiniteStats | null {
+    const strategy = this.ctx.rowModelStrategy;
+    return strategy instanceof InfiniteRowModel ? strategy.getStats() : null;
+  }
+
+  // ──────────────────── State ────────────────────
+
+  /**
+   * Returns a serialisable snapshot of grid state (columns — order / width /
+   * visibility / pinning, sort, filter, pagination, grouping, expansion,
+   * selection) suitable for persisting on your own server. Alias of
+   * {@link getGridState}.
+   */
+  getState(): GridState {
+    return this.getGridState();
+  }
+
+  /** Restores a snapshot produced by {@link getState}. Alias of {@link applyGridState}. */
+  setState(state: GridState): void {
+    this.applyGridState(state);
+  }
+
   // ──────────────────── Selection ────────────────────
 
   /**
@@ -290,6 +598,40 @@ export class GridApi {
 
   getCellRanges(): CellRange[] {
     return this.ctx.store.get('cellRanges');
+  }
+
+  /**
+   * Runs an intelligent AutoFill from a source range, continuing its detected
+   * pattern (numeric/date/name series, `Item001 → Item002`, alphabet, booleans,
+   * or a copy fallback) — the programmatic equivalent of dragging the fill
+   * handle. Formula cells transpose their relative references.
+   *
+   * @param params.range     - The source range whose pattern is continued.
+   * @param params.direction - Fill direction (`'down' | 'up' | 'left' | 'right'`).
+   * @param params.count     - Number of cells to extend beyond the source
+   *                           (`>= 1`).
+   *
+   * @example
+   * // Continue A1:A3 (1,2,3) down four more rows → 4,5,6,7
+   * api.fill({ range: { startRowIndex: 0, endRowIndex: 2, startColIndex: 0, endColIndex: 0 }, direction: 'down', count: 4 });
+   */
+  fill(params: {
+    range: CellRange;
+    direction: 'down' | 'up' | 'left' | 'right';
+    count: number;
+  }): void {
+    const { range, direction, count } = params;
+    if (count < 1) return;
+    const src = normalizeRange(range);
+    let target: number;
+    switch (direction) {
+      case 'down':  target = src.endRowIndex + count; break;
+      case 'up':    target = src.startRowIndex - count; break;
+      case 'right': target = src.endColIndex + count; break;
+      case 'left':  target = src.startColIndex - count; break;
+      default: return;
+    }
+    this.ctx.cellSelectionEngine.fillRange(range, direction, target);
   }
 
   // ──────────────────── Editing ────────────────────
@@ -462,6 +804,52 @@ export class GridApi {
     return this.ctx.renderer.getDetailGridApi(nodeId);
   }
 
+  /**
+   * Returns the custom detail component instance mounted for `nodeId`'s
+   * expanded detail row — the object created from `masterDetail.renderer`.
+   *
+   * `undefined` when the row is not expanded, its content has not been built
+   * yet (still loading, or scrolled outside the render window on first
+   * expand), or `masterDetail.renderer` is a plain function rather than a
+   * class (a function renderer has no instance to hand back).
+   *
+   * @example
+   * ```ts
+   * const detail = api.getDetailComponent('row-42') as OrderDetailComponent | undefined;
+   * detail?.scrollToOrder('ORD-1001');
+   * ```
+   */
+  getDetailComponent(nodeId: string): DetailComponent | undefined {
+    return this.ctx.renderer.getDetailComponent(nodeId);
+  }
+
+  /**
+   * Re-resolves `masterDetail.props` for `nodeId`'s mounted detail component
+   * and asks it to update in place via `DetailComponent.refresh`. The
+   * component is re-created only if it declines.
+   *
+   * The programmatic twin of `DetailContext.refresh()` — reach for it when the
+   * data behind a detail section changed outside the component's knowledge.
+   *
+   * @returns `true` if a mounted component was refreshed, `false` if the row
+   * has no custom detail component currently mounted.
+   */
+  refreshDetail(nodeId: string): boolean {
+    return this.ctx.renderer.refreshDetailComponent(nodeId);
+  }
+
+  /**
+   * Sets the detail row height (in **content** pixels — the container's own
+   * padding is added on top) for `nodeId`, clamped by
+   * `masterDetail.detailMinHeight`/`detailMaxHeight`.
+   *
+   * The programmatic twin of `DetailContext.updateHeight(px)`, for callers
+   * that hold a `GridApi` rather than a detail context.
+   */
+  setDetailHeight(nodeId: string, height: number): void {
+    this.ctx.masterDetailEngine.setDetailHeight(nodeId, height + DETAIL_ROW_VERTICAL_CHROME_PX);
+  }
+
   // ──────────────────── Photon AI ────────────────────
 
   /**
@@ -590,6 +978,146 @@ export class GridApi {
     );
   }
 
+  // ──────────────────── Import ────────────────────
+  /**
+   * The grid write/read port handed to the {@link import('../engines/import/import-engine').ImportEngine}.
+   * Thin adapter over the public data seams so the engine never touches
+   * `GridCore` internals. Lazily built and cached on first import.
+   */
+  private _importSink: GridImportSink | null = null;
+
+  /** Returns (building once) the import sink over this API. */
+  private getImportSink(): GridImportSink {
+    if (!this._importSink) {
+      this._importSink = {
+        getColumns: () => this.ctx.columnModel.getAllColumns(),
+        getRowData: () => (this.ctx.store.get('allRows') as RowNode[]).map((r) => r.data),
+        setColumns: (defs) => this.setColumns(defs),
+        setData: (rows) => this.setData(rows),
+        appendData: (rows) => this.appendData(rows),
+      };
+    }
+    return this._importSink;
+  }
+
+  /** Merges per-call import options over the grid-level `GridOptions.import` defaults. */
+  private resolveImportOptions(options?: ImportOptions): ImportOptions {
+    const cfg = this.ctx.options.import;
+    return {
+      mode: options?.mode ?? cfg?.mode,
+      defineColumns: options?.defineColumns ?? cfg?.defineColumns,
+      ...options,
+    };
+  }
+
+  /**
+   * Registers the workbook parser used for binary Excel files (e.g. the optional
+   * SheetJS adapter). Additive — call once before importing `.xlsx`/`.xls`.
+   *
+   * @param parser - The parser implementation.
+   */
+  registerImportParser(parser: WorkbookParser): void {
+    this.ctx.importEngine.registerWorkbookParser(parser);
+  }
+
+  /**
+   * Imports a file, inferring the source from its extension
+   * (`.xlsx`/`.xls` → Excel, `.tsv` → TSV, else CSV).
+   *
+   * @param file    - The file to import.
+   * @param options - Optional per-call overrides.
+   * @returns The import result.
+   */
+  importFile(file: File, options?: ImportOptions): Promise<ImportResult> {
+    return this.ctx.importEngine.importFile(file, this.getImportSink(), this.resolveImportOptions(options));
+  }
+
+  /**
+   * Imports a binary Excel workbook. Requires a parser registered via
+   * {@link registerImportParser}.
+   *
+   * @param file    - The `.xlsx`/`.xls` file.
+   * @param options - Optional per-call overrides.
+   * @returns The import result.
+   */
+  importExcel(file: File, options?: ImportOptions): Promise<ImportResult> {
+    return this.ctx.importEngine.importFileAs(
+      file,
+      ImportSourceType.Excel,
+      this.getImportSink(),
+      this.resolveImportOptions(options),
+    );
+  }
+
+  /**
+   * Imports a CSV file.
+   *
+   * @param file    - The `.csv` file.
+   * @param options - Optional per-call overrides.
+   * @returns The import result.
+   */
+  importCsv(file: File, options?: ImportOptions): Promise<ImportResult> {
+    return this.ctx.importEngine.importFileAs(
+      file,
+      ImportSourceType.Csv,
+      this.getImportSink(),
+      this.resolveImportOptions(options),
+    );
+  }
+
+  /**
+   * Imports a TSV file.
+   *
+   * @param file    - The `.tsv` file.
+   * @param options - Optional per-call overrides.
+   * @returns The import result.
+   */
+  importTsv(file: File, options?: ImportOptions): Promise<ImportResult> {
+    return this.ctx.importEngine.importFileAs(
+      file,
+      ImportSourceType.Tsv,
+      this.getImportSink(),
+      this.resolveImportOptions(options),
+    );
+  }
+
+  /**
+   * Imports the current clipboard contents (TSV, as emitted by Excel/Sheets).
+   *
+   * @param options - Optional per-call overrides.
+   * @returns The import result.
+   */
+  importFromClipboard(options?: ImportOptions): Promise<ImportResult> {
+    return this.ctx.importEngine.importFromClipboard(this.getImportSink(), this.resolveImportOptions(options));
+  }
+
+  /**
+   * Imports an already-parsed {@link Workbook} (from a custom importer).
+   *
+   * @param workbook - The workbook to import.
+   * @param options  - Optional per-call overrides.
+   * @returns The import result.
+   */
+  importWorkbook(workbook: Workbook, options?: ImportOptions): Promise<ImportResult> {
+    return this.ctx.importEngine.importWorkbook(workbook, this.getImportSink(), this.resolveImportOptions(options));
+  }
+
+  // ──────────────────── Toasts ────────────────────
+
+  /**
+   * The grid's toast notification service — show transient success/error/
+   * warning/info messages.
+   *
+   * @example
+   * ```ts
+   * api.toasts.success('Saved!');
+   * api.toasts.error('Upload failed', { action: { label: 'Retry', onClick: retry } });
+   * ```
+   */
+  get toasts(): ToastService {
+    return this.ctx.toastService;
+  }
+
   // ──────────────────── Clipboard ────────────────────
 
   copySelectedRowsToClipboard(): Promise<void> {
@@ -647,7 +1175,7 @@ export class GridApi {
 
   /**
    * @deprecated Use {@link GridApi.setMode} / {@link GridApi.setVariant}.
-   * Accepts legacy theme strings (`'dark'`, `'quartz'`, `'pg-quartz-theme'`, …)
+   * Accepts legacy theme strings (`'dark'`, `'ion'`, `'pg-ion-theme'`, …)
    * and maps them onto the mode/variant axes.
    */
   setTheme(nameOrTheme: string): void {
@@ -656,6 +1184,26 @@ export class GridApi {
 
   toggleDarkMode(): void {
     this.ctx.themeManager.toggleDarkMode();
+  }
+
+  /**
+   * The **AI Theme Engine** — generate, modify, optimize, explain, preview,
+   * export and import Photon Grid themes from natural language, constrained to
+   * the real design-token registry (never arbitrary CSS). LLM-backed methods
+   * require `GridOptions.photonAI.provider`; preview/apply/export/import/history
+   * work offline.
+   *
+   * @example
+   * ```ts
+   * await gridApi.photonAI.generateTheme({ prompt: 'Create a modern dark dashboard theme', preview: true });
+   * await gridApi.photonAI.modifyTheme({ prompt: 'Make the header emerald green', preview: true });
+   * await gridApi.photonAI.optimizeTheme({ accessibility: true, preview: true });
+   * const json = gridApi.photonAI.exportTheme('json');
+   * ```
+   * @see {@link PhotonThemeApi}
+   */
+  get photonAI(): PhotonThemeApi {
+    return this.ctx.photonThemeEngine;
   }
 
   // ──────────────────── Row animation ────────────────────
@@ -816,7 +1364,7 @@ export class GridApi {
    */
   setCellFormula(nodeId: string, colId: string, source: string): void {
     const result = this.ctx.formulaEngine.setFormula(nodeId, colId, source);
-    if (result.changedNodeIds.size > 0) this.refresh();
+    this.repaintFormulaChanges(result.changedNodeIds);
   }
 
   /**
@@ -846,9 +1394,29 @@ export class GridApi {
    * @returns `true` if a formula was removed.
    */
   clearCellFormula(nodeId: string, colId: string): boolean {
-    const removed = this.ctx.formulaEngine.clearFormula(nodeId, colId);
-    if (removed) this.refresh();
-    return removed;
+    const had = this.ctx.formulaEngine.hasFormula(nodeId, colId);
+    const result = this.ctx.formulaEngine.removeFormula(nodeId, colId);
+    this.repaintFormulaChanges(result.changedNodeIds);
+    return had;
+  }
+
+  /**
+   * Repaints exactly the rows a formula operation recomputed.
+   *
+   * Formula recomputation writes new values into the existing row *data* objects
+   * without swapping the `RowNode` reference, so `refresh()`'s cached-row path
+   * (`BodyRenderer.updatePanelRow`) re-stamps row-level attributes but never
+   * repaints cell content — the dependents would keep their stale DOM. Evicting
+   * the changed rows from the body-render cache forces a full rebuild so their
+   * new values render on the next frame; the subsequent `refresh()` re-runs the
+   * data pipeline so group aggregations reflect the change too.
+   *
+   * @param changedNodeIds - Row node ids whose values the engine just changed.
+   */
+  private repaintFormulaChanges(changedNodeIds: ReadonlySet<string>): void {
+    if (changedNodeIds.size === 0) return;
+    this.ctx.renderer.invalidateBodyRowsByIds(new Set(changedNodeIds));
+    this.refresh();
   }
 
   /**
@@ -858,7 +1426,7 @@ export class GridApi {
    */
   recalculateFormulas(force = false): void {
     const result = this.ctx.formulaEngine.recalculate(force);
-    if (result.changedNodeIds.size > 0) this.refresh();
+    this.repaintFormulaChanges(result.changedNodeIds);
   }
 
   /**
@@ -869,7 +1437,7 @@ export class GridApi {
    */
   setNamedRange(name: string, target: string): void {
     const result = this.ctx.formulaEngine.setNamedRange(name, target);
-    if (result.changedNodeIds.size > 0) this.refresh();
+    this.repaintFormulaChanges(result.changedNodeIds);
   }
 
   /**
@@ -879,7 +1447,7 @@ export class GridApi {
    */
   removeNamedRange(name: string): void {
     const result = this.ctx.formulaEngine.removeNamedRange(name);
-    if (result.changedNodeIds.size > 0) this.refresh();
+    this.repaintFormulaChanges(result.changedNodeIds);
   }
 
   /** @returns The registered custom + built-in formula function names. */
@@ -903,35 +1471,10 @@ export class GridApi {
   }
 
   private applyPipeline(): void {
-    let rows = this.ctx.store.get('allRows');
-    const columns = this.ctx.columnModel.getAllColumns();
-
-    if (this.ctx.treeDataService.isEnabled()) {
-      // Tree Data and column-value grouping are mutually exclusive — a grid
-      // is either hierarchical or grouped by value, never both — so this
-      // branch fully replaces the filter/sort/group steps below with their
-      // tree-aware equivalents (which internally still call FilterEngine's
-      // and SortEngine's own logic; see TreeDataService).
-      rows = this.ctx.treeDataService.getFlatVisibleRows(rows, columns);
-    } else {
-      rows = this.ctx.filterEngine.applyFilters(rows, columns);
-      rows = this.ctx.sortEngine.applySorting(rows, columns);
-
-      const groupColIds = this.ctx.store.get('groupedColumnIds');
-      if (groupColIds.length > 0) {
-        rows = this.ctx.groupingEngine.groupByColumns(groupColIds, columns, rows);
-      }
-    }
-
-    rows = this.ctx.paginationEngine.applyPagination(rows);
-    rows = this.ctx.masterDetailEngine.injectDetailRows(rows);
-    this.ctx.rowModel.setVisibleRows(rows);
-    // Subtree extents depend on `top`/`height`, which `setVisibleRows` just
-    // assigned — must run after layout, not from inside `getFlatVisibleRows`.
-    if (this.ctx.treeDataService.isEnabled()) {
-      this.ctx.treeDataService.annotateSubtreeExtents(rows);
-    }
-    this.ctx.store.set('visibleRows', rows);
+    // Delegates to the active row-model strategy (client = in-memory pipeline;
+    // server = datasource fetch). See RowModelStrategy / ClientRowModel /
+    // ServerRowModel.
+    this.ctx.rowModelStrategy.buildDisplayedRows();
   }
 
 
@@ -968,6 +1511,7 @@ export class GridApi {
    */ 
   applyTransaction(txn: RowTransaction): RowNode[] {
     const result = this.ctx.rowModel.applyTransaction(txn);
+    this.discoverTransactionFormulas(result);
     this.refresh();
     return [...result.add, ...result.update];
   }
@@ -987,9 +1531,41 @@ export class GridApi {
       this._txnFlushHandle = null;
       const merged = this.mergeTransactions(this._pendingTransactions);
       this._pendingTransactions = [];
-      this.ctx.rowModel.applyTransaction(merged);
+      const result = this.ctx.rowModel.applyTransaction(merged);
+      this.discoverTransactionFormulas(result);
       this.refresh();
     });
+  }
+
+  /**
+   * Runs declarative formula discovery for a transaction's result: purges removed
+   * rows, seeds added rows, and re-discovers/recomputes updated rows, then evicts
+   * exactly the changed rows so their new values repaint.
+   */
+  private discoverTransactionFormulas(result: {
+    add: RowNode[];
+    update: RowNode[];
+    remove: RowNode[];
+  }): void {
+    const init = this.ctx.formulaInitializer;
+    const cols = this.ctx.columnModel.getAllColumns();
+    const changed = new Set<string>();
+
+    if (result.remove.length > 0) {
+      for (const id of init.onRowsRemoved(new Set(result.remove.map((r) => r.nodeId)))) changed.add(id);
+    }
+    if (result.add.length > 0) {
+      for (const id of init.onRowsAdded(cols, result.add)) changed.add(id);
+    }
+    if (result.update.length > 0) {
+      // Field-level diffs aren't retained per row, so recompute each updated row
+      // conservatively across all its columns (idempotent for formulas).
+      const allFields = cols.map((c) => c.field);
+      for (const node of result.update) {
+        for (const id of init.onRowDataChanged(cols, node, allFields)) changed.add(id);
+      }
+    }
+    if (changed.size > 0) this.ctx.renderer.invalidateBodyRowsByIds(new Set(changed));
   }
 
   /** Concatenates several transactions into one, preserving operation order. */
@@ -1182,8 +1758,26 @@ export class GridApi {
    * @param position - Where to place the row; omit for the minimal scroll.
    */
   ensureNodeVisible(nodeId: string, position?: RowVerticalScrollPosition): void {
-    const rowIndex = this.getVisibleRows().findIndex((r) => r.nodeId === nodeId);
+    // Optional-chained because a demand-loading row model publishes a sparse
+    // array; an index outside the loaded window simply holds nothing.
+    const rowIndex = this.getVisibleRows().findIndex((r) => r?.nodeId === nodeId);
     if (rowIndex < 0) return;
+    this.ctx.renderer.ensureRowVisible(rowIndex, position);
+  }
+
+  /**
+   * Scrolls the row at a display index into view.
+   *
+   * Unlike {@link ensureNodeVisible} this needs no loaded row, so it is the way
+   * to jump anywhere in an infinite-scrolling grid: the target position is
+   * derived from the index, and the pages covering it load once they are on
+   * screen.
+   *
+   * @param rowIndex - Display index, 0-based. Out-of-range values are ignored.
+   * @param position - Where to place the row; omit for the minimal scroll.
+   */
+  ensureIndexVisible(rowIndex: number, position?: RowVerticalScrollPosition): void {
+    if (rowIndex < 0 || rowIndex >= this.getVisibleRows().length) return;
     this.ctx.renderer.ensureRowVisible(rowIndex, position);
   }
 

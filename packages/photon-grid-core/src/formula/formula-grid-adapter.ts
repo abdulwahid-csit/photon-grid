@@ -59,6 +59,16 @@ export interface FormulaGridAdapter {
   getFieldForCol(colId: string): string | null;
 
   /**
+   * Reverse of {@link getFieldForCol}: maps a column's data `field` back to its
+   * immutable `colId`. Used to resolve row-relative field-name references
+   * (`=quantity * unitPrice`) to a concrete column.
+   *
+   * @param field - The column's data `field`.
+   * @returns The `colId` of the first column with that field, or `null` if none.
+   */
+  getColIdForField(field: string): string | null;
+
+  /**
    * Reads a cell's current stored value from the row data (the computed value
    * for a formula cell, or the literal value otherwise).
    *

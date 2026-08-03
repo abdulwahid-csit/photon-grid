@@ -5,6 +5,7 @@ import {
   MOMENTUM_MIN_VELOCITY,
   PAN_EXCLUDE_SELECTOR,
 } from '../core/pointer-utils';
+import { contentToTrack, trackHeightFor, trackToContent } from './scroll-track';
 
 export type ScrollYCallback = (scrollTop: number) => void;
 
@@ -15,6 +16,23 @@ export class ScrollController {
   private totalCenterWidth = 0;
   private viewportHeight = 0;
   private centerViewportWidth = 0;
+  /** Height actually given to the vertical scrollbar spacer — see `scroll-track.ts`. */
+  private trackHeight = 0;
+  /**
+   * Track offset this controller last wrote to the native scrollbar. The write
+   * echoes back as a `scroll` event; the browser may have rounded it to a
+   * device pixel, which — once scaled back into content space — is no longer
+   * the value we asked for and would fight the gesture that caused it. Cleared
+   * as soon as one event is matched against it, so a genuine user scroll is
+   * never swallowed twice.
+   */
+  private pendingTrackWrite: number | null = null;
+  /**
+   * Pixel offset that rendered rows are positioned relative to. Written by
+   * `GridRenderer` alongside the row position stylesheet; see
+   * {@link setRowOrigin}.
+   */
+  private rowOriginY = 0;
 
   private gridEl: HTMLElement | null = null;
   private sbVNativeEl: HTMLElement | null = null;
@@ -129,6 +147,9 @@ export class ScrollController {
       this.clampScroll();
       this.syncCSSVars();
       this.syncScrollbars();
+      // Viewport height is part of both scroll ranges, so a resize changes the
+      // content⇄track ratio; restate the thumb against the new one.
+      this.writeTrackY();
       this.scrollXCb?.();
     });
     this.resizeObs.observe(bodyEl);
@@ -141,11 +162,36 @@ export class ScrollController {
   updateSizes(totalHeight: number, totalCenterWidth: number): void {
     this.totalHeight = totalHeight;
     this.totalCenterWidth = totalCenterWidth;
-    if (this.sbVSpacerEl) this.sbVSpacerEl.style.height = `${totalHeight}px`;
+    this.trackHeight = trackHeightFor(totalHeight);
+    if (this.sbVSpacerEl) this.sbVSpacerEl.style.height = `${this.trackHeight}px`;
     if (this.sbHSpacerEl) this.sbHSpacerEl.style.width  = `${totalCenterWidth}px`;
     this.clampScroll();
     this.syncCSSVars();
     this.syncScrollbars();
+    // The track just changed length, so the thumb's position no longer
+    // corresponds to `scrollTop` — restate it in the new track's terms.
+    this.writeTrackY();
+  }
+
+  /**
+   * Sets the pixel offset that rendered rows are positioned relative to.
+   *
+   * `GridRenderer` writes each rendered row's `top` into the position
+   * stylesheet as `row.top - origin` and calls this with the same origin in the
+   * same synchronous block. The panel transform published here adds it back
+   * (`origin - scrollTop`), so on-screen position is unchanged while every
+   * painted coordinate stays within a viewport's worth of zero — which is what
+   * keeps 1px row borders from rounding away at large scroll depths. See the
+   * note above `.pg-panel__content` in `panels.css.ts`.
+   *
+   * Because the sheet and the origin are always written together, a scroll that
+   * lands between two renders is still correct: only `scrollTop` moves, and the
+   * offset tracks it.
+   */
+  setRowOrigin(originY: number): void {
+    if (originY === this.rowOriginY) return;
+    this.rowOriginY = originY;
+    this.syncCSSVars();
   }
 
   getScrollTop(): number { return this.scrollTop; }
@@ -166,7 +212,7 @@ export class ScrollController {
     this.scrollTop = next;
     this.syncCSSVars();
     this.syncScrollbars();
-    if (this.sbVNativeEl) this.sbVNativeEl.scrollTop = next;
+    this.writeTrackY();
     this.scrollYCb?.(this.scrollTop);
   }
 
@@ -204,6 +250,40 @@ export class ScrollController {
     if (!this.gridEl) return;
     this.gridEl.style.setProperty('--pg-scroll-x', `-${this.scrollLeft}px`);
     this.gridEl.style.setProperty('--pg-scroll-y', `-${this.scrollTop}px`);
+    // Published for JS that positions rows in the same rebased space (see
+    // RowDragRenderer.updateRowTops).
+    this.gridEl.style.setProperty('--pg-row-origin-y', `${this.rowOriginY}px`);
+    // The panels' vertical translate. Subtracted here, in doubles, rather than
+    // left to a CSS calc() of the two full-magnitude terms — see setRowOrigin.
+    this.gridEl.style.setProperty('--pg-row-offset-y', `${this.rowOriginY - this.scrollTop}px`);
+  }
+
+  // ── Content ⇄ track mapping ────────────────────────────────────────────────
+  //
+  // Identity whenever the content fits inside the browser's element-height cap,
+  // which is the overwhelmingly common case; only a dataset tall enough to
+  // exceed it is scaled through a shortened track. See `scroll-track.ts`.
+
+  /** Furthest the content can scroll, in content pixels. */
+  private get maxScrollY(): number { return Math.max(0, this.totalHeight - this.viewportHeight); }
+
+  /** Furthest the native scrollbar can scroll, in track pixels. */
+  private get maxTrackY(): number { return Math.max(0, this.trackHeight - this.viewportHeight); }
+
+  private toTrackY(scrollTop: number): number {
+    return contentToTrack(scrollTop, this.maxScrollY, this.maxTrackY);
+  }
+
+  private fromTrackY(track: number): number {
+    return trackToContent(track, this.maxScrollY, this.maxTrackY);
+  }
+
+  /** Restates the current scroll position on the native scrollbar. */
+  private writeTrackY(): void {
+    if (!this.sbVNativeEl) return;
+    const track = this.toTrackY(this.scrollTop);
+    this.pendingTrackWrite = track;
+    this.sbVNativeEl.scrollTop = track;
   }
 
   private syncScrollbars(): void {
@@ -227,7 +307,17 @@ export class ScrollController {
   }
 
   private readonly onVNativeScroll = (): void => {
-    const st = this.sbVNativeEl!.scrollTop;
+    const track = this.sbVNativeEl!.scrollTop;
+
+    // Swallow the echo of our own write exactly once. Unscaled the `< 0.5`
+    // check below already absorbed it; once the track is scaled, the browser's
+    // sub-pixel rounding of that write maps back to a content offset several
+    // pixels off, which would yank the view away from the gesture that set it.
+    const expected = this.pendingTrackWrite;
+    this.pendingTrackWrite = null;
+    if (expected !== null && Math.abs(track - expected) < 1) return;
+
+    const st = this.fromTrackY(track);
     if (Math.abs(st - this.scrollTop) < 0.5) return;
     this.scrollTop = st;
     this.syncCSSVars();

@@ -35,10 +35,17 @@ import type {
     RowClickPayload,
     RowSelectedEvent,
     ThemeChangedEvent,
+    ToolbarTabChangedEvent,
+    ToolbarSearchChangedEvent,
+    ServerRequestEvent,
+    ServerSuccessEvent,
+    ServerErrorEvent,
+    ServerRefreshEvent,
+    ServerRetryEvent,
 } from 'photon-grid-core';
 
 import { RendererAdapter } from './angular-renderer.adapter';
-import type {ColumnDef as GridColumnDef } from './angular-renderer.types';
+import type { ColumnDef as GridColumnDef, PhotonGridOptions } from './angular-renderer.types';
 
 /**
  * Angular wrapper around the framework-agnostic Photon Grid core.
@@ -93,6 +100,25 @@ import type {ColumnDef as GridColumnDef } from './angular-renderer.types';
  *   renderer: { display: { kind: 'template', template: this.statusTpl } },
  * }];
  * ```
+ *
+ * @example Template-based Master/Detail renderer
+ * ```html
+ * <ng-template #detailTpl let-ctx let-data="data">
+ *   <h2>{{ data['account'] }}</h2>
+ *   <button type="button" (click)="ctx.emit('save', data)">Save</button>
+ * </ng-template>
+ * ```
+ * ```ts
+ * @ViewChild('detailTpl') detailTpl!: TemplateRef<DetailTemplateContext>;
+ * options: Partial<PhotonGridOptions> = {
+ *   masterDetail: {
+ *     enabled: true,
+ *     renderer: { kind: 'template', template: this.detailTpl },
+ *     props: (ctx) => ({ orders: ctx.detailData ?? [] }),
+ *     events: { save: (e) => this.persist(e.payload) },
+ *   },
+ * };
+ * ```
  */
 @Component({
     selector: 'photon-grid-angular',
@@ -142,14 +168,14 @@ export class PhotonGridComponent implements AfterViewInit, OnChanges, OnDestroy 
      *     provider: {
      *       type: PhotonAIProviderType.Gemini,
      *       apiKey: environment.geminiApiKey,
-     *       model: 'gemini-2.5-flash',
+     *       model: 'gemini-flash-latest',
      *     },
      *   },
      * };
      * ```
      */
     @Input()
-    options: Partial<GridOptions> = {};
+    options: Partial<PhotonGridOptions> = {};
 
     /** Emitted once the grid is constructed, carrying its {@link GridApi}. */
     @Output() readonly gridReady = new EventEmitter<GridApi>();
@@ -201,6 +227,27 @@ export class PhotonGridComponent implements AfterViewInit, OnChanges, OnDestroy 
 
     /** An export finished. */
     @Output() readonly exportComplete = new EventEmitter<ExportEvent>();
+
+    /** A toolbar tab was selected (by the user or `api.setActiveToolbarTab`). */
+    @Output() readonly toolbarTabChanged = new EventEmitter<ToolbarTabChangedEvent>();
+
+    /** The toolbar's global search query changed (debounced). */
+    @Output() readonly toolbarSearchChanged = new EventEmitter<ToolbarSearchChangedEvent>();
+
+    /** Server-Side Row Model: a fetch is about to be issued (or served from cache). */
+    @Output() readonly serverRequest = new EventEmitter<ServerRequestEvent>();
+
+    /** Server-Side Row Model: a fetched (or cached) slice was applied to the grid. */
+    @Output() readonly serverSuccess = new EventEmitter<ServerSuccessEvent>();
+
+    /** Server-Side Row Model: a request ultimately failed (after any retries). */
+    @Output() readonly serverError = new EventEmitter<ServerErrorEvent>();
+
+    /** Server-Side Row Model: `api.refreshServerSide()` was invoked. */
+    @Output() readonly serverRefresh = new EventEmitter<ServerRefreshEvent>();
+
+    /** Server-Side Row Model: a failed request is being retried. */
+    @Output() readonly serverRetry = new EventEmitter<ServerRetryEvent>();
 
     /** The live core instance, created in {@link ngAfterViewInit}. */
     private grid?: GridCore;
@@ -267,10 +314,10 @@ export class PhotonGridComponent implements AfterViewInit, OnChanges, OnDestroy 
         this.rendererAdapter.observe(this.gridHost.nativeElement);
 
         const mergedOptions: GridOptions = {
-            ...this.options,
+            ...this.rendererAdapter.adaptOptions(this.options),
             columns: this.rendererAdapter.adaptColumns(this.columns),
             data: this.dataSet,
-        };
+        } as GridOptions;
 
         const grid = new GridCore(this.gridHost.nativeElement, mergedOptions);
         this.grid = grid;
@@ -328,6 +375,13 @@ export class PhotonGridComponent implements AfterViewInit, OnChanges, OnDestroy 
         this.subscribe(api, GridEventType.COLUMNS_STATE_CHANGED, this.columnsStateChanged);
         this.subscribe(api, GridEventType.THEME_CHANGED, this.themeChanged);
         this.subscribe(api, GridEventType.EXPORT_COMPLETE, this.exportComplete);
+        this.subscribe(api, GridEventType.TOOLBAR_TAB_CHANGED, this.toolbarTabChanged);
+        this.subscribe(api, GridEventType.TOOLBAR_SEARCH_CHANGED, this.toolbarSearchChanged);
+        this.subscribe(api, GridEventType.SERVER_REQUEST, this.serverRequest);
+        this.subscribe(api, GridEventType.SERVER_SUCCESS, this.serverSuccess);
+        this.subscribe(api, GridEventType.SERVER_ERROR, this.serverError);
+        this.subscribe(api, GridEventType.SERVER_REFRESH, this.serverRefresh);
+        this.subscribe(api, GridEventType.SERVER_RETRY, this.serverRetry);
     }
 
     /**

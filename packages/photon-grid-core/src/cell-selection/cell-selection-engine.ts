@@ -8,7 +8,39 @@ import { isCellInRanges, normalizeRange, type NormalizedRange } from './selectio
 import { ClipboardEngine } from '../engines/clipboard/clipboard-engine';
 import { UndoRedoEngine } from '../engines/undo-redo/undo-redo-engine';
 import type { CellChange } from '../engines/undo-redo/undo-redo-engine';
+import type { AutoFillEngine } from '../autofill/autofill-engine';
+import type { AutoFillValue } from '../autofill/types/autofill.types';
+import type { IconRenderer } from '../icons/icon-renderer';
+import type {
+  RowMenuConfig,
+  RowMenuConfirmOptions,
+  RowMenuConfirmRequest,
+  RowMenuController,
+  RowMenuInteractiveItem,
+  RowMenuItem,
+  RowMenuItemContext,
+  RowMenuItemId,
+  RowMenuValue,
+} from '../types/row-menu.types';
+import { buildRowMenuItems, resolvePredicate } from '../renderer/row-menu-builder';
+import { openConfirmDialog } from '../renderer/confirm-dialog';
 import { activeGridRegistry } from './active-grid-registry';
+
+/**
+ * Maps a built-in menu entry's `data-action` dispatch key to its public
+ * {@link RowMenuItemId}.
+ *
+ * The two differ because the dispatch keys predate the public item ids and are
+ * kebab-cased; the public ids follow the camelCase convention the column menu
+ * already uses, so applications configure both menus the same way.
+ */
+const BUILTIN_ID_BY_ACTION: Readonly<Record<string, RowMenuItemId>> = {
+  'cut': 'cut',
+  'copy': 'copy',
+  'copy-headers': 'copyWithHeaders',
+  'paste': 'paste',
+  'export-csv': 'exportCsv',
+};
 
 /**
  * The narrow surface the selection engine needs from the formula engine to make
@@ -43,6 +75,41 @@ export class CellSelectionEngine {
   private bodyPanels: HTMLElement[] = [];
   private contextMenuEl: HTMLElement | null = null;
   private chartOpenCallback: ((type: string) => void) | null = null;
+
+  // ── Row context menu ──────────────────────────────────────────────────────
+  /** Host-supplied row-menu configuration, or `null` for built-ins only. */
+  private rowMenuConfig: RowMenuConfig | null = null;
+  /** Icon registry used to resolve custom item icons. */
+  private rowMenuIconRenderer: IconRenderer | null = null;
+  /** Public `GridApi`, handed to custom item handlers. */
+  private rowMenuApi: unknown = null;
+  /** Container holding the built-in entries, so they can be hidden wholesale. */
+  private builtInMenuEl: HTMLElement | null = null;
+  /** Container rebuilt with the host's custom items on every open. */
+  private customMenuEl: HTMLElement | null = null;
+  /** Row/column the menu was last opened on, resolved into an item context. */
+  private ctxRowIndex = -1;
+  private ctxColIndex = -1;
+  /** The `contextmenu` event that opened the menu, exposed on the context. */
+  private ctxEvent: MouseEvent | null = null;
+
+  /**
+   * Imperative handle handed to every item handler.
+   *
+   * Created once and closed over `this`, so the object identity is stable
+   * across opens and no allocation happens per item.
+   */
+  private readonly rowMenuController: RowMenuController = {
+    close: () => this.hideContextMenu(),
+    refresh: () => this.syncRowMenuSections(),
+    setLoading: (loading: boolean) => {
+      const el = this.activeRowMenuItemEl;
+      if (el) this.setRowMenuItemLoading(el, loading);
+    },
+  };
+
+  /** Element of the item currently being activated, for `menu.setLoading`. */
+  private activeRowMenuItemEl: HTMLElement | null = null;
   /**
    * Optional callback invoked when the user presses Enter on a focused (non-editing) cell.
    * Return `true` to absorb the event (editing started); `false` to fall through to
@@ -77,6 +144,14 @@ export class CellSelectionEngine {
    * dependents; when `null` the engine behaves as a pure value grid.
    */
   private formulaBridge: FormulaBridge | null = null;
+
+  /**
+   * Optional AutoFill engine (see {@link AutoFillEngine}). When set and enabled,
+   * a fill-handle drag continues the detected pattern (numeric/date/month/weekday/
+   * text-number/alphabet/boolean series) instead of merely copying source values.
+   * When `null` or disabled, fill falls back to the legacy copy/cycle behavior.
+   */
+  private autoFillEngine: AutoFillEngine | null = null;
 
   /**
    * Internal formula clipboard captured on copy: the values grid and a parallel
@@ -239,6 +314,52 @@ export class CellSelectionEngine {
   /** The active formula bridge when the engine is enabled, else `null`. */
   private activeFormulaBridge(): FormulaBridge | null {
     return this.formulaBridge && this.formulaBridge.isEnabled() ? this.formulaBridge : null;
+  }
+
+  /**
+   * Registers the AutoFill engine so fill-handle drags generate intelligent
+   * series. Passing `null` (or never calling this) keeps the legacy copy/cycle
+   * fill behavior.
+   *
+   * @param engine - The AutoFill engine, or `null` to disable.
+   */
+  setAutoFillEngine(engine: AutoFillEngine | null): void {
+    this.autoFillEngine = engine;
+  }
+
+  /** The active AutoFill engine when present and enabled, else `null`. */
+  private activeAutoFillEngine(): AutoFillEngine | null {
+    return this.autoFillEngine && this.autoFillEngine.isEnabled() ? this.autoFillEngine : null;
+  }
+
+  /**
+   * Programmatically fills from a source range in a direction, extending it to a
+   * target row/column index, using the same intelligent AutoFill pipeline as the
+   * interactive fill handle. Powers {@link GridApi.fill}.
+   *
+   * @param source    - The source range whose pattern is continued.
+   * @param direction - Fill direction.
+   * @param target    - Inclusive last row index (`down`/`up`) or column index
+   *                    (`left`/`right`) to fill up to.
+   */
+  fillRange(
+    source: CellRange,
+    direction: 'down' | 'up' | 'left' | 'right',
+    target: number,
+  ): void {
+    const vertical = direction === 'down' || direction === 'up';
+    this.fillSourceRange = normalizeRange(source);
+    this.fillDirection = direction;
+    this.fillTargetRow = vertical ? target : null;
+    this.fillTargetCol = vertical ? null : target;
+    try {
+      this.applyFill();
+    } finally {
+      this.fillSourceRange = null;
+      this.fillDirection = null;
+      this.fillTargetRow = null;
+      this.fillTargetCol = null;
+    }
   }
 
   /**
@@ -408,6 +529,15 @@ export class CellSelectionEngine {
     // Pre-normalise all ranges once so the inner cell loop is cheap.
     const norms = hasRanges ? ranges.map(normalizeRange) : [];
 
+    // A "single-cell selection" is one 1×1 range (a plain focus click). It is
+    // rendered as a lone focus cell — border only, no selection fill — rather
+    // than as a filled range, so the marker class below lets CSS distinguish it
+    // without re-deriving the range size per cell.
+    const isSingleCellSelection =
+      norms.length === 1 &&
+      norms[0].startRowIndex === norms[0].endRowIndex &&
+      norms[0].startColIndex === norms[0].endColIndex;
+
     for (const panel of this.bodyPanels) {
       for (const el of panel.querySelectorAll<HTMLElement>('.pg-cell[data-row-index][data-col-index]')) {
         const ri = Number(el.getAttribute('data-row-index'));
@@ -418,6 +548,7 @@ export class CellSelectionEngine {
 
         el.classList.toggle('pg-cell--in-selection', inRange);
         el.classList.toggle('pg-cell--active-cell', isActive);
+        el.classList.toggle('pg-cell--single-cell-selection', isSingleCellSelection && isActive);
 
         if (inRange) {
           // Union edges from every range that contains this cell so each
@@ -701,16 +832,130 @@ export class CellSelectionEngine {
   }
 
   /**
-   * Copies source cell values into the fill target area.
+   * Collects the ordered source values of a single column vector for intelligent
+   * fill, or `null` if the vector is not eligible (a non-data row or a
+   * formula-bearing cell within the source), in which case the caller keeps the
+   * legacy per-cell path so formulas still transpose correctly.
    *
-   * Cycling semantics:
-   * - Vertical fill: each column in the fill area copies from the same
-   *   column in the source range, cycling rows (`srcH` modulo).
-   * - Horizontal fill: each row copies from the same row in the source
-   *   range, cycling columns (`srcW` modulo).
+   * @param visRows  - The visible row nodes.
+   * @param startRow - First source row index (inclusive).
+   * @param endRow   - Last source row index (inclusive).
+   * @param col      - The column being gathered.
+   * @param bridge   - Active formula bridge, or `null`.
+   */
+  private collectColumnSource(
+    visRows: RowNode[],
+    startRow: number,
+    endRow: number,
+    col: ColumnDef,
+    bridge: FormulaBridge | null,
+  ): AutoFillValue[] | null {
+    const values: AutoFillValue[] = [];
+    for (let r = startRow; r <= endRow; r++) {
+      const row = visRows[r];
+      if (!row || row.type !== 'data') return null;
+      if (bridge && col.allowFormula && bridge.getFormula(row.nodeId, col.colId) !== null) return null;
+      values.push(row.data[col.field] as AutoFillValue);
+    }
+    return values;
+  }
+
+  /**
+   * Collects the ordered source values of a single row vector for intelligent
+   * fill, or `null` if any cell holds a formula (keeping the legacy per-cell
+   * path).
    *
-   * The operation is recorded in the undo/redo engine and triggers an
-   * immediate renderer refresh via `dataChangedCallback`.
+   * @param row      - The row node being gathered.
+   * @param columns  - The visible columns.
+   * @param startCol - First source column index (inclusive).
+   * @param endCol   - Last source column index (inclusive).
+   * @param bridge   - Active formula bridge, or `null`.
+   */
+  private collectRowSource(
+    row: RowNode,
+    columns: ColumnDef[],
+    startCol: number,
+    endCol: number,
+    bridge: FormulaBridge | null,
+  ): AutoFillValue[] | null {
+    const values: AutoFillValue[] = [];
+    for (let c = startCol; c <= endCol; c++) {
+      const col = columns[c];
+      if (!col) return null;
+      if (bridge && col.allowFormula && bridge.getFormula(row.nodeId, col.colId) !== null) return null;
+      values.push(row.data[col.field] as AutoFillValue);
+    }
+    return values;
+  }
+
+  /**
+   * Builds the generated value array for every eligible fill vector by asking the
+   * {@link AutoFillEngine} to continue each vector's detected pattern.
+   *
+   * A "vector" is one column (vertical fill) or one row (horizontal fill). Each
+   * generated array is ordered to match the grid's natural iteration over the
+   * fill target, so the fill loop indexes it directly by cell offset. Vectors
+   * containing formulas are omitted (they fall back to per-cell transposition).
+   *
+   * @param engine  - The active AutoFill engine.
+   * @param visRows - The visible row nodes.
+   * @param columns - The visible columns.
+   * @param src     - The normalized source range.
+   * @param geom    - Fill geometry (target bounds, orientation, direction) and
+   *                  the active formula bridge.
+   * @returns A map keyed by column index (vertical) or row index (horizontal).
+   */
+  private buildFillSeries(
+    engine: AutoFillEngine,
+    visRows: RowNode[],
+    columns: ColumnDef[],
+    src: NormalizedRange,
+    geom: {
+      fillStartRow: number; fillEndRow: number;
+      fillStartCol: number; fillEndCol: number;
+      vertical: boolean; reverse: boolean;
+      bridge: FormulaBridge | null;
+    },
+  ): Map<number, AutoFillValue[]> {
+    const { fillStartRow, fillEndRow, fillStartCol, fillEndCol, vertical, reverse, bridge } = geom;
+    const series = new Map<number, AutoFillValue[]>();
+
+    if (vertical) {
+      const count = fillEndRow - fillStartRow + 1;
+      for (let c = fillStartCol; c <= fillEndCol; c++) {
+        const col = columns[c];
+        if (!col) continue;
+        const values = this.collectColumnSource(visRows, src.startRowIndex, src.endRowIndex, col, bridge);
+        if (values) {
+          series.set(c, engine.generateSeries(values, count, { columnType: col.type ?? 'string', reverse }));
+        }
+      }
+    } else {
+      const count = fillEndCol - fillStartCol + 1;
+      for (let r = fillStartRow; r <= fillEndRow; r++) {
+        const row = visRows[r];
+        if (!row || row.type !== 'data') continue;
+        const values = this.collectRowSource(row, columns, src.startColIndex, src.endColIndex, bridge);
+        if (values) {
+          series.set(r, engine.generateSeries(values, count, { reverse }));
+        }
+      }
+    }
+    return series;
+  }
+
+  /**
+   * Writes the fill target area, continuing the source pattern.
+   *
+   * For each fill vector (a column for a vertical fill, a row for a horizontal
+   * one) the {@link AutoFillEngine} detects the source pattern and generates the
+   * continuation — numeric/date/name series, `Item001 → Item002`, alphabet,
+   * booleans, or a cyclic copy fallback. Formula source cells are instead
+   * transposed via the {@link FormulaBridge}. When the engine is absent or
+   * disabled, every cell uses the legacy modulo copy/cycle.
+   *
+   * The operation is recorded in the undo/redo engine and triggers an immediate
+   * renderer refresh via `dataChangedCallback`.
    */
   private applyFill(): void {
     if (!this.fillSourceRange || !this.fillDirection) return;
@@ -753,6 +998,21 @@ export class CellSelectionEngine {
     const bridge = this.activeFormulaBridge();
     const affectedNodeIds = new Set<string>();
 
+    // Pre-compute an intelligent fill series per vector — one per column for a
+    // vertical fill, one per row for a horizontal fill. Only formula-free vectors
+    // are smart-filled; a vector containing any formula keeps the per-cell
+    // transpose path below. When the engine is absent or disabled the map is
+    // `null` and every cell uses the legacy copy/cycle mapping.
+    const dir = this.fillDirection;
+    const vertical = dir === 'down' || dir === 'up';
+    const reverse = dir === 'up' || dir === 'left';
+    const engine = this.activeAutoFillEngine();
+    const vectorSeries = engine
+      ? this.buildFillSeries(engine, visRows, columns, src, {
+          fillStartRow, fillEndRow, fillStartCol, fillEndCol, vertical, reverse, bridge,
+        })
+      : null;
+
     for (let r = fillStartRow; r <= fillEndRow; r++) {
       const row = visRows[r];
       if (!row || row.type !== 'data') continue;
@@ -763,7 +1023,6 @@ export class CellSelectionEngine {
 
         // Map the fill cell back to its corresponding source cell.
         let srcR: number, srcC: number;
-        const dir = this.fillDirection!;
         if (dir === 'down') {
           srcR = src.startRowIndex + ((r - fillStartRow) % srcH);
           srcC = c;
@@ -808,15 +1067,23 @@ export class CellSelectionEngine {
         }
 
         // ── Literal fill ─────────────────────────────────────────────────────
-        const rawValue = srcRow.data[srcCol.field];
-        const srcType  = srcCol.type ?? 'string';
-        const dstType  = col.type   ?? 'string';
-        // Coerce to the destination column's data type when source and
-        // destination types differ.  Same-type copies skip coercion so that
-        // exact values are preserved (avoids spurious Date re-creation).
-        const newValue = srcType !== dstType
-          ? this.coerceToColumnType(rawValue, dstType)
-          : rawValue;
+        const dstType = col.type ?? 'string';
+        const smart = vectorSeries?.get(vertical ? c : r);
+        let newValue: unknown;
+        if (smart) {
+          // Intelligent series: index by this cell's offset within its vector.
+          const pos = vertical ? r - fillStartRow : c - fillStartCol;
+          newValue = this.coerceToColumnType(smart[pos], dstType);
+        } else {
+          // Legacy copy/cycle. Coerce only when source and destination types
+          // differ; same-type copies preserve exact values (avoids spurious
+          // Date re-creation).
+          const rawValue = srcRow.data[srcCol.field];
+          const srcType  = srcCol.type ?? 'string';
+          newValue = srcType !== dstType
+            ? this.coerceToColumnType(rawValue, dstType)
+            : rawValue;
+        }
         const oldValue = row.data[col.field];
         // A literal filled over a formula cell must drop that formula.
         const oldFormula = bridge && col.allowFormula ? bridge.getFormula(row.nodeId, col.colId) : null;
@@ -949,6 +1216,28 @@ export class CellSelectionEngine {
     this.chartOpenCallback = fn;
   }
 
+  /**
+   * Supplies the row context-menu configuration and the collaborators its
+   * custom items need.
+   *
+   * Called by `GridCore` after construction. Safe to call again at runtime — the
+   * custom section is rebuilt on every open, so a new configuration takes effect
+   * on the next right-click without rebuilding the menu.
+   *
+   * @param config       - `GridOptions.rowMenu`, or `undefined` for defaults.
+   * @param iconRenderer - Resolves item icon names through the icon registry.
+   * @param api          - The public `GridApi`, handed to item handlers.
+   */
+  setRowMenuConfig(
+    config: RowMenuConfig | undefined,
+    iconRenderer: IconRenderer,
+    api: unknown,
+  ): void {
+    this.rowMenuConfig = config ?? null;
+    this.rowMenuIconRenderer = iconRenderer;
+    this.rowMenuApi = api;
+  }
+
   // ─── Clipboard ───────────────────────────────────────────────────────────
 
   async copySelection(rows: RowNode[], columns: ColumnDef[]): Promise<void> {
@@ -1040,7 +1329,11 @@ export class CellSelectionEngine {
     let minRow = Infinity;
     let maxRow = -Infinity;
     for (let i = 0; i < visible.length; i++) {
-      if (ids.has(visible[i].nodeId)) {
+      // A demand-loading row model publishes a sparse array, so an index
+      // outside the loaded window holds nothing. Skipping keeps the operation
+      // meaningful over the rows that *are* loaded; the guard is a no-op for
+      // the dense arrays every other row model produces.
+      if (ids.has(visible[i]?.nodeId)) {
         if (i < minRow) minRow = i;
         if (i > maxRow) maxRow = i;
       }
@@ -1471,8 +1764,28 @@ export class CellSelectionEngine {
 
   // ─── Context menu ─────────────────────────────────────────────────────────
 
-  showContextMenu(x: number, y: number): void {
+  /**
+   * Opens the row context menu at the pointer.
+   *
+   * The custom section is rebuilt on every open rather than once at
+   * construction: items may be produced by `getCustomItems`, and their
+   * `disabled` / `hidden` predicates are evaluated against the row that was
+   * actually right-clicked, so a cached DOM would show another row's state.
+   *
+   * @param x        - Viewport X of the pointer.
+   * @param y        - Viewport Y of the pointer.
+   * @param rowIndex - Display index of the right-clicked row, if known.
+   * @param colIndex - Global column index of the right-clicked cell, if known.
+   */
+  showContextMenu(x: number, y: number, rowIndex = -1, colIndex = -1, event: MouseEvent | null = null): void {
     if (!this.contextMenuEl) return;
+    if (this.rowMenuConfig?.enabled === false) return;
+
+    this.ctxRowIndex = rowIndex;
+    this.ctxColIndex = colIndex;
+    this.ctxEvent = event;
+    this.syncRowMenuSections();
+
     // Clamp to viewport
     const vw = window.innerWidth, vh = window.innerHeight;
     const mw = 200, mh = 300;
@@ -1486,8 +1799,246 @@ export class CellSelectionEngine {
     });
   }
 
+  /**
+   * Applies the row-menu configuration to the open menu: built-in visibility
+   * and suppression, then a fresh render of the custom items.
+   */
+  private syncRowMenuSections(): void {
+    const cfg = this.rowMenuConfig;
+    const builtIns = this.builtInMenuEl;
+    const custom = this.customMenuEl;
+
+    if (builtIns) {
+      const show = cfg?.showBuiltInItems !== false;
+      builtIns.style.display = show ? '' : 'none';
+      if (show) this.applyBuiltInSuppression(builtIns, cfg?.suppressItems);
+    }
+
+    if (!custom) return;
+    while (custom.firstChild) custom.removeChild(custom.firstChild);
+
+    const iconRenderer = this.rowMenuIconRenderer;
+    if (!cfg || !iconRenderer) return;
+
+    const ctx = this.buildRowMenuContext();
+    // `items` is the canonical list; `customItems` is its pre-rename alias and
+    // is concatenated so both spellings work in one configuration.
+    const items: RowMenuItem[] = [
+      ...(cfg.items ?? []),
+      ...(cfg.customItems ?? []),
+      ...(cfg.getItems?.(ctx) ?? []),
+      ...(cfg.getCustomItems?.(ctx) ?? []),
+    ];
+    if (items.length === 0) return;
+
+    const elements = buildRowMenuItems(items, ctx, iconRenderer, (item, itemCtx, el) => {
+      this.activeRowMenuItemEl = el;
+      void this.activateRowMenuItem(item, itemCtx, el);
+    });
+    if (elements.length === 0) return;
+
+    // A rule between the two blocks, but only when both are populated.
+    const builtInsVisible = !!builtIns && builtIns.style.display !== 'none';
+    if (builtInsVisible) {
+      const sep = document.createElement('div');
+      sep.className = 'pg-context-menu__sep';
+      sep.setAttribute('role', 'separator');
+      custom.appendChild(sep);
+    }
+    for (const el of elements) custom.appendChild(el);
+
+    // `position` decides whether custom actions lead or follow the built-ins.
+    // Re-ordering the two containers is enough — neither is rebuilt.
+    const menu = this.contextMenuEl;
+    if (menu && builtIns) {
+      const customFirst = cfg.position === 'top';
+      const first = customFirst ? custom : builtIns;
+      const second = customFirst ? builtIns : custom;
+      if (menu.firstElementChild !== first) menu.insertBefore(first, second);
+    }
+  }
+
+  /** Hides the built-in entries listed in `suppressItems`, showing the rest. */
+  private applyBuiltInSuppression(
+    builtIns: HTMLElement,
+    suppress: ReadonlyArray<RowMenuItemId> | undefined,
+  ): void {
+    const hidden = new Set<string>(suppress ?? []);
+    for (const el of builtIns.querySelectorAll<HTMLElement>('[data-item-id]')) {
+      const id = el.getAttribute('data-item-id') ?? '';
+      el.style.display = hidden.has(id) ? 'none' : '';
+    }
+  }
+
+  /**
+   * Resolves the row, column and selection the menu was opened on.
+   *
+   * Everything is optional by design: right-clicking the empty area below the
+   * rows still opens the menu, and an item that only acts on a selection can
+   * check `selectedRows` rather than `row`.
+   */
+  private buildRowMenuContext(): RowMenuItemContext {
+    const rows = this.store.get('visibleRows') as RowNode[];
+    const columns = this.getVisibleColumns();
+    const row = this.ctxRowIndex >= 0 ? rows[this.ctxRowIndex] ?? null : null;
+    const colDef = this.ctxColIndex >= 0 ? columns[this.ctxColIndex] ?? null : null;
+
+    const selectedIds = this.store.get('selectedRowIds') as Set<string>;
+    const selectedRows = selectedIds.size > 0
+      ? rows.filter((r) => selectedIds.has(r.nodeId))
+      : [];
+
+    return {
+      api: this.rowMenuApi,
+      row,
+      rowIndex: this.ctxRowIndex,
+      data: row?.data ?? null,
+      colDef,
+      colId: colDef?.colId ?? null,
+      value: row && colDef ? row.data[colDef.field] : undefined,
+      selectedRows,
+      selectedRanges: this.store.get('cellRanges') as CellRange[],
+      event: this.ctxEvent,
+      close: this.rowMenuController.close,
+      menu: this.rowMenuController,
+    };
+  }
+
+  /**
+   * Runs one item activation end to end: confirm, act, report.
+   *
+   * The order matters and is the whole reason this is not inline with the
+   * click listener:
+   * 1. **Confirm** — the action must not start, and the menu must not close,
+   *    while the user is still deciding.
+   * 2. **Close** — unless the item is a toggle or opts into `keepOpen`, in
+   *    which case the menu stays up so several options can be set in one visit.
+   * 3. **Act** — a promise-returning action marks the item busy and holds the
+   *    menu open until it settles, so the work is visible rather than silent.
+   * 4. **Report** — `ROW_MENU_ITEM_CLICKED` on success, `ROW_MENU_ITEM_ERROR`
+   *    on rejection, so a rejected action is never mistaken for a completed one.
+   *
+   * @param item    - The activated item.
+   * @param ctx     - Context it was resolved against.
+   * @param el      - Its element, used to show the busy state.
+   */
+  private async activateRowMenuItem(
+    item: RowMenuInteractiveItem,
+    ctx: RowMenuItemContext,
+    el: HTMLElement,
+  ): Promise<void> {
+    if (item.confirm && !(await this.confirmRowMenuItem(item.confirm, ctx))) return;
+
+    // Toggles default to keeping the menu open — setting several options in one
+    // visit is the normal interaction for a checkbox or radio group.
+    const keepOpen = item.keepOpen ?? (item.type === 'checkbox' || item.type === 'radio');
+    const result = item.action?.(ctx);
+    const isAsync = result instanceof Promise;
+
+    if (!keepOpen && !isAsync) this.hideContextMenu();
+
+    const label = typeof item.label === 'function' ? item.label(ctx) : item.label;
+
+    if (!isAsync) {
+      this.emitRowMenuItemClicked(item.id ?? '', label ?? '', true, item);
+      return;
+    }
+
+    this.setRowMenuItemLoading(el, true);
+    try {
+      await result;
+      this.emitRowMenuItemClicked(item.id ?? '', label ?? '', true, item);
+      if (!keepOpen) this.hideContextMenu();
+    } catch (error) {
+      // The menu deliberately stays open on failure: closing it would hide the
+      // only affordance the user has to retry.
+      this.eventBus.emit(GridEventType.ROW_MENU_ITEM_ERROR, {
+        itemId: item.id ?? '',
+        label: label ?? '',
+        error,
+        row: ctx.row,
+        rowIndex: ctx.rowIndex,
+      });
+    } finally {
+      this.setRowMenuItemLoading(el, false);
+    }
+  }
+
+  /**
+   * Resolves an item's confirmation, through the host's handler when one is
+   * configured and the grid's own dialog otherwise.
+   */
+  private async confirmRowMenuItem(
+    options: RowMenuConfirmOptions,
+    ctx: RowMenuItemContext,
+  ): Promise<boolean> {
+    const resolve = <T>(v: RowMenuValue<T> | undefined, fallback: T): T =>
+      (v === undefined ? fallback : (typeof v === 'function' ? (v as (c: RowMenuItemContext) => T)(ctx) : v));
+
+    const request: RowMenuConfirmRequest = {
+      title: resolve(options.title, 'Are you sure?'),
+      message: resolve(options.message, ''),
+      confirmLabel: resolve(options.confirmLabel, 'Confirm'),
+      cancelLabel: resolve(options.cancelLabel, 'Cancel'),
+      danger: options.danger === true,
+      ctx,
+    };
+
+    const handler = this.rowMenuConfig?.confirmHandler;
+    return handler ? handler(request) : openConfirmDialog(request);
+  }
+
+  /** Toggles the busy indicator on an item element. */
+  private setRowMenuItemLoading(el: HTMLElement, loading: boolean): void {
+    el.classList.toggle('pg-context-menu__item--loading', loading);
+    if (loading) el.setAttribute('aria-busy', 'true');
+    else el.removeAttribute('aria-busy');
+  }
+
+  /** Publishes a menu activation on the event bus. */
+  private emitRowMenuItemClicked(
+    itemId: string,
+    label: string,
+    custom: boolean,
+    item?: RowMenuInteractiveItem,
+  ): void {
+    const ctx = this.buildRowMenuContext();
+    const checked = item && (item.type === 'checkbox' || item.type === 'radio')
+      ? resolvePredicate(item.checked, ctx)
+      : undefined;
+
+    this.eventBus.emit(GridEventType.ROW_MENU_ITEM_CLICKED, {
+      itemId,
+      label,
+      custom,
+      row: ctx.row,
+      rowIndex: ctx.rowIndex,
+      colDef: ctx.colDef,
+      itemType: item?.type ?? 'action',
+      checked,
+      value: item && item.type === 'radio' ? item.value : undefined,
+    });
+  }
+
+  /**
+   * Closes the row context menu.
+   *
+   * Emits `ROW_MENU_CLOSED` only on a real transition from open to closed —
+   * the method is also called defensively from teardown and from the
+   * click-outside handler, and an application restoring focus or logging
+   * dismissals must not see those as extra closes.
+   */
   hideContextMenu(): void {
-    this.contextMenuEl?.classList.remove('pg-context-menu--visible');
+    const el = this.contextMenuEl;
+    if (!el || !el.classList.contains('pg-context-menu--visible')) return;
+
+    el.classList.remove('pg-context-menu--visible');
+    const ctx = this.buildRowMenuContext();
+    this.eventBus.emit(GridEventType.ROW_MENU_CLOSED, {
+      row: ctx.row,
+      rowIndex: ctx.rowIndex,
+      colDef: ctx.colDef,
+    });
   }
 
   /**
@@ -1836,11 +2387,27 @@ export class CellSelectionEngine {
     el.className = 'pg-context-menu';
     el.setAttribute('role', 'menu');
 
+    // The built-in entries live in their own container so the whole block can be
+    // hidden (`showBuiltInItems: false`) and individual entries suppressed
+    // without disturbing the host's custom items, which are rebuilt separately
+    // on every open.
+    const builtIns = document.createElement('div');
+    builtIns.className = 'pg-context-menu__group pg-context-menu__group--builtin';
+    this.builtInMenuEl = builtIns;
+
+    const custom = document.createElement('div');
+    custom.className = 'pg-context-menu__group pg-context-menu__group--custom';
+    this.customMenuEl = custom;
+
     const makeItem = (action: string, icon: string, label: string, kbd?: string): HTMLElement => {
       const btn = document.createElement('button');
       btn.className = 'pg-context-menu__item';
       btn.setAttribute('role', 'menuitem');
       btn.setAttribute('data-action', action);
+      // Suppression and the click event address items by a stable id; the
+      // `data-action` above stays the dispatch key for the built-in handler.
+      btn.setAttribute('data-item-id', BUILTIN_ID_BY_ACTION[action] ?? action);
+      btn.setAttribute('data-item-label', label);
       const iconSpan = document.createElement('span');
       iconSpan.className = 'pg-context-menu__icon';
       iconSpan.innerHTML = icon;
@@ -1893,16 +2460,17 @@ export class CellSelectionEngine {
     };
 
     // Cut / Copy / Copy with Headers / Paste
-    el.appendChild(makeItem('cut', ICON_CUT, 'Cut', 'Ctrl+X'));
-    el.appendChild(makeItem('copy', ICON_COPY, 'Copy', 'Ctrl+C'));
-    el.appendChild(makeItem('copy-headers', ICON_COPY, 'Copy with Headers'));
-    el.appendChild(makeItem('paste', ICON_PASTE, 'Paste', 'Ctrl+V'));
-    el.appendChild(makeSep());
+    builtIns.appendChild(makeItem('cut', ICON_CUT, 'Cut', 'Ctrl+X'));
+    builtIns.appendChild(makeItem('copy', ICON_COPY, 'Copy', 'Ctrl+C'));
+    builtIns.appendChild(makeItem('copy-headers', ICON_COPY, 'Copy with Headers'));
+    builtIns.appendChild(makeItem('paste', ICON_PASTE, 'Paste', 'Ctrl+V'));
+    builtIns.appendChild(makeSep());
 
     // Chart Range with nested submenu
     const chartItem = document.createElement('div');
     chartItem.className = 'pg-context-menu__item pg-context-menu__item--has-sub';
     chartItem.setAttribute('role', 'menuitem');
+    chartItem.setAttribute('data-item-id', 'chartRange');
     const chartIcon = document.createElement('span');
     chartIcon.className = 'pg-context-menu__icon';
     chartIcon.innerHTML = ICON_CHART;
@@ -1939,14 +2507,15 @@ export class CellSelectionEngine {
     chartSub.appendChild(makeChartSubItem('funnel', 'Funnel'));
 
     chartItem.appendChild(chartSub);
-    el.appendChild(chartItem);
+    builtIns.appendChild(chartItem);
 
-    el.appendChild(makeSep());
+    builtIns.appendChild(makeSep());
 
     // Export sub-group
     const exportItem = document.createElement('div');
     exportItem.className = 'pg-context-menu__item pg-context-menu__item--has-sub';
     exportItem.setAttribute('role', 'menuitem');
+    exportItem.setAttribute('data-item-id', 'export');
     const exportIcon = document.createElement('span');
     exportIcon.className = 'pg-context-menu__icon';
     exportIcon.innerHTML = ICON_EXPORT;
@@ -1961,13 +2530,18 @@ export class CellSelectionEngine {
     csvBtn.className = 'pg-context-menu__item';
     csvBtn.setAttribute('role', 'menuitem');
     csvBtn.setAttribute('data-action', 'export-csv');
+    csvBtn.setAttribute('data-item-id', 'exportCsv');
+    csvBtn.setAttribute('data-item-label', 'Export as CSV');
     const csvLabel = document.createElement('span');
     csvLabel.className = 'pg-context-menu__label';
     csvLabel.textContent = 'Export as CSV';
     csvBtn.appendChild(csvLabel);
     exportSub.appendChild(csvBtn);
     exportItem.appendChild(exportSub);
-    el.appendChild(exportItem);
+    builtIns.appendChild(exportItem);
+
+    el.appendChild(builtIns);
+    el.appendChild(custom);
 
     el.addEventListener('pointerdown', (e) => e.stopPropagation());
     // Reposition nested submenus on hover so they never render off-screen.
@@ -1993,6 +2567,14 @@ export class CellSelectionEngine {
         this.chartOpenCallback?.(chartType);
         return;
       }
+
+      // Built-ins report through the same event as custom items, so an
+      // application can observe every menu activation from one subscription.
+      this.emitRowMenuItemClicked(
+        btn.getAttribute('data-item-id') ?? action ?? '',
+        btn.getAttribute('data-item-label') ?? '',
+        false,
+      );
 
       switch (action) {
         case 'cut':           this.cutSelection(rows, columns); break;

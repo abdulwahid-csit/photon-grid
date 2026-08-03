@@ -21,6 +21,7 @@ import { makeCellId } from '../types/formula.types';
 import type { CellRef, RangeRef, Reference } from './reference.types';
 import { isRangeRef, } from './reference.types';
 import { parseCellRef } from './cell-reference';
+import { columnLabelToIndex } from './cell-reference';
 import { FormulaError, isFormulaError } from '../error/formula-error';
 import type { RangeDependency } from '../graph/dependency-graph';
 
@@ -114,6 +115,40 @@ export class ReferenceResolver {
     if (!start || !end) return null;
     return { start, end, wholeColumn: false, wholeRow: false };
   }
+
+  /**
+   * Resolves a **row-relative** bare name to a concrete column identity — by data
+   * `field` first (`quantity`), then by spreadsheet column letter (`B`, `AA`) when
+   * it is in bounds. Returns `null` when it matches neither (the caller yields
+   * `#NAME?`). Field lookup wins so a real field never gets misread as a letter.
+   *
+   * @param name - The bare identifier as written.
+   * @returns The resolved `colId`, or `null`.
+   */
+  resolveColumnId(name: string): string | null {
+    const byField = this.adapter.getColIdForField(name);
+    if (byField !== null) return byField;
+    const letterIndex = columnLabelToIndex(name);
+    if (letterIndex >= 0 && letterIndex < this.adapter.getColumnCount()) {
+      return this.adapter.getColIdAt(letterIndex);
+    }
+    return null;
+  }
+
+  /**
+   * Resolves a row-relative bare reference to the value in `rowIndex`. `#NAME?`
+   * when the name matches no column; `#REF!` when the row is out of bounds.
+   *
+   * @param name     - The bare identifier as written.
+   * @param rowIndex - The data-model row to read from.
+   */
+  resolveRowRelative = (name: string, rowIndex: number): FormulaValue => {
+    const colId = this.resolveColumnId(name);
+    if (colId === null) return FormulaError.nameError(`unknown name '${name}'`);
+    const nodeId = this.adapter.getNodeIdAt(rowIndex);
+    if (nodeId === null) return FormulaError.ref();
+    return coerceGridValue(this.adapter.readCell(nodeId, colId));
+  };
 
   /**
    * Converts a formula's references into dependency-graph inputs: discrete

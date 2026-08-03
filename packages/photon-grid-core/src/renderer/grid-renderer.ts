@@ -21,23 +21,41 @@ import { HeaderRenderer } from './header-renderer';
 import { isTouchPointer } from '../core/pointer-utils';
 import { ColumnChooser } from './column-chooser';
 import { BodyRenderer } from './body-renderer';
+import type { BodyRendererOptions } from './body-renderer';
+import { PatchScheduler } from './vdom/patch-scheduler';
+import type { VDomStats } from './vdom/vdom.types';
 import { RowDragRenderer } from './row-drag-renderer';
 import { FooterRenderer } from './footer-renderer';
 import { OverlayRenderer } from './overlay-renderer';
 import { ColumnStyleManager } from './column-style-manager';
+import { ColumnAnimator, computeColumnPositions, type ColumnPosition } from './column-animator';
+import {
+  ColumnChangeKind,
+  EMPTY_COLUMN_LAYOUT,
+  captureColumnLayout,
+  diffColumnLayout,
+  type ColumnLayoutSnapshot,
+} from './column-layout-diff';
 import { RowPositionSheet } from './row-position-sheet';
 import { ScrollController } from './scroll-controller';
+import { MAX_ELEMENT_HEIGHT_PX } from './scroll-track';
 import { AutoScroller } from './auto-scroller';
 import { CellSelectionEngine } from '../cell-selection/cell-selection-engine';
 import { RowAnimator } from './row-animator';
 import { FilterPanel } from '../engines/filter/filter-panel';
 import type { FilterSetOption } from '../engines/filter/filter-panel';
 import { FiltersToolPanel } from './filters-tool-panel';
+import { ImportMenu } from './import-menu';
+import { Toolbar } from './toolbar';
+import { ThemeManagerPanel } from './theme-manager-panel';
+import type { PhotonThemeApi } from '../types/theme-ai.types';
+import { ImportSourceType } from '../types/import.types';
 import { createDiv } from './dom-utils';
 import type { MasterDetailEngine } from '../engines/master-detail/master-detail-engine';
 import type { TreeExpansionService } from '../engines/tree/tree-expansion-service';
 import type { ThemeManager } from '../theme/theme-manager';
 import { DetailRowRenderer, type NestedGridFactory } from './detail-row-renderer';
+import type { DetailComponent } from '../types/detail-component.types';
 import { StickyRowTracker } from './sticky-row-tracker';
 import { TreeStickyRowTracker, type TreeStickyEntry } from './tree-sticky-row-tracker';
 import { PhotonAIPanel } from '../photon-ai/photon-ai-panel';
@@ -80,11 +98,31 @@ export class GridRenderer {
   private readonly treeDataEnabledAtConstruction: boolean;
   /** `nodeId` of the currently-stuck master row, or `null` when none is sticky. */
   private stickyNodeId: string | null = null;
+  /**
+   * Last value written to the `--pg-sticky-block-height` CSS variable, so the
+   * per-frame write is skipped while the sticky band's height is unchanged
+   * (the common case on most scroll frames).
+   */
+  private _lastStickyBlockHeight = -1;
   private readonly stickyRowTracker = new StickyRowTracker();
   private readonly treeStickyRowTracker = new TreeStickyRowTracker();
 
   /** Exposed for {@link DisplayGroupEngine} construction in `GridCore`. */
   readonly colStyles: ColumnStyleManager;
+
+  /**
+   * FLIP animator for structural column changes (hide/show/reorder). Owned
+   * here rather than by `HeaderRenderer` because the animation spans the header
+   * *and* every body cell, and this class is the only one that sees both sides
+   * of a rebuild.
+   */
+  private readonly columnAnimator = new ColumnAnimator();
+
+  /** Column offsets as of the last committed render — the "before" frame every column FLIP inverts against. */
+  private lastColumnPositions: ColumnPosition[] = [];
+
+  /** Layout of the last `columns` store value, used to classify the next change. Seeded empty so the first render never animates. */
+  private lastColumnLayout: ColumnLayoutSnapshot = EMPTY_COLUMN_LAYOUT;
   private rowPositionSheet: RowPositionSheet;
   private scrollController: ScrollController;
   private headerRenderer: HeaderRenderer;
@@ -104,6 +142,34 @@ export class GridRenderer {
   private photonAIPanel: PhotonAIPanel | null = null;
   /** Floating Filters Tool Panel — only created when `filtersToolPanel.enabled`. */
   private filtersToolPanel: FiltersToolPanel | null = null;
+  /** Floating Import menu (launcher + dropdown) — only created when `import.enabled`. */
+  private importMenu: ImportMenu | null = null;
+  /** Configurable top toolbar (tabs + global search) — only created when `toolbar.enabled`. */
+  private toolbar: Toolbar | null = null;
+  /** Top-right Theme Manager launcher — only created when `themeManager` is enabled. */
+  private themeManagerPanel: ThemeManagerPanel | null = null;
+  /** Lazily resolves the theme API for the Theme Manager (engine exists after this renderer). */
+  private themeApiProvider: (() => PhotonThemeApi) | null = null;
+  private themeToastProvider: (() => import('../toast/toast-service').ToastService) | null = null;
+  /** Whether the Theme Manager launcher should be mounted. */
+  private themeManagerEnabled = false;
+  /**
+   * Shared tools strip (`.pg-grid__tools`) — a dedicated toolbar row above the
+   * header hosting every top-right launcher (Filters funnel, Import, …) so they
+   * sit side-by-side instead of stacking. Created lazily on first use via
+   * {@link getOrCreateToolsBar}; null when no launcher-based feature is enabled.
+   */
+  private toolsBarEl: HTMLElement | null = null;
+  /** Left region of the tools strip (toolbar tabs + left-docked search). */
+  private toolsLeftEl: HTMLElement | null = null;
+  /** Right region of the tools strip (right-docked search + Filters/Import launchers). */
+  private toolsRightEl: HTMLElement | null = null;
+  /** Quick-filter seam shared by the group-bar search and the toolbar search. Wired by GridCore. */
+  private searchCallback: ((term: string) => void) | null = null;
+  /** Host handler run when a file-based import source is chosen. Wired by GridCore. */
+  private importFileHandler: ((source: ImportSourceType, file: File) => void) | null = null;
+  /** Host handler run when *Paste From Clipboard* is chosen. Wired by GridCore. */
+  private importClipboardHandler: (() => void) | null = null;
   /** Shows a custom floating tooltip for columns with `renderer.tooltip`; a no-op for every other column. */
   private tooltipController: TooltipController;
 
@@ -114,6 +180,41 @@ export class GridRenderer {
   private lastCenterColStart = -1;
   private lastCenterColEnd = -1;
   private rowAnimator = new RowAnimator();
+
+  // ── Real-time cell patching ───────────────────────────────────────────────
+  /**
+   * The exact options passed to the last `BodyRenderer.renderRows` call.
+   *
+   * A Virtual DOM patch must format a cell the same way the render did, so it
+   * replays this snapshot rather than rebuilding an equivalent one — there is
+   * no second source of truth to drift.
+   */
+  private lastBodyOptions: BodyRendererOptions | null = null;
+  /** Batches patch requests into one flush per animation frame. */
+  private readonly patchScheduler = new PatchScheduler((ids) => this.runCellPatch(ids));
+  /** Cells written by the in-progress flush, reported by `flushCellPatches`. */
+  private lastPatchedCells = 0;
+
+  // ── Row-model integration ─────────────────────────────────────────────────
+  /**
+   * Set when the active row-model strategy guarantees every row is exactly
+   * `rowHeight` tall. See `RowModelStrategy.uniformRowHeight`.
+   */
+  private uniformRowHeight = false;
+  /**
+   * Notified with the row range being painted, so a demand-loading row model
+   * can fetch exactly what is on screen. See `RowModelStrategy.onRenderWindow`.
+   */
+  private renderWindowCallback: ((startRow: number, endRow: number) => void) | null = null;
+
+  /**
+   * Whether the grid may rewrite row order itself on a row drop.
+   *
+   * Defaults to the active row model's `rowOrderIsClientOwned` and can be
+   * overridden down (never up) by `GridOptions.rowDrag.managed`. When `false`
+   * the drag still runs — only the commit is the application's job.
+   */
+  private rowReorderManaged = true;
 
   // ── Column-group support ──────────────────────────────────────────────────
   private columnGroupModel:   ColumnGroupModel | null = null;
@@ -217,6 +318,35 @@ export class GridRenderer {
       });
     }
 
+    if (options.import?.enabled) {
+      // Pure-UI launcher + dropdown. The actual import runs in the host handlers
+      // (wired via setImportHandlers by GridCore), keeping this renderer free of
+      // any parser/engine dependency.
+      this.importMenu = new ImportMenu({
+        iconRenderer,
+        getFormats: () =>
+          options.import?.formats ?? [
+            ImportSourceType.Excel,
+            ImportSourceType.Csv,
+            ImportSourceType.Tsv,
+            ImportSourceType.Clipboard,
+          ],
+        onSelectFile: (source, file) => this.importFileHandler?.(source, file),
+        onSelectClipboard: () => this.importClipboardHandler?.(),
+      });
+    }
+
+    if (options.toolbar?.enabled) {
+      // Pure-UI strip. `onSearch` reuses the same quick-filter seam as the
+      // group-bar search (wired lazily via setSearchCallback), and tab/search
+      // events are emitted straight onto the shared event bus.
+      this.toolbar = new Toolbar({
+        iconRenderer,
+        eventBus,
+        onSearch: (query) => this.searchCallback?.(query),
+      });
+    }
+
     this.tooltipController = new TooltipController(store, columnModel, null);
   }
 
@@ -237,10 +367,12 @@ export class GridRenderer {
 
   mount(): void {
     this.colStyles.mount();
+    this.columnAnimator.mount();
     this.rowPositionSheet.mount();
     this.buildLayout();
     if (this.wrapperEl && this.bodyWrapEl) {
       this.rowDragRenderer = new RowDragRenderer(this.store, this.eventBus, this.iconRenderer);
+      this.rowDragRenderer.setManagedReorder(this.rowReorderManaged);
       this.rowDragRenderer.mount(
         this.wrapperEl,
         this.bodyWrapEl,
@@ -296,6 +428,110 @@ export class GridRenderer {
     this.bodyRenderer.invalidateRowsByNodeId(nodeIds);
     this.scheduleRender();
   }
+
+  /**
+   * Wires the renderer to the active row-model strategy.
+   *
+   * Three things flow across this seam: whether rows are uniformly tall (which
+   * lets the total content height be computed rather than summed), a callback
+   * reporting the painted row range (which lets a demand-loading model fetch
+   * exactly what is on screen without re-implementing virtualisation), and
+   * whether row order may be rewritten client-side.
+   *
+   * @param uniformRowHeight      - `true` when every row is `GridOptions.rowHeight`.
+   * @param onRenderWindow        - Called after each render with the painted range.
+   * @param rowOrderIsClientOwned - `true` when the grid may commit a row reorder
+   *                                itself; see `RowModelStrategy`.
+   */
+  setRowModelIntegration(
+    uniformRowHeight: boolean,
+    onRenderWindow: ((startRow: number, endRow: number) => void) | null,
+    rowOrderIsClientOwned = true,
+  ): void {
+    this.uniformRowHeight = uniformRowHeight;
+    this.renderWindowCallback = onRenderWindow;
+    this.rowReorderManaged = this.resolveManagedReorder(rowOrderIsClientOwned);
+    this.rowDragRenderer?.setManagedReorder(this.rowReorderManaged);
+  }
+
+  /**
+   * Reconciles `GridOptions.rowDrag.managed` with what the row model can
+   * actually deliver.
+   *
+   * The option may only turn managed reordering *off*. Asking for it on under a
+   * server-backed model cannot be honoured — the grid would rewrite an array the
+   * datasource re-supplies on the next fetch — so it is refused with an
+   * explanation rather than silently half-working.
+   */
+  private resolveManagedReorder(rowOrderIsClientOwned: boolean): boolean {
+    const requested = this.options.rowDrag?.managed;
+    if (requested === true && !rowOrderIsClientOwned) {
+      console.warn(
+        `[PhotonGrid] rowDrag.managed: true is not supported with rowModel: '${this.options.rowModel}' — `
+        + 'the datasource owns row order, so a client-side reorder would be discarded on the next '
+        + 'fetch. Falling back to unmanaged dragging: listen for the ROW_DROP event, persist the '
+        + 'move, then refresh.',
+      );
+      return false;
+    }
+    return requested ?? rowOrderIsClientOwned;
+  }
+
+  // ── Real-time cell patching (viewport Virtual DOM) ─────────────────────────
+
+  /**
+   * Queues a Virtual DOM diff for the given rows, coalesced to one flush per
+   * animation frame.
+   *
+   * This is the real-time update path: it never re-runs the row pipeline, never
+   * rebuilds a row, and writes only the cells whose values actually changed. A
+   * feed pushing thousands of updates per second therefore produces at most one
+   * batched DOM write per frame.
+   *
+   * @param nodeIds - Rows whose data changed, or `null` to re-diff every
+   *                  rendered row.
+   */
+  patchCells(nodeIds: Iterable<string> | null): void {
+    this.patchScheduler.schedule(nodeIds);
+  }
+
+  /**
+   * Applies any queued cell patches immediately instead of on the next frame.
+   *
+   * @returns The number of cells written to the DOM by the flush.
+   */
+  flushCellPatches(): number {
+    this.lastPatchedCells = 0;
+    this.patchScheduler.flushNow();
+    return this.lastPatchedCells;
+  }
+
+  /** `true` when the given row is rendered and can be patched in place. */
+  isRowRendered(nodeId: string): boolean {
+    return this.bodyRenderer.isRowRendered(nodeId);
+  }
+
+  /** Virtual DOM counters — see {@link VDomStats}. */
+  getVDomStats(): VDomStats {
+    return this.bodyRenderer.getVDomStats();
+  }
+
+  /** Zeroes the Virtual DOM counters. */
+  resetVDomStats(): void {
+    this.bodyRenderer.resetVDomStats();
+  }
+
+  /**
+   * Runs one Virtual DOM flush.
+   *
+   * Reuses the exact `BodyRendererOptions` from the last paint so a patched
+   * cell is formatted identically to a rendered one. A patch before the first
+   * render is a no-op — there is no DOM to patch yet.
+   */
+  private readonly runCellPatch = (nodeIds: Iterable<string> | null): void => {
+    if (!this.lastBodyOptions) return;
+    this.lastPatchedCells += this.bodyRenderer.patchCells(nodeIds, this.lastBodyOptions);
+  };
 
   // ── Filter panel public API ────────────────────────────────────────────────
 
@@ -477,6 +713,23 @@ export class GridRenderer {
   }
 
   /**
+   * Wires the host handlers the Import menu invokes when a source is chosen.
+   * Called by {@link import('../core/grid-core').GridCore} once the live
+   * {@link import('../core/grid-api').GridApi} exists — the menu itself carries
+   * no import logic.
+   *
+   * @param onFile      - Runs an import for a picked file + inferred source.
+   * @param onClipboard - Runs a clipboard import.
+   */
+  setImportHandlers(
+    onFile: (source: ImportSourceType, file: File) => void,
+    onClipboard: () => void,
+  ): void {
+    this.importFileHandler = onFile;
+    this.importClipboardHandler = onClipboard;
+  }
+
+  /**
    * Applies a live, per-column text filter from an inline filter-row input.
    *
    * Builds a single `contains` condition against the column's field so typing
@@ -569,7 +822,38 @@ export class GridRenderer {
     type: import('./row-animator').RowAnimationType = 'sort',
   ): void {
     if (this.options.animateRows === false) return;
-    this.rowAnimator.capture(rows, type);
+    this.rowAnimator.capture(this.sliceAnimatableRows(rows), type);
+  }
+
+  /**
+   * Narrows an animation snapshot to the rows the renderer currently has DOM
+   * for, before it reaches {@link RowAnimator.capture}.
+   *
+   * This is a memory guard, not the correctness guard — `RowAnimator` decides
+   * what actually animates by testing each row's start and end position against
+   * the viewport. The problem this solves is upstream of that: `visibleRows` is
+   * the whole current page, and with the large `pageSize` values real grids use
+   * (10k–50k, sometimes the entire dataset) `capture()` would build a Map with
+   * one entry per page row on every sort keystroke, of which ~30 can possibly
+   * matter. Slicing to the rendered window keeps that allocation proportional to
+   * what is on screen, which is what makes sorting a million rows cost the same
+   * as sorting a hundred.
+   *
+   * `firstRenderedRowIndex`/`lastRenderedRowIndex` are written at the end of
+   * every `performRender`, so at capture time (before the pipeline re-runs) they
+   * still describe the window the user is looking at, and they index into the
+   * same pre-pipeline `visibleRows` array passed in here.
+   */
+  private sliceAnimatableRows<T extends { nodeId: string; top: number }>(
+    rows: ReadonlyArray<T>,
+  ): ReadonlyArray<T> {
+    const start = this.store.get('firstRenderedRowIndex') as number;
+    const end = this.store.get('lastRenderedRowIndex') as number;
+    // Guard against a capture that arrives before the first paint, or indices
+    // left stale by a page/dataset swap — a bad slice would silently disable
+    // the animation, so fall back to the full set rather than an empty one.
+    if (!(end > start) || start < 0 || start >= rows.length) return rows;
+    return rows.slice(start, Math.min(end, rows.length));
   }
 
   /**
@@ -586,7 +870,42 @@ export class GridRenderer {
 
   /** Wire up the group-bar search input to an external handler (e.g. api.setQuickFilter). */
   setSearchCallback(fn: (term: string) => void): void {
+    this.searchCallback = fn;
     this.groupDropZone?.setSearchCallback(fn);
+  }
+
+  /**
+   * Enable the top-right Theme Manager launcher and wire the (lazy) theme API
+   * provider. Must be called before `mount()` so the launcher is built with the
+   * tools strip.
+   *
+   * @param getThemeApi - Lazily resolves the live theme API.
+   * @param enabled - Whether the launcher should be built.
+   * @param getToasts - Lazily resolves the grid's toast service, used to
+   *   surface action feedback (import/export/reset) as transient toasts.
+   */
+  setThemeManager(
+    getThemeApi: () => PhotonThemeApi,
+    enabled: boolean,
+    getToasts: () => import('../toast/toast-service').ToastService,
+  ): void {
+    this.themeApiProvider = getThemeApi;
+    this.themeManagerEnabled = enabled;
+    this.themeToastProvider = getToasts;
+  }
+
+  /**
+   * Selects a toolbar tab by id, if the toolbar feature is enabled. Emits
+   * {@link import('../types/event.types').GridEventType.TOOLBAR_TAB_CHANGED} on
+   * change. No-op when the toolbar is disabled or the id is unknown/disabled.
+   */
+  setActiveToolbarTab(id: string): void {
+    this.toolbar?.setActiveTab(id);
+  }
+
+  /** Returns the active toolbar tab id, or `null` when the toolbar is disabled or has no tabs. */
+  getActiveToolbarTab(): string | null {
+    return this.toolbar?.getActiveTab() ?? null;
   }
 
   /**
@@ -619,6 +938,16 @@ export class GridRenderer {
   /** The nested grid's `GridApi` for an expanded master row, or `undefined`. Backs `GridApi.getDetailGridApi`. */
   getDetailGridApi(parentNodeId: string): unknown {
     return this.detailRowRenderer?.getNestedInstance(parentNodeId)?.api;
+  }
+
+  /** The custom detail component mounted for an expanded master row, or `undefined`. Backs `GridApi.getDetailComponent`. */
+  getDetailComponent(parentNodeId: string): DetailComponent | undefined {
+    return this.detailRowRenderer?.getDetailComponent(parentNodeId);
+  }
+
+  /** Re-resolves props and refreshes an expanded master row's custom detail component. Backs `GridApi.refreshDetail`. */
+  refreshDetailComponent(parentNodeId: string): boolean {
+    return this.detailRowRenderer?.refreshDetailComponent(parentNodeId) ?? false;
   }
 
   /**
@@ -768,27 +1097,35 @@ export class GridRenderer {
    */
   ensureRowVisible(rowIndex: number, position?: 'top' | 'middle' | 'bottom'): void {
     const rows = this.store.get('visibleRows') as RowNode[];
-    const row = rows[rowIndex];
-    if (!row) return;
+    if (rowIndex < 0 || rowIndex >= rows.length) return;
 
-    const rowH = row.height ?? (this.options.rowHeight ?? 48);
+    const row = rows[rowIndex];
+    const rowH = row?.height ?? (this.options.rowHeight ?? 48);
+
+    // A demand-loading row model leaves unloaded indices empty, so the target
+    // of a jump usually has no node yet — which is exactly when scrolling to it
+    // matters most. With a uniform row height the position is pure arithmetic,
+    // so the scroll lands correctly and the pages covering it load on arrival.
+    const rowTop = row?.top ?? (this.uniformRowHeight ? rowIndex * rowH : undefined);
+    if (rowTop === undefined) return;
+
     const scrollTop = this.scrollController.getScrollTop();
     const vpH = this.scrollController.getViewportHeight();
 
     let targetY: number;
     switch (position) {
       case 'top':
-        targetY = row.top;
+        targetY = rowTop;
         break;
       case 'bottom':
-        targetY = row.top + rowH - vpH;
+        targetY = rowTop + rowH - vpH;
         break;
       case 'middle':
-        targetY = row.top - (vpH - rowH) / 2;
+        targetY = rowTop - (vpH - rowH) / 2;
         break;
       default:
-        if (row.top < scrollTop) targetY = row.top;
-        else if (row.top + rowH > scrollTop + vpH) targetY = row.top + rowH - vpH;
+        if (rowTop < scrollTop) targetY = rowTop;
+        else if (rowTop + rowH > scrollTop + vpH) targetY = rowTop + rowH - vpH;
         else return; // already fully visible
     }
 
@@ -856,6 +1193,13 @@ export class GridRenderer {
     this.detailRowRenderer?.destroy();
     this.photonAIPanel?.destroy();
     this.filtersToolPanel?.destroy();
+    this.importMenu?.destroy();
+    this.toolbar?.destroy();
+    this.themeManagerPanel?.destroy();
+    this.toolsBarEl?.remove();
+    this.toolsBarEl = null;
+    this.toolsLeftEl = null;
+    this.toolsRightEl = null;
     this.tooltipController.destroy();
     this.scrollController.destroy();
     this.groupDropZone?.destroy();
@@ -863,6 +1207,7 @@ export class GridRenderer {
     this.groupDragHandler?.destroy();
     this.rowPositionSheet.destroy();
     this.rowAnimator.destroy();
+    this.columnAnimator.destroy();
     this.colStyles.destroy();
     this.autoScroller?.stop();
     this.autoScroller = null;
@@ -897,6 +1242,8 @@ export class GridRenderer {
     // parent and its nested grid) sharing a user-provided colId like "year"
     // would resize each other via the same unscoped [data-col-id] selector.
     this.colStyles.setScopeId(gridId);
+    this.columnAnimator.setScopeId(gridId);
+    this.columnAnimator.setRoot(this.wrapperEl);
     if (this.masterDetailEnabledAtConstruction) {
       // Pinned left/right panels are full-height, `pointer-events: auto`
       // (default) blocks regardless of whether they have a row at a given Y
@@ -1094,13 +1441,64 @@ export class GridRenderer {
       this.photonAIPanel.mount(bodyWrapEl, this.options.photonAI!);
     }
 
-    // Mount the Filters Tool Panel into the grid wrapper (not the body) so its
-    // launcher floats over the top-right of the header band. Absolute
-    // positioning keeps it out of the flex layout, so it never affects
-    // row/column virtualization or the header measurements.
-    if (this.filtersToolPanel && this.wrapperEl) {
-      this.filtersToolPanel.mount(this.wrapperEl, this.options.filtersToolPanel!);
+    // Mount the configurable toolbar first so its tabs/left-search fill the
+    // left region and any right-docked search sits *before* the Filters/Import
+    // launchers within the right region (DOM order = visual order).
+    if (this.toolbar && this.options.toolbar) {
+      this.toolbar.mount(this.getToolsLeftRegion(), this.getToolsRightRegion(), this.options.toolbar);
     }
+
+    // Mount the Filters Tool Panel launcher into the tools strip's right region;
+    // its floating panel goes on the wrapper. Absolute positioning keeps the
+    // panel out of the flex layout, so it never affects virtualization. The
+    // toolbar's `showFilterButton` toggle (default true) can hide the launcher.
+    const showFilterButton = this.options.toolbar ? this.options.toolbar.showFilterButton !== false : true;
+    if (this.filtersToolPanel && this.wrapperEl && showFilterButton) {
+      this.filtersToolPanel.mount(this.wrapperEl, this.getToolsRightRegion(), this.options.filtersToolPanel!);
+    }
+
+    // Mount the Import menu (launcher + dropdown), and drive the loading overlay
+    // from the engine's progress events so the user sees "Parsing… / Mapping… /
+    // Rendering…" without this renderer knowing anything about the import
+    // pipeline. The toolbar's `showImportButton` toggle (default true) can hide it.
+    const showImportButton = this.options.toolbar ? this.options.toolbar.showImportButton !== false : true;
+    if (this.importMenu && this.wrapperEl && showImportButton) {
+      this.importMenu.mount(this.wrapperEl, this.getToolsRightRegion());
+      this.unsubscribers.push(
+        this.eventBus.on<import('../types/import.types').ImportProgressEvent>(
+          GridEventType.IMPORT_PROGRESS,
+          (e) => this.overlayRenderer.showLoading(e.message),
+        ),
+        this.eventBus.on(GridEventType.IMPORT_COMPLETE, () => this.overlayRenderer.hideLoading()),
+        this.eventBus.on<import('../types/import.types').ImportErrorEvent>(GridEventType.IMPORT_ERROR, (e) => {
+          this.overlayRenderer.hideLoading();
+          this.overlayRenderer.showError(e.message);
+        }),
+      );
+    }
+
+    // Mount the Theme Manager launcher (apply saved themes / export / import /
+    // reset) into the tools strip when enabled. The theme API is resolved lazily
+    // because the engine is constructed after this renderer.
+    if (this.themeManagerEnabled && this.themeApiProvider && this.themeToastProvider && this.wrapperEl) {
+      this.themeManagerPanel = new ThemeManagerPanel({
+        iconRenderer: this.iconRenderer,
+        getThemeApi: this.themeApiProvider,
+        getToasts: this.themeToastProvider,
+      });
+      this.themeManagerPanel.mount(this.wrapperEl, this.getToolsRightRegion());
+    }
+
+    // Server-Side Row Model: surface a failed fetch as an error overlay. Loading
+    // and empty states are already handled by the `loading` store flag + the
+    // `rows.length === 0` gating in performRender, so only errors need wiring.
+    // Subscribed unconditionally (independent of the toolbar/import launchers).
+    this.unsubscribers.push(
+      this.eventBus.on<import('../types/event.types').ServerErrorEvent>(
+        GridEventType.SERVER_ERROR,
+        (e) => this.overlayRenderer.showError(e.message),
+      ),
+    );
 
     this.tooltipController.mount(bodyWrapEl);
 
@@ -1300,6 +1698,40 @@ export class GridRenderer {
   }
 
   /**
+   * Returns the shared tools strip (`.pg-grid__tools`), creating it once on
+   * first use and inserting it as the first child of the grid wrapper so it
+   * forms a dedicated toolbar row above the header. The strip is split into a
+   * left region (toolbar tabs + left-docked search) and a right region
+   * (right-docked search + the Filters/Import launchers).
+   */
+  private getOrCreateToolsBar(): HTMLElement {
+    if (!this.toolsBarEl) {
+      this.toolsBarEl = createDiv('pg-grid__tools');
+      this.toolsLeftEl = createDiv('pg-grid__tools__left');
+      this.toolsRightEl = createDiv('pg-grid__tools__right');
+      this.toolsBarEl.appendChild(this.toolsLeftEl);
+      this.toolsBarEl.appendChild(this.toolsRightEl);
+      // Prepend so the strip sits at the very top of the grid, above the
+      // outer row (header + body). insertBefore(el, firstChild) is a safe
+      // prepend even when firstChild is null.
+      this.wrapperEl?.insertBefore(this.toolsBarEl, this.wrapperEl.firstChild);
+    }
+    return this.toolsBarEl;
+  }
+
+  /** Left region of the tools strip — creates the strip if needed. */
+  private getToolsLeftRegion(): HTMLElement {
+    this.getOrCreateToolsBar();
+    return this.toolsLeftEl!;
+  }
+
+  /** Right region of the tools strip — creates the strip if needed. */
+  private getToolsRightRegion(): HTMLElement {
+    this.getOrCreateToolsBar();
+    return this.toolsRightEl!;
+  }
+
+  /**
    * Builds the top-level sticky-row layer and its three left/center/right
    * regions, mirroring the pinned-column layout via the same
    * `--pg-left-panel-width` / `--pg-right-panel-width` CSS vars the real
@@ -1328,6 +1760,26 @@ export class GridRenderer {
 
   // ─── Render ───────────────────────────────────────────────────────────────
 
+  /**
+   * Per-panel column offsets for the current layout, from `colStyles`' resolved
+   * widths rather than the DOM — so a column FLIP forces no layout, and center
+   * columns outside the virtual window are still positioned correctly.
+   */
+  private captureColumnPositions(
+    leftCols: ColumnDef[],
+    centerCols: ColumnDef[],
+    rightCols: ColumnDef[],
+  ): ColumnPosition[] {
+    return computeColumnPositions(
+      {
+        left: leftCols.map((c) => c.colId),
+        center: centerCols.map((c) => c.colId),
+        right: rightCols.map((c) => c.colId),
+      },
+      (colId) => this.colStyles.getWidth(colId),
+    );
+  }
+
   private performRender(): void {
     const rows       = this.store.get('visibleRows') as RowNode[];
     const rawCols    = this.store.get('columns') as ColumnDef[];
@@ -1349,6 +1801,13 @@ export class GridRenderer {
     // running it at 60 fps wastes ~1 ms/frame for nothing.
     const colsChanged     = rawCols    !== this._lastColumnsRef;
     const groupingChanged = groupedIds !== this._lastGroupedIdsRef;
+    /**
+     * Set when flex columns are re-resolved purely because the container
+     * resized — no columns/grouping/rows change to piggyback on. Without it
+     * the recomputed width would never reach `ScrollController`; see the
+     * branch that sets it below.
+     */
+    let centerWidthChanged = false;
 
     // Derived from groupedIds — always available for the horizontal scroll logic below.
     const hasGroupedColumns = groupedIds.length > 0;
@@ -1432,6 +1891,16 @@ export class GridRenderer {
           + (hasGroupedColumns ? AUTO_GROUP_COL_WIDTH : 0);
         this._cachedCenterW = centerContentWidth;
         w.style.setProperty('--pg-center-content-width', `${centerContentWidth}px`);
+        // Flag it so `ScrollController.updateSizes` runs below. It is keyed off
+        // rows/columns/grouping changes, none of which happened here — leaving
+        // the controller holding the pre-resize content width and therefore
+        // still showing a horizontal scrollbar for overflow that no longer
+        // exists. The classic repro is expanding a Master/Detail row: the
+        // nested grid resolves flex at full width, its own vertical scrollbar
+        // then appears and narrows the center panel, and the resulting phantom
+        // h-scrollbar (plus the v-scrollbar the lost height provokes) persists
+        // until an unrelated sort/resize happens to re-run the columns branch.
+        centerWidthChanged = true;
       }
     }
 
@@ -1442,13 +1911,29 @@ export class GridRenderer {
     if (rowsChanged) {
       this._lastRowsRef = rows;
 
-      let totalHeight = 0;
-      for (const row of rows) totalHeight += row.height ?? rowHeight;
+      // A strategy that guarantees uniform row heights lets the total be
+      // derived arithmetically. That skips an O(n) sum on every data change,
+      // and it is what makes a *sparse* row array safe to publish: summing
+      // would dereference the holes an on-demand row model deliberately leaves
+      // for rows it has not loaded.
+      let totalHeight: number;
+      if (this.uniformRowHeight) {
+        totalHeight = rows.length * rowHeight;
+      } else {
+        totalHeight = 0;
+        for (const row of rows) totalHeight += row.height ?? rowHeight;
+      }
       this._cachedTotalHeight = totalHeight;
 
-      w.style.setProperty('--pg-content-height', `${totalHeight}px`);
+      // The scroll controller gets the true height (it owns the mapping onto a
+      // capped scrollbar track); the DOM box is clamped, because a browser
+      // silently truncates any element taller than its own limit anyway and a
+      // nominally 40M-px-tall layer is pure waste. Rows are positioned relative
+      // to the render window, so this box's height no longer affects where any
+      // of them land.
+      w.style.setProperty('--pg-content-height', `${Math.min(totalHeight, MAX_ELEMENT_HEIGHT_PX)}px`);
       this.scrollController.updateSizes(totalHeight, this._cachedCenterW);
-    } else if (colsChanged || groupingChanged) {
+    } else if (colsChanged || groupingChanged || centerWidthChanged) {
       // Center width changed but row count did not — update the horizontal size only.
       this.scrollController.updateSizes(this._cachedTotalHeight, this._cachedCenterW);
     } else if (this.headerRenderer.isResizingColumn) {
@@ -1589,11 +2074,13 @@ export class GridRenderer {
     // virtualization would otherwise have scrolled past its natural position.
     let stickyNodeId: string | null = null;
     let stickyOffsetPx = 0;
+    let stickyBlockHeight = 0;
     let treeStickyEntries: TreeStickyEntry[] = [];
     if (this.masterDetailEnabledAtConstruction) {
       const sticky = this.stickyRowTracker.compute(rows, scrollTop, rowHeight, start);
       stickyNodeId = sticky.nodeId;
       stickyOffsetPx = sticky.offsetPx;
+      stickyBlockHeight = sticky.blockHeight;
       start = sticky.minStart;
     } else if (this.treeExpansionService) {
       // Tree Data's generalization of the same rule — see `TreeStickyRowTracker`:
@@ -1601,18 +2088,73 @@ export class GridRenderer {
       // its own sticky row, instead of there only ever being one.
       const sticky = this.treeStickyRowTracker.compute(rows, scrollTop, rowHeight, start);
       treeStickyEntries = sticky.entries;
+      stickyBlockHeight = sticky.blockHeight;
       start = sticky.minStart;
     }
     this.stickyNodeId = stickyNodeId;
+
+    // Height of the band the sticky overlay currently occupies. The layer's
+    // pinned-edge shadow is sized from this so it covers exactly the stuck
+    // rows: that layer paints above `.pg-detail-layer`, so a full-height
+    // shadow there stripes straight across every expanded Master/Detail row
+    // (the full-height divider itself lives on the body panels, one level
+    // below the detail layer — see panels.css.ts). Written only on change:
+    // `setProperty` invalidates style for the whole subtree, and this runs on
+    // every scroll frame.
+    if (stickyBlockHeight !== this._lastStickyBlockHeight) {
+      this._lastStickyBlockHeight = stickyBlockHeight;
+      w.style.setProperty('--pg-sticky-block-height', `${stickyBlockHeight}px`);
+    }
+
+    // Row window for this frame. While a row drag is in progress the dragged
+    // row must stay in the DOM even after auto-scroll pushes its *real* position
+    // out of the virtual window: the drag preview repositions it via a `top`
+    // override near the drop target, but virtualization slices on real tops, so
+    // without pinning it here the dragged row (and the visible placeholder that
+    // is that row shown translucent) would be evicted, leaving a blank gap.
+    // Tell a demand-loading row model what is about to be painted, *before*
+    // slicing: such a model publishes a sparse array and fills the requested
+    // window synchronously (with cached rows or skeletons), so the slice below
+    // is guaranteed to be hole-free. Fetching what is still missing is
+    // debounced inside the model, so calling this every render costs nothing.
+    this.renderWindowCallback?.(start, end);
+
+    const renderedRows = rows.slice(start, end);
+    const draggingNodeId = this.rowDragRenderer?.getDraggingNodeId() ?? null;
+    if (draggingNodeId && !renderedRows.some((r) => r.nodeId === draggingNodeId)) {
+      // Optional-chained because a sparse row model leaves holes outside the
+      // rendered window; a dragged row that is not resident simply isn't found.
+      const dragged = rows.find((r) => r?.nodeId === draggingNodeId);
+      if (dragged) renderedRows.push(dragged);
+    }
+
+    // ── Paint-coordinate rebasing ───────────────────────────────────────────
+    // A row's `top` is its absolute offset into the dataset, so a million rows
+    // deep it is tens of millions of pixels — and browsers rasterise with
+    // 32-bit floats, whose spacing exceeds 1px past 2^24 (~16.7M). At that
+    // depth the two edges of a 1px row border round to the same coordinate, the
+    // rect collapses to zero height, and the border stops being painted: row
+    // separators visibly disappear as you scroll into a large dataset.
+    //
+    // Positioning rows relative to the top of the render window keeps every
+    // painted coordinate within a viewport's worth of zero. The panel transform
+    // adds the origin back (ScrollController.setRowOrigin), so nothing moves on
+    // screen. The origin and the stylesheet below are written in this same
+    // synchronous block, which is what keeps them from ever disagreeing.
+    // Optional-chained for the same reason as the dragged-row lookup above: a
+    // demand-loading model publishes a sparse array, and an origin of 0 is the
+    // correct fallback when the window's first slot is not resident.
+    const rowOriginY = renderedRows[0]?.top ?? 0;
+    this.scrollController.setRowOrigin(rowOriginY);
 
     // Update row position stylesheet for visible rows.
     // In auto-height mode always use rowHeight as min-height so that widening a
     // column allows rows to shrink back — the previously measured row.height must
     // not pin min-height or rows can never get shorter.
     this.rowPositionSheet.update(
-      rows.slice(start, end).map((row) => ({
+      renderedRows.map((row) => ({
         nodeId: row.nodeId,
-        top: row.top,
+        top: row.top - rowOriginY,
         height: isAutoHeight ? rowHeight : (row.height ?? rowHeight),
       })),
       isAutoHeight,
@@ -1627,13 +2169,13 @@ export class GridRenderer {
     // custom cell renderers (images, flags, etc.) and causing visible blinking.
     // We skip renderRows while resizing and instead only advance the tracked
     // range so the next normal paint (after mouseup) does not see a stale range.
-    const renderedRows = rows.slice(start, end);
 
     const masterDetailOptions = this.masterDetailEngine?.isEnabled()
       ? {
           toggleColumnId: this.masterDetailEngine.getConfig()?.toggleColumnId ?? allColumns[0]?.colId ?? '',
           isExpandedFn: (nodeId: string) => this.masterDetailEngine!.isExpanded(nodeId),
           hasDetailFn: (rowData: Record<string, unknown>) => this.masterDetailEngine!.hasDetail(rowData),
+          emptyToggleMode: this.masterDetailEngine.getEmptyDetailToggleMode(),
         }
       : undefined;
 
@@ -1647,7 +2189,9 @@ export class GridRenderer {
     if (this.headerRenderer.isResizingColumn) {
       this.bodyRenderer.syncCenterRange(colStart, colStart + visibleCenterCols.length);
     } else {
-      this.bodyRenderer.renderRows(renderedRows, leftCols, visibleCenterCols, rightCols, {
+      // Retained so real-time Virtual DOM patches format cells exactly the way
+      // this render did — one source of truth, no drift between the two paths.
+      this.lastBodyOptions = {
         showCheckboxes: this.options.showCheckboxes,
         showSerialNumber: this.options.showSerialNumber,
         serialColumnSelection: this.rowSelectionEngine.serialColumnSelection,
@@ -1672,7 +2216,8 @@ export class GridRenderer {
         totalCenterCols: centerCols.length,
         masterDetail: masterDetailOptions,
         treeData: treeDataOptions,
-      });
+      };
+      this.bodyRenderer.renderRows(renderedRows, leftCols, visibleCenterCols, rightCols, this.lastBodyOptions);
     }
 
     if (this.detailRowRenderer) {
@@ -1685,16 +2230,6 @@ export class GridRenderer {
       this.bodyRenderer.setStickyRows(stickyNodeId ? [{ nodeId: stickyNodeId, top: stickyOffsetPx }] : []);
     } else if (this.treeExpansionService) {
       this.bodyRenderer.setStickyRows(treeStickyEntries);
-    }
-
-    // Animate rows after sort (FLIP slide) or filter (FLIP slide + fade-in for new rows)
-    if (this.rowAnimator.hasPending()) {
-      const animContainers = [
-        this.leftBodyContentEl,
-        this.centerBodyContentEl,
-        this.rightBodyContentEl,
-      ].filter(Boolean) as HTMLElement[];
-      this.rowAnimator.animate(animContainers, renderedRows, viewportHeight);
     }
 
     // Auto-height measurement pass: read actual row heights and sync all panels
@@ -1721,18 +2256,57 @@ export class GridRenderer {
       if (anyChanged) {
         let top = 0;
         for (const row of rows) { row.top = top; top += row.height ?? rowHeight; }
+        // Every `top` just moved, so the render window's origin moved with it —
+        // re-derive it before restating the sheet (see the rebasing note above).
+        const measuredOriginY = renderedRows[0]?.top ?? 0;
+        this.scrollController.setRowOrigin(measuredOriginY);
         this.rowPositionSheet.update(
-          renderedRows.map((r) => ({ nodeId: r.nodeId, top: r.top, height: rowHeight })),
+          renderedRows.map((r) => ({ nodeId: r.nodeId, top: r.top - measuredOriginY, height: rowHeight })),
           true,
         );
         this._cachedTotalHeight = top;
-        w.style.setProperty('--pg-content-height', `${top}px`);
+        w.style.setProperty('--pg-content-height', `${Math.min(top, MAX_ELEMENT_HEIGHT_PX)}px`);
         this.scrollController.updateSizes(top, this._cachedCenterW);
       }
     }
 
     this.store.set('firstRenderedRowIndex', start);
     this.store.set('lastRenderedRowIndex', end);
+
+    // ── Row animation (sort / filter / group / detail) ───────────────────────
+    // Deliberately the LAST thing this render does that touches row geometry.
+    //
+    // The auto-height pass above measures rows and, when anything changed,
+    // rewrites every `top` in the position stylesheet. Animating before that
+    // would invert against positions the very next statement invalidates — the
+    // rows would slide toward a layout that no longer exists, then snap. Running
+    // here means the DOM already reflects the final order *and* final geometry,
+    // which is exactly the ordering the FLIP contract requires.
+    //
+    // The animator is handed the renderer's live row cache (the same reused
+    // elements, no DOM query) and the scroll window, so only rows whose movement
+    // is actually on screen animate — sorting 1M rows animates the ~30 rendered
+    // ones, and no more.
+    if (this.rowAnimator.hasPending()) {
+      this.rowAnimator.animate(
+        this.bodyRenderer.getRenderedRows(),
+        renderedRows,
+        { scrollTop, height: viewportHeight },
+      );
+    }
+
+    // ── Column animation (hide / show / reorder) ─────────────────────────────
+    // Same FLIP contract as rows, one axis over: the columns store watcher
+    // captured the outgoing offsets before the rebuild, and the DOM now shows
+    // the incoming ones. Positions come from `colStyles`' resolved widths, so
+    // this reads no layout — see `computeColumnPositions`.
+    //
+    // The snapshot is refreshed on every render, not only animating ones, so
+    // the next structural change always inverts against what is actually on
+    // screen (a resize or a flex re-resolve moves columns without animating).
+    const columnPositions = this.captureColumnPositions(leftCols, centerCols, rightCols);
+    if (this.columnAnimator.hasPending()) this.columnAnimator.animate(columnPositions);
+    this.lastColumnPositions = columnPositions;
 
     // Footer
     if (this.footerContainerEl) {
@@ -1767,7 +2341,14 @@ export class GridRenderer {
 
       this.store.watch('loading', () => this.scheduleRender()),
 
-      this.store.watch('columns', () => {
+      this.store.watch('columns', (cols) => {
+        // Classify before anything else — a resize writes the columns store on
+        // every pointer move, and animating those would fight the drag rather
+        // than accompany it.
+        const nextLayout = captureColumnLayout(cols as ColumnDef[]);
+        const changeKind = diffColumnLayout(this.lastColumnLayout, nextLayout);
+        this.lastColumnLayout = nextLayout;
+
         if (this.headerRenderer.isDraggingCol || this.displayGroupEngine?.isDraggingGroup) {
           // Live drag (leaf column or group): skip header destroy so drag state
           // and live-preview group rows are preserved. Only reset body + virtual
@@ -1782,6 +2363,19 @@ export class GridRenderer {
           });
           return;
         }
+
+        // Hiding a column from the context menu, dropping one outside the grid,
+        // or reordering programmatically all land here as a full rebuild, which
+        // would snap the survivors to their new offsets in a single frame.
+        // Capturing the outgoing layout lets `performRender` FLIP them across
+        // that rebuild on the same 180 ms curve the live drag shift uses.
+        if (changeKind === ColumnChangeKind.STRUCTURAL) {
+          this.columnAnimator.capture(this.lastColumnPositions, 'visibility');
+        } 
+        // else if (changeKind === ColumnChangeKind.ORDER_ONLY) {
+        //   this.columnAnimator.capture(this.lastColumnPositions, 'reorder');
+        // }
+
         this.headerRendered = false;
         this.lastCenterColStart = -1;
         this.lastCenterColEnd = -1;
@@ -1867,7 +2461,7 @@ export class GridRenderer {
       if (!this.cellSelectionEngine.isCellSelected(p.rowIndex, p.colIndex)) {
         this.cellSelectionEngine.startSelection(p.rowIndex, p.colIndex);
       }
-      this.cellSelectionEngine.showContextMenu(p.x, p.y);
+      this.cellSelectionEngine.showContextMenu(p.x, p.y, p.rowIndex, p.colIndex);
     });
   } 
 

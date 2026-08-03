@@ -22,6 +22,10 @@ import { RowSelectionEngine } from '../engines/selection/row-selection-engine';
 import { CellEditorEngine } from '../engines/editing/cell-editor-engine';
 import { SummaryEngine } from '../engines/summary/summary-engine';
 import { ExportEngine } from '../engines/export/export-engine';
+import { ImportEngine } from '../engines/import/import-engine';
+import { ImportSourceType } from '../types/import.types';
+import type { ImportCompleteEvent, ImportErrorEvent } from '../types/import.types';
+import { ToastService } from '../toast/toast-service';
 import { ClipboardEngine } from '../engines/clipboard/clipboard-engine';
 import { DragDropEngine } from '../drag-drop/drag-drop-engine';
 import { CellSelectionEngine } from '../cell-selection/cell-selection-engine';
@@ -45,9 +49,16 @@ import { ColumnGroupHeaderBuilder } from '../column-groups/column-group-header-b
 import { DisplayGroupEngine } from '../column-groups/display-group-engine';
 import type { CellValueChangedEvent } from '../types/event.types';
 import { PhotonAIService } from '../photon-ai/photon-ai-service';
+import { PhotonAIAssistant } from '../photon-ai/photon-ai-assistant';
 import { createAIProvider } from '../photon-ai/provider';
 import { FormulaEngine } from '../formula/formula-engine';
 import { GridFormulaAdapter } from './formula-grid-adapter-impl';
+import { FormulaInitializer } from '../formula/formula-initializer';
+import { AutoFillEngine } from '../autofill/autofill-engine';
+import { ClientRowModel } from '../row-models/client-row-model';
+import { ServerRowModel } from '../row-models/server/server-row-model';
+import { InfiniteRowModel } from '../row-models/infinite/infinite-row-model';
+import { PhotonThemeEngine } from '../photon-ai/theme/photon-theme-engine';
 
 /** Recursively collects leaf `ColumnDef` entries, skipping group wrappers. */
 function collectLeaves(cols: ColumnDef[]): ColumnDef[] {
@@ -105,6 +116,11 @@ export class GridCore {
     const summaryEngine = new SummaryEngine();
     const exportEngine = new ExportEngine(eventBus);
     const clipboardEngine = new ClipboardEngine();
+    // Import Engine mirrors ExportEngine (its inverse). It reads the clipboard
+    // through the existing clipboard engine and writes into the grid only via
+    // the public GridApi seams (wired as a sink in GridApi), so GridCore never
+    // couples to any parser.
+    const importEngine = new ImportEngine(eventBus, clipboardEngine);
     const dragDropEngine = new DragDropEngine(eventBus);
     const undoRedoEngine = new UndoRedoEngine();
     const cellSelectionEngine = new CellSelectionEngine(store, eventBus, clipboardEngine, undoRedoEngine);
@@ -118,9 +134,24 @@ export class GridCore {
       options.formula,
     );
     this.formulaAdapter = formulaAdapter;
+    // Declarative-formula discovery (column-level + row-data), framework-independent.
+    // `markFormulaCapable` flips `allowFormula` on the live column when a `=`-value
+    // is auto-detected in a column that did not explicitly opt in.
+    const formulaInitializer = new FormulaInitializer(formulaEngine, {
+      autoDetectDataFormulas: options.formula?.autoDetectDataFormulas,
+      markFormulaCapable: (colId: string) => {
+        const col = columnModel.getColumn(colId);
+        if (col) col.allowFormula = true;
+      },
+    });
+    const autoFillEngine = new AutoFillEngine(options.autofill);
     const themeManager = new ThemeManager(eventBus);
     const iconRegistry = new IconRegistry();
     const iconRenderer = new IconRenderer(iconRegistry);
+    // Toast notifications — shares the grid's icon renderer; the layer mounts to
+    // document.body so toasts overlay the page and inherit the mirrored theme
+    // tokens. Inert until the first toast is shown.
+    const toastService = new ToastService(options.toast, { iconRenderer });
     const chartEngine = new ChartEngine(eventBus);
 
     const renderer = new GridRenderer(
@@ -202,7 +233,7 @@ export class GridCore {
       renderer.setTreeRenderConfig(options.treeData.toggleColumnId, treeExpansionService);
     }
 
-    return {
+    const ctx = {
       options,
       containerEl,
       eventBus,
@@ -218,11 +249,14 @@ export class GridCore {
       cellEditorEngine,
       summaryEngine,
       exportEngine,
+      importEngine,
+      toastService,
       clipboardEngine,
       dragDropEngine,
       cellSelectionEngine,
       themeManager,
       iconRegistry,
+      iconRenderer,
       chartEngine,
       undoRedoEngine,
       masterDetailEngine,
@@ -230,8 +264,41 @@ export class GridCore {
       treeExpansionService,
       treeSelectionService,
       formulaEngine,
+      formulaInitializer,
+      autoFillEngine,
       renderer,
-    };
+    } as GridContext;
+
+    // The row-model strategy captures `ctx`, so it is assigned after the context
+    // literal is built. `applyPipeline()` delegates to it every refresh.
+    ctx.rowModelStrategy =
+      options.rowModel === 'server'
+        ? new ServerRowModel(ctx, options.serverSide, options.serverSideDatasource)
+        : options.rowModel === 'infinite'
+          ? new InfiniteRowModel(ctx, options.infinite, options.serverSideDatasource)
+          : new ClientRowModel(ctx);
+
+    // Hand the renderer whatever the strategy needs from it: uniform-height
+    // accounting, the painted row range (for demand-loading models), and
+    // whether the row order may be rewritten client-side (managed row drag).
+    ctx.renderer.setRowModelIntegration(
+      ctx.rowModelStrategy.uniformRowHeight === true,
+      ctx.rowModelStrategy.onRenderWindow
+        ? (start, end) => ctx.rowModelStrategy.onRenderWindow!(start, end)
+        : null,
+      ctx.rowModelStrategy.rowOrderIsClientOwned === true,
+    );
+
+    // AI Theme Engine (gridApi.photonAI) — always present; reuses the configured
+    // Photon AI provider (may be null → LLM methods throw, offline methods work).
+    ctx.photonThemeEngine = new PhotonThemeEngine(
+      createAIProvider(options.photonAI?.provider),
+      themeManager,
+      containerEl,
+      eventBus,
+    );
+
+    return ctx;
   }
 
   private initialize(): void {
@@ -241,7 +308,7 @@ export class GridCore {
     const ctx = this.ctx;
 
     // Theming resolves along two axes: `mode` (light/dark) drives the color
-    // palette via token injection, `variant` (quartz/alpine/…) layers a
+    // palette via token injection, `variant` (ion/neon/…) layers a
     // cosmetic skin as a container class. The deprecated `theme` option is
     // normalized onto these axes only when neither is set explicitly.
     if (options.mode || options.variant) {
@@ -270,7 +337,11 @@ export class GridCore {
         page: options.pagination.page ?? 1,
         pageSize: options.pagination.pageSize ?? 50,
         pageSizeOptions: options.pagination.pageSizeOptions ?? [10, 25, 50, 100],
-        serverSide: options.pagination.serverSide ?? false,
+        // Both server-backed models paginate remotely: the engine must not
+        // slice locally — the datasource decides which rows exist.
+        serverSide: options.rowModel === 'server' || options.rowModel === 'infinite'
+          ? true
+          : (options.pagination.serverSide ?? false),
         totalRows: options.pagination.totalRows,
       });
     }
@@ -309,6 +380,12 @@ export class GridCore {
     ctx.treeDataService.configure(options.treeData);
     ctx.cellSelectionEngine.setTreeToggleHandler((row, direction) => this.handleTreeToggleKey(ctx, row, direction));
 
+    // Enable the top-right Theme Manager launcher before mount() (it is built
+    // with the tools strip). The theme API is resolved lazily via the live api.
+    const themeManagerEnabled =
+      options.themeManager === true || (typeof options.themeManager === 'object' && options.themeManager.enabled);
+    ctx.renderer.setThemeManager(() => this.api.photonAI, !!themeManagerEnabled, () => ctx.toastService);
+
     ctx.renderer.mount();
     ctx.renderer.setParentApiForDetail(this.api);
 
@@ -329,7 +406,29 @@ export class GridCore {
       // async streaming path; the deterministic sync handler above stays wired
       // as the fallback used whenever no provider is present.
       if (provider) {
-        ctx.renderer.setPhotonAIAsyncSubmitHandler((text, signal) => this.photonAIService!.submitAsync(text, signal));
+        // Panel dispatch chain, most specific first. Each stage inspects the
+        // message and either claims it (`handled`) or passes it on, so adding a
+        // capability means adding a link here rather than editing a branch:
+        //
+        //   1. Theme engine  — styling requests, applied live to the grid.
+        //   2. Assistant     — questions: docs/examples, code generation, data
+        //                      analysis, and configuration diagnostics.
+        //   3. Command AI    — the fallback: anything that operates the grid.
+        const assistant = new PhotonAIAssistant(
+          this.api,
+          options,
+          provider,
+          ctx.photonThemeEngine.getRegistry(),
+        );
+        ctx.renderer.setPhotonAIAsyncSubmitHandler(async (text, signal) => {
+          const themed = await ctx.photonThemeEngine.handlePanelCommand(text, signal);
+          if (themed.handled) return { success: true, message: themed.message };
+
+          const answered = await assistant.handle(text, signal);
+          if (answered.handled) return { success: answered.success !== false, message: answered.message };
+
+          return this.photonAIService!.submitAsync(text, signal);
+        });
       }
     }
 
@@ -347,12 +446,56 @@ export class GridCore {
 
     ctx.renderer.setSearchCallback((term) => this.api.setQuickFilter(term));
 
+    // Row context menu: hand the engine its configuration plus the icon
+    // registry and public API its custom items need. Items are rendered on each
+    // open, so a later `setRowMenuConfig` call takes effect immediately.
+    ctx.cellSelectionEngine.setRowMenuConfig(ctx.options.rowMenu, ctx.iconRenderer, this.api);
+
+    // Import wiring: the Import menu is pure UI — GridCore owns the bridge to the
+    // engine (via the public GridApi), and fans the engine's completion/error
+    // events out to the user-supplied config callbacks.
+    if (options.import?.enabled) {
+      ctx.renderer.setImportHandlers(
+        (source, file) => {
+          const run =
+            source === ImportSourceType.Excel
+              ? this.api.importExcel(file)
+              : source === ImportSourceType.Tsv
+                ? this.api.importTsv(file)
+                : this.api.importCsv(file);
+          // Errors are already reported via IMPORT_ERROR + onError; swallow the
+          // rejection here so it never surfaces as an unhandled promise.
+          void run.catch(() => undefined);
+        },
+        () => {
+          void this.api.importFromClipboard().catch(() => undefined);
+        },
+      );
+
+      const cfg = options.import;
+      // Surface import outcomes as toasts (in addition to any user callbacks).
+      ctx.eventBus.on<ImportCompleteEvent>(GridEventType.IMPORT_COMPLETE, (e) => {
+        const n = e.result.rowCount;
+        ctx.toastService.success(`Imported ${n} row${n === 1 ? '' : 's'} from ${e.source.toUpperCase()}.`);
+        cfg.onComplete?.(e.result);
+      });
+      ctx.eventBus.on<ImportErrorEvent>(GridEventType.IMPORT_ERROR, (e) => {
+        ctx.toastService.error(e.message, { title: 'Import failed', duration: 8000 });
+        cfg.onError?.(e);
+      });
+    }
+
     // Wire column-group model into the public API if groups are present (legacy path)
     if (this.columnGroupModel) {
       this.api.setColumnGroupModel(this.columnGroupModel);
     }
 
-    if (options.data?.length) {
+    if (options.rowModel === 'server' || options.rowModel === 'infinite') {
+      // Both server-backed models ignore any static `options.data` — the
+      // datasource is the single source of truth. Kick off the initial load:
+      // the first page for `'server'`, the first window for `'infinite'`.
+      ctx.rowModelStrategy.start?.();
+    } else if (options.data?.length) {
       this.api.setData(options.data);
     }
 
@@ -666,11 +809,22 @@ export class GridCore {
       // A literal edit on a formula-enabled column drops any prior formula on the
       // cell, then feeds the change through the engine so dependent formula cells
       // (and volatiles) recompute before the repaint.
-      if (ctx.formulaEngine.isEnabled() && p.colDef.allowFormula) {
-        ctx.formulaEngine.clearFormula(p.row.nodeId, p.colDef.colId);
-      }
       if (ctx.formulaEngine.isEnabled()) {
-        ctx.formulaEngine.onCellsChanged([{ nodeId: p.row.nodeId, colId: p.colDef.colId }]);
+        if (p.colDef.allowFormula) {
+          ctx.formulaEngine.clearFormula(p.row.nodeId, p.colDef.colId);
+        }
+        const { changedNodeIds } = ctx.formulaEngine.onCellsChanged([
+          { nodeId: p.row.nodeId, colId: p.colDef.colId },
+        ]);
+        // Dependent formula cells (e.g. `C1 = A1 + B1` when A1 changes) recompute
+        // by mutating their row *data* in place — the owning `RowNode` reference is
+        // unchanged. `refresh()`'s cached-row path (`updatePanelRow`) only re-stamps
+        // row-level attributes, never cell content, so those dependents would keep
+        // their stale DOM. Evict exactly the changed rows so their new values
+        // repaint on the next frame.
+        if (changedNodeIds.size > 0) {
+          ctx.renderer.invalidateBodyRowsByIds(new Set(changedNodeIds));
+        }
       }
       this.api.refresh();
     });
@@ -684,7 +838,7 @@ export class GridCore {
       const oldFormula = ctx.formulaEngine.getFormula(rowNode.nodeId, colDef.colId);
       const nextData = { ...rowNode.data };
       rowNode.data = nextData;
-      ctx.formulaEngine.setFormula(rowNode.nodeId, colDef.colId, source);
+      const { changedNodeIds } = ctx.formulaEngine.setFormula(rowNode.nodeId, colDef.colId, source);
       const newValue = getCellValue(rowNode.data, colDef, this.api);
       ctx.undoRedoEngine.record({
         type: 'edit',
@@ -698,6 +852,12 @@ export class GridCore {
           newFormula: source,
         }],
       });
+      // The committed cell plus every downstream dependent recomputed in place
+      // (row data mutated, `RowNode` reference kept), which `refresh()`'s cached-row
+      // path does not repaint. Evict the changed rows so their values render.
+      if (changedNodeIds.size > 0) {
+        ctx.renderer.invalidateBodyRowsByIds(new Set(changedNodeIds));
+      }
       this.api.refresh();
       return true;
     });
@@ -716,6 +876,11 @@ export class GridCore {
       dataColIndex: (colId) => this.formulaAdapter.getColIndex(colId),
       onCellsChanged: (cells) => ctx.formulaEngine.onCellsChanged(cells).changedNodeIds,
     });
+
+    // Intelligent drag-to-fill: the fill handle asks this engine to continue the
+    // source pattern instead of copying. A no-op fallback to copy/cycle when the
+    // engine is disabled via `GridOptions.autofill`.
+    ctx.cellSelectionEngine.setAutoFillEngine(ctx.autoFillEngine);
 
     // Tab while editing → commit current edit, move to the adjacent cell, and
     // start editing it (dropdown cells open the dropdown directly).
@@ -908,6 +1073,7 @@ export class GridCore {
   }
 
   destroy(): void {
+    this.ctx.rowModelStrategy.destroy();
     this.ctx.rangeChartService?.disposeAll();
     this.api.destroy();
   }

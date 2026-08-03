@@ -3,12 +3,30 @@ import { ChangeDetectionStrategy, Component, OnInit, TemplateRef, ViewChild } fr
 import { PhotonGridComponent } from 'photon-grid-angular';
 import type { ColumnDef, RendererContext } from 'photon-grid-angular';
 import type { CellRange, DisplayRendererParams, GridApi, GridOptions } from 'photon-grid-core';
-import { PhotonAIProviderType, HeaderIconDisplay } from 'photon-grid-core';
-import type { RowClickPayload, RowSelectedEvent } from 'photon-grid-core';
+import { PhotonAIProviderType, HeaderIconDisplay, AutoFillDetectorName, ColumnGroupResizeStrategy, ToolbarSearchPosition } from 'photon-grid-core';
+import type { RowClickPayload, RowSelectedEvent, ToolbarTabChangedEvent, ToolbarSearchChangedEvent } from 'photon-grid-core';
+import type {
+    ServerSideDatasource,
+    ServerSideRequest,
+    ServerRequestEvent,
+    ServerSuccessEvent,
+    ServerErrorEvent,
+} from 'photon-grid-core';
+// Optional SheetJS adapter — enables binary .xlsx/.xls import. `xlsx` is an
+// optional peer dependency (installed in this example). We import it statically
+// here and hand it to the parser so the bundler resolves and includes it; the
+// core barrel never references `xlsx`, so Grid Core stays zero-dependency.
+import { SheetJsWorkbookParser } from 'photon-grid-core/import/sheetjs';
+import * as XLSX from 'xlsx';
 
 import { EmployeeCellComponent } from './employee-cell.component';
+import { RealtimeGridComponent } from './realtime-grid.component';
+import { InfiniteGridComponent } from './infinite-grid.component';
+import { MasterDetailGridComponent } from './master-detail-grid.component';
 import { CommonModule } from '@angular/common';
 import { environment } from '../environments/environment';
+import { ToastPosition } from '../../../../packages/photon-grid-core/dist/toast/toast.types';
+import { NestedColComponent } from "./nested-cols-data.component";
 
 /** Emoji flags for the fixed country list used by `generateData` below. */
 
@@ -20,7 +38,7 @@ import { environment } from '../environments/environment';
 @Component({
     selector: 'app-root',
     standalone: true,
-    imports: [PhotonGridComponent, CommonModule],
+    imports: [PhotonGridComponent, CommonModule, RealtimeGridComponent, InfiniteGridComponent, MasterDetailGridComponent, NestedColComponent],
     templateUrl: './app.component.html', 
     styleUrls: ['./app.component.scss', './linear-theme.scss'],
     changeDetection: ChangeDetectionStrategy.OnPush,
@@ -57,6 +75,18 @@ export class AppComponent implements OnInit {
 
     /** Row data bound to the formula grid's `dataSet` input. */
     formulaData: Record<string, unknown>[] = [];
+
+    /** Columns for the server-side demo grid. */
+    serverColumns: ColumnDef[] = [];
+
+    /**
+     * Options for the **Server-Side Row Model** demo grid. `rowModel: 'server'`
+     * turns the grid into a rendering engine: sorting, filtering, searching and
+     * pagination are all delegated to {@link serverSideDatasource}. The
+     * datasource here is an in-memory mock that simulates a backend (latency +
+     * abort), but the grid code is identical to talking to a real API.
+     */
+    serverOptions!: Partial<GridOptions>;
 
    COUNTRY_FLAGS: Record<string, string> = {
     USA: 'us',
@@ -138,36 +168,61 @@ export class AppComponent implements OnInit {
 
     /** Remaining grid configuration bound to the grid's `options` input. */
     readonly options: Partial<GridOptions> = {
-        mode: 'light',
-        variant: 'alpine',
+        mode: 'dark',
+        variant: 'neon',
         showCheckboxes: false,
         showSerialNumber: true,
         rowShading: false,
         showGroupingBar: true,
         showVerticalBorders: false,
-        showFilterRow: true,
+        showFilterRow: false,
         // Header icons: keep the filter funnel always visible, hide the "⋯" menu.
         headerIcons: {
             filter: HeaderIconDisplay.HIDDEN,
             menu: HeaderIconDisplay.HIDDEN,
         },
+        toast: {
+            position: ToastPosition.TopRight,
+        },
         rowHeight: 42,
         pagination: { enabled: true, pageSize: 1000, },
+        // Import Engine: mounts the top-right "Import ▾" button. CSV/TSV/Clipboard
+        // work out of the box; register a SheetJS parser (see onGridReady) for
+        // .xlsx. Default mode replaces data and defines columns from the file.
+        import: { enabled: true },
+        // Toolbar: a configurable strip above the header. Left-aligned tabs
+        // (event-only — the host reacts in onToolbarTabChanged), a left-docked
+        // global search wired to the quick-filter, and visibility toggles for
+        // the Filters funnel + Import button on the right.
+        toolbar: {
+            enabled: true,
+            showFilterButton: true,
+            showImportButton: true,
+            search: {
+                enabled: true,
+                position: ToolbarSearchPosition.Left,
+                placeholder: 'Search records…',
+            },
+            tabs: {
+                activeTabId: 'active',
+                items: [
+                    { id: 'active', label: 'Active' },
+                    { id: 'inactive', label: 'Inactive' },
+                    { id: 'final', label: 'Final Settlement' },
+                    { id: 'archived', label: 'Archived', disabled: true },
+                ],
+            },
+        },
         filterRowHeight: 48,
         headerRowHeight: 48,
         selection: { mode: 'multiple', serialColumnSelection: true },
         photonAI: {
             enabled: true,
-            provider: {
-                // Groq exposes an OpenAI-compatible Chat Completions API, so the
-                // built-in OpenAI preset works as-is — just point apiUrl at Groq
-                // and supply the Groq key + a Groq model. No custom transformers
-                // needed (Bearer auth + response_format json_object are handled).
-                type: PhotonAIProviderType.OpenAI,
-                apiKey: environment.groqApiKey,
-                apiUrl: 'https://api.groq.com/openai/v1/chat/completions',
-                model: 'llama-3.3-70b-versatile',
-            },
+             provider: {
+            type: PhotonAIProviderType.Gemini,
+            apiKey: environment.gemeniApiKey,
+            model: 'gemini-flash-latest',
+        },
         }
     };
 
@@ -178,18 +233,114 @@ export class AppComponent implements OnInit {
      * formula. `autoRecalculate` keeps dependent cells live as you edit inputs.
      */
     readonly formulaOptions: Partial<GridOptions> = {
-        mode: 'light',
-        variant: 'alpine',
-        showCheckboxes: false,
-        showSerialNumber: true,
-        rowShading: true,
-        showVerticalBorders: true,
-        rowHeight: 40,
+        mode: 'dark',
+        variant: 'neon',
+        showCheckboxes: true,
+        showSerialNumber: false,
+        rowShading: false,
+        showVerticalBorders: false,
+        rowHeight: 36,
         headerRowHeight: 44,
+        showGroupingBar: true,
+        showFilterRow: false,
+        animateRows: true,
+        autofill: {
+            detectors: [AutoFillDetectorName.Date],
+            enabled: false,
+            locale: 'en-US'
+        },
+        chartThemeOverrides: {
+            aggregation:'count',
+            categoryColId: 'col'
+        },
+        chartToolPanelsDef: {
+            defaultToolPanel: 'chart',
+            panels: ['setup']
+            
+        },
+        columnGroups: {
+            defaultCollapsedWidth: 200,
+            defaultResizeStrategy:  ColumnGroupResizeStrategy.PROPORTIONAL,
+            enabled: true,
+            suppressOpenByDefault: true,
+        },
+        columnMenu: {
+            // suppressItems: ['sortAsc', 'sortDesc', 'sortClear', 'filter', 'pinSubmenu', 'resizeSubmenu', 'visibilitySubmenu', 'columnSubmenu', 'moveLeft' , 'moveRight' , 'moveStart' , 'moveEnd', 'aggregateSubmenu'],
+            customItems: [
+                {label: 'Custom Action', icon: 'trash', action: (event) => console.log('Custom action clicked!', event)},
+            ]
+        },
         formula: {
             enabled: true,
             autoRecalculate: true,
             enableCaching: true,
+        },
+        filtersToolPanel: {
+            enabled: true,
+            
+        },
+        pagination: {
+            enabled: true,
+            pageSize: 10000,
+
+        },
+
+        editing: {
+            mode: 'none'
+        }, 
+        enableCellSelection: false,
+        enableCharts: false,
+        enableFullScreen: true,
+        onReady(api) {
+            console.log('Grid Ready')
+        },
+        toast: {
+            duration: 10000,
+            position: ToastPosition.TopRight
+        },
+        selection: {
+             serialColumnSelection: true,
+             suppressRowDeselection: false,
+             mode: 'multiple',
+             headerCheckbox: true,
+             checkboxSelection: true,
+             selectAllOnHeaderClick: true,
+        },
+        // With the Formula Engine on, imported =A1+B1 cells register and compute
+        // through the one Formula Engine — the importer never evaluates them.
+        import: { enabled: true },
+        // Configurable toolbar strip above the header: event-only tabs on the
+        // left, a right-docked global search wired to the quick-filter, and the
+        // Filters funnel + Import button. Tab/search events surface via the
+        // Angular (toolbarTabChanged)/(toolbarSearchChanged) outputs.
+        toolbar: {
+            enabled: true,
+            showFilterButton: true,
+            showImportButton: true,
+            search: {
+                enabled: true,
+                position: ToolbarSearchPosition.Right,
+                placeholder: 'Search products…',
+            },
+            tabs: {
+                activeTabId: 'active',
+                items: [
+                    { id: 'overview', label: 'Overview' },
+                    { id: 'analytics', label: 'Analytics' },
+                    { id: 'customers', label: 'Customers' },
+                    { id: 'orders', label: 'Orders' },
+                    { id: 'products', label: 'Products' },
+                    { id: 'inventory', label: 'Inventory' },
+                    { id: 'sales', label: 'Sales' },
+                    { id: 'marketing', label: 'Marketing' },
+                    { id: 'support', label: 'Support' },
+                    { id: 'settings', label: 'Settings' }
+                ],
+            },
+        },
+        headerIcons: {
+            filter: HeaderIconDisplay.HIDDEN,
+            menu: HeaderIconDisplay.HIDDEN,
         },
     };
 
@@ -197,11 +348,131 @@ export class AppComponent implements OnInit {
         this.data = this.generateData(100000);
         this.columns = this.buildColumns();
 
-        this.formulaColumns = this.buildFormulaColumns();
-        this.formulaData = this.buildFormulaData();
+        this.formulaColumns = this.buildFormulaColumns(50);
+        this.formulaData = this.buildFormulaData(1000);
+
+        // ── Server-side demo ──────────────────────────────────────────────
+        // A fixed dataset that lives "on the server". The mock datasource does
+        // all sorting/filtering/searching/paging over it, exactly like a backend.
+        const serverData = this.generateData(5000);
+        this.serverColumns = [
+            { field: 'fullName', header: 'Name', },
+            { field: 'department', header: 'Department' },
+            { field: 'country', header: 'Country' },
+            { field: 'salary', header: 'Salary', type: 'number' },
+            { field: 'age', header: 'Age', type: 'number' },
+        ];
+        this.serverOptions = {
+            mode: 'dark',
+            variant: 'quantum',
+            rowModel: 'server',
+            showSerialNumber: true,
+            rowHeight: 40,
+            headerRowHeight: 44,
+            // Theme Manager launcher (top-right): apply saved themes, export,
+            // import, reset. Themes are created via the Photon AI panel.
+            themeManager: true,
+            photonAI: {
+                enabled: true,
+                provider: {
+                // Groq exposes an OpenAI-compatible Chat Completions API, so the
+                // built-in OpenAI preset works as-is — just point apiUrl at Groq
+                // and supply the Groq key + a Groq model. No custom transformers
+                // needed (Bearer auth + response_format json_object are handled).
+                type: PhotonAIProviderType.OpenAI,
+                apiKey: environment.groqApiKey,
+                apiUrl: 'https://api.groq.com/openai/v1/chat/completions',
+                model: 'llama-3.3-70b-versatile',
+            },
+            },
+            showFilterRow: false,
+            pagination: { enabled: true, pageSize: 50 },
+            serverSide: {
+                debounce: 200,          // coalesce rapid filter/search typing
+                cache: true,            // revisiting a page is instant
+                maxRetries: 1,
+                retryDelay: 300,
+            },
+            serverSideDatasource: this.createMockDatasource(serverData),
+        };
+    }
+
+    /**
+     * Builds an in-memory {@link ServerSideDatasource} that mimics a real backend:
+     * it applies the request's `searchText`, `filterModel`, `sortModel` and page
+     * slice over `rows`, behind a simulated network delay, and honours
+     * `params.signal` so superseded requests are cancelled.
+     */
+    private createMockDatasource(rows: Record<string, unknown>[]): ServerSideDatasource {
+        const LATENCY_MS = 350;
+        return {
+            getRows: (params) => {
+                const timer = setTimeout(() => {
+                    try {
+                        const result = this.queryInMemory(rows, params.request);
+                        params.success(result);
+                    } catch (err) {
+                        params.fail(err);
+                    }
+                }, LATENCY_MS);
+                // Cancel the "network call" when the grid supersedes this request.
+                params.signal.addEventListener('abort', () => clearTimeout(timer), { once: true });
+            },
+        };
+    }
+
+    /** Pure query: search → filter → sort → page. Stands in for server-side SQL. */
+    private queryInMemory(
+        source: Record<string, unknown>[],
+        request: ServerSideRequest,
+    ): { rows: Record<string, unknown>[]; totalRows: number } {
+        let rows = source;
+
+        // Global search across the demo columns.
+        const term = request.searchText.trim().toLowerCase();
+        if (term) {
+            rows = rows.filter((r) =>
+                this.serverColumns.some((c) => String(r[c.field] ?? '').toLowerCase().includes(term)),
+            );
+        }
+
+        // Column filters (simple `contains` for strings, `equals` for numbers).
+        for (const [field, filter] of Object.entries(request.filterModel)) {
+            const value = (filter as { filter?: unknown }).filter;
+            if (value === undefined || value === null || value === '') continue;
+            const needle = String(value).toLowerCase();
+            rows = rows.filter((r) => String(r[field] ?? '').toLowerCase().includes(needle));
+        }
+
+        const totalRows = rows.length;
+
+        // Multi-sort in priority order.
+        if (request.sortModel.length) {
+            rows = [...rows].sort((a, b) => {
+                for (const s of request.sortModel) {
+                    const av = a[s.colId];
+                    const bv = b[s.colId];
+                    if (av === bv) continue;
+                    const cmp =
+                        typeof av === 'number' && typeof bv === 'number'
+                            ? av - bv
+                            : String(av) > String(bv) ? 1 : -1;
+                    return s.sort === 'asc' ? cmp : -cmp;
+                }
+                return 0;
+            });
+        }
+
+        // Page slice.
+        const page = rows.slice(request.startRow, request.endRow);
+        return { rows: page, totalRows };
     }
 
 onGridReady(api: GridApi): void {
+    // Enable binary Excel (.xlsx/.xls) import by registering the SheetJS-backed
+    // workbook parser, seeded with the statically-imported `xlsx` module so the
+    // bundler includes it. CSV/TSV/Clipboard already work without it.
+    api.registerImportParser(new SheetJsWorkbookParser(XLSX));
 //   console.log('[photon-grid] ready — visible rows:', api.getVisibleRows().length);
 
 //   // Create overlay
@@ -317,16 +588,55 @@ setTimeout(() => {
         console.log('[photon-grid] selection changed — selected:', event.selectedCount);
     }
 
+    /**
+     * Reacts to a toolbar tab change. Tabs are event-only, so the host owns the
+     * behaviour — here we simply log it, but a real app would swap the data set,
+     * apply a filter model, or call an API for the selected view.
+     */
+    onToolbarTabChanged(event: ToolbarTabChangedEvent): void {
+        console.log(`[photon-grid] tab changed: ${event.previousTabId} → ${event.tabId}`, event.tab);
+    }
+
+    /** Reacts to the toolbar's global search. The grid already quick-filters; this is just for host-side telemetry. */
+    onToolbarSearchChanged(event: ToolbarSearchChangedEvent): void {
+        console.log('[photon-grid] toolbar search:', event.query);
+    }
+
+    /** Server-Side Row Model: a fetch is about to run (or was served from cache). */
+    onServerRequest(event: ServerRequestEvent): void {
+        console.log(
+            `[photon-grid] server request #${event.request.requestId}`,
+            { page: event.request.page, sort: event.request.sortModel, search: event.request.searchText, fromCache: event.fromCache },
+        );
+    }
+
+    /** Server-Side Row Model: a slice was applied to the grid. */
+    onServerSuccess(event: ServerSuccessEvent): void {
+        console.log(
+            `[photon-grid] server success #${event.request.requestId}: ${event.rowCount} rows of ${event.totalRows ?? '?'}${event.fromCache ? ' (cache)' : ''}`,
+        );
+    }
+
+    /** Server-Side Row Model: a request failed after retries. */
+    onServerError(event: ServerErrorEvent): void {
+        console.error('[photon-grid] server error:', event.message);
+    }
+
     private buildColumns(): ColumnDef[] {
         return [
             {
                 // Only `field` is required — `colId`, `header` ("Full Name")
                 // and `type` ('string') are inferred by the core.
                 field: 'fullName',
+                rowDrag: true,
                 renderer: {
                     // Component-based renderer: avatar + name + gray job title.
                     display: EmployeeCellComponent,
                 },
+                // The funnel and "⋯" buttons are opt-in per column, so a grid
+                // only shows them where they are wanted.
+                filterable: true,
+                configurable: true,
                 filterIconDisplay: HeaderIconDisplay.ALWAYS,
                 menuIconDisplay: HeaderIconDisplay.ALWAYS
             },
@@ -348,9 +658,9 @@ setTimeout(() => {
                     },
                 },
             },
-            { colId: 'department', field: 'department', header: 'Department', type: 'string', width: 160, groupable: true },
+            { colId: 'department', field: 'department', header: 'Department', type: 'string', width: 160, groupable: true, filterable: true, configurable: true },
             { colId: 'jobTitle', field: 'jobTitle', header: 'Job Title', type: 'string', width: 180, groupable: true },
-            { colId: 'salary', field: 'salary',  aggFunc: 'max', header: 'Salary', type: 'currency', width: 140 },
+            { colId: 'salary', field: 'salary',  aggFunc: 'max', header: 'Salary', type: 'currency', width: 140, filterable: true, configurable: true },
             { colId: 'age', field: 'age', header: 'Age', aggFunc: 'avg', type: 'number', width: 90 },
             { colId: 'experience', field: 'experience', header: 'Experience', aggFunc: 'avg', type: 'number', width: 120 },
             {
@@ -386,89 +696,186 @@ setTimeout(() => {
      * The plain input columns (`quantity`, `unitPrice`, `taxRate`) are editable
      * too — editing them re-evaluates every dependent formula automatically.
      */
-    private buildFormulaColumns(): ColumnDef[] {
-        return [
-            // A — label column, referenced by nothing but keeps the sheet readable.
-            { colId: 'product', field: 'product', header: 'Product (A)', type: 'string', minWidth: 160, flex: 1 },
-            // B — quantity input.
-            { colId: 'quantity', field: 'quantity', header: 'Qty (B)', type: 'number',  editable: true, flex: 1  },
-            // C — unit price input.
-            { colId: 'unitPrice', field: 'unitPrice', header: 'Unit Price (C)', type: 'currency', editable: true, flex: 1  },
-            // D — computed line total: seeded with `=B*C`, editable so users can retype formulas.
-            { colId: 'total', field: 'total', header: 'Total (D)', type: 'currency', editable: true, flex: 1 , allowFormula: true,  },
-            // E — tax rate input (e.g. 0.08 = 8%).
-            { colId: 'taxRate', field: 'taxRate', header: 'Tax Rate (E)', type: 'number', editable: true, flex: 1  },
-            // F — computed grand total: seeded with `=D*(1+E)`.
-            { colId: 'grandTotal', field: 'grandTotal', header: 'Grand Total (F)', type: 'currency', editable: true, flex: 1 , allowFormula: true },
-        ];
-    }
+    private buildFormulaColumns(extraColumns = 0): ColumnDef[] {
 
-    /**
-     * Seed rows for the Formula Playground. `total` and `grandTotal` are left
-     * empty here — they are populated with actual formulas in
-     * {@link onFormulaGridReady} once the grid has assigned row node ids.
-     */
-    private buildFormulaData(): Record<string, unknown>[] {
-        return [
-            { product: 'Wireless Mouse',     quantity: 12, unitPrice: 25,  taxRate: 0.08 },
-            { product: 'Noise-cancel Headset', quantity: 8, unitPrice: 150, taxRate: 0.08 },
-            { product: 'Mechanical Keyboard', quantity: 7,  unitPrice: 89,  taxRate: 0.08 },
-            { product: '27" Monitor',        quantity: 4,  unitPrice: 240, taxRate: 0.05 },
-            { product: 'USB-C Dock',         quantity: 9,  unitPrice: 130, taxRate: 0.08 },
-            { product: 'Laptop Stand',       quantity: 15, unitPrice: 45,  taxRate: 0.05 },
-            { product: 'Webcam 1080p',       quantity: 6,  unitPrice: 60,  taxRate: 0.08 },
-            { product: 'Desk Lamp',          quantity: 20, unitPrice: 30,  taxRate: 0.05 },
-            { product: 'Mechanical Keyboard', quantity: 7,  unitPrice: 89,  taxRate: 0.08 },
-            { product: '27" Monitor',        quantity: 4,  unitPrice: 240, taxRate: 0.05 },
-            { product: 'USB-C Dock',         quantity: 9,  unitPrice: 130, taxRate: 0.08 },
-            { product: 'Laptop Stand',       quantity: 15, unitPrice: 45,  taxRate: 0.05 },
-            { product: 'Webcam 1080p',       quantity: 6,  unitPrice: 60,  taxRate: 0.08 },
-            { product: 'Desk Lamp',          quantity: 20, unitPrice: 30,  taxRate: 0.05 },
-            { product: 'Mechanical Keyboard', quantity: 7,  unitPrice: 89,  taxRate: 0.08 },
-            { product: '27" Monitor',        quantity: 4,  unitPrice: 240, taxRate: 0.05 },
-            { product: 'USB-C Dock',         quantity: 9,  unitPrice: 130, taxRate: 0.08 },
-            { product: 'Laptop Stand',       quantity: 15, unitPrice: 45,  taxRate: 0.05 },
-            { product: 'Webcam 1080p',       quantity: 6,  unitPrice: 60,  taxRate: 0.08 },
-            { product: 'Desk Lamp',          quantity: 20, unitPrice: 30,  taxRate: 0.05 },
-            { product: 'Mechanical Keyboard', quantity: 7,  unitPrice: 89,  taxRate: 0.08 },
-            { product: '27" Monitor',        quantity: 4,  unitPrice: 240, taxRate: 0.05 },
-            { product: 'USB-C Dock',         quantity: 9,  unitPrice: 130, taxRate: 0.08 },
-            { product: 'Laptop Stand',       quantity: 15, unitPrice: 45,  taxRate: 0.05 },
-            { product: 'Webcam 1080p',       quantity: 6,  unitPrice: 60,  taxRate: 0.08 },
-            { product: 'Desk Lamp',          quantity: 20, unitPrice: 30,  taxRate: 0.05 },
-            // Totals row — its formulas aggregate the eight product rows above.
-            { product: 'TOTAL' },
-        ];
-    }
+    const columns: ColumnDef[] = [
+        {
+            colId: 'product',
+            field: 'product',
+            header: this.getExcelColumnName(0), // A
+            type: 'string',
+            rowDrag: true,
+            minWidth: 160,
+            width: 160,
+            flex: 1
+        },
+        {
+            colId: 'days',
+            field: 'day',
+            header: this.getExcelColumnName(1), // B
+            type: 'string',
+            editable: true,
+            minWidth: 120,
+            flex: 1
+        },
+        {
+            colId: 'quantity',
+            field: 'quantity',
+            header: this.getExcelColumnName(2), // C
+            type: 'number',
+            editable: true,
+            minWidth: 120,
+            flex: 1
+        },
+        {
+            colId: 'unitPrice',
+            field: 'unitPrice',
+            header: this.getExcelColumnName(3), // D
+            type: 'currency',
+            editable: true,
+            minWidth: 120,
+            flex: 1
+        },
+        {
+            colId: 'total',
+            field: 'total',
+            header: this.getExcelColumnName(4), // E
+            type: 'currency',
+            editable: true,
+            allowFormula: true,
+            formula: '=quantity * unitPrice',
+            minWidth: 120,
+            flex: 1
+        },
+        {
+            colId: 'taxRate',
+            field: 'taxRate',
+            header: this.getExcelColumnName(5), // F
+            type: 'number',
+            editable: true,
+            minWidth: 120,
+            flex: 1
+        },
+        {
+            colId: 'grandTotal',
+            field: 'grandTotal',
+            header: this.getExcelColumnName(6), // G
+            type: 'currency',
+            editable: true,
+            allowFormula: true,
+            formula: '=total * (1 + taxRate)',
+            minWidth: 120,
+            flex: 1
+        }
+    ];
 
-    /**
-     * Seeds formulas into the Formula Playground once its grid is ready.
-     *
-     * Formulas are assigned via {@link GridApi.setCellFormula} rather than baked
-     * into `buildFormulaData`, because A1 references need concrete row node ids
-     * which only exist after the grid has ingested its data. Each product row
-     * gets `Total = Qty × Unit Price` and `Grand Total = Total × (1 + Tax Rate)`;
-     * the final TOTAL row sums both computed columns with `SUM`, demonstrating
-     * range functions and chained recalculation.
-     */
-    onFormulaGridReady(api: GridApi): void {
-        const rows = api.getAllRows();
-        const productCount = rows.length - 1; // last row is the TOTAL row
+    // Add dynamic columns starting at H
+    const startIndex = columns.length;
 
-        rows.forEach((row, i) => {
-            const r = i + 1; // A1 rows are 1-based
+    for (let i = 0; i < extraColumns; i++) {
+        const excelName = this.getExcelColumnName(startIndex + i);
 
-            if (i < productCount) {
-                api.setCellFormula(row.nodeId, 'total', `=B${r}*C${r}`);
-                api.setCellFormula(row.nodeId, 'grandTotal', `=D${r}*(1+E${r})`);
-            } else {
-                // Totals row: aggregate the product rows (D1:D8 and F1:F8).
-                api.setCellFormula(row.nodeId, 'total', `=SUM(D1:D${productCount})`);
-                api.setCellFormula(row.nodeId, 'grandTotal', `=SUM(F1:F${productCount})`);
-            }
+        columns.push({
+            colId: `col${startIndex + i}`,
+            field: `col${startIndex + i}`,
+            header: excelName,
+            type: 'number',
+            editable: true,
+            minWidth: 120,
+            flex: 1
         });
     }
 
+    return columns;
+}
 
-   
+private getExcelColumnName(index: number): string {
+    let name = '';
+
+    while (index >= 0) {
+        name = String.fromCharCode((index % 26) + 65) + name;
+        index = Math.floor(index / 26) - 1;
+    }
+
+    return name;
+}
+
+    /**
+     * Seed rows for the Formula Playground. `total`/`grandTotal` are **not** set
+     * on the product rows — the column formulas fill them automatically. The final
+     * `TOTAL` row carries row-data formulas (`=SUM(D1:D8)` / `=SUM(F1:F8)`) that
+     * override the column formula for that one row, aggregating the eight rows
+     * above. The second row demonstrates a per-row override via a `=`-value in data.
+     */
+    private buildFormulaData(count: number): Record<string, unknown>[] {
+    const products = [
+        'Wireless Mouse',
+        'Mechanical Keyboard',
+        '27" Monitor',
+        'USB-C Dock',
+        'Laptop Stand',
+        'Webcam 1080p',
+        'Noise-cancel Headset',
+        'Desk Lamp',
+        'External SSD',
+        'Gaming Chair',
+        'Bluetooth Speaker',
+        'Graphics Tablet',
+        'Smartphone Stand',
+        'Portable Charger',
+        'Office Chair',
+        'Microphone',
+        'LED Keyboard',
+        'Wireless Charger',
+        'HDMI Cable',
+        'Ethernet Adapter'
+    ];
+
+    const rows: Record<string, unknown>[] = [];
+
+    for (let i = 0; i < count; i++) {
+        const quantity = Math.floor(Math.random() * 20) + 1;
+        const unitPrice = Math.floor(Math.random() * 250) + 20;
+        const taxRate = Math.random() > 0.5 ? 0.08 : 0.05;
+
+        const row: Record<string, unknown> = {
+            product: products[i % products.length],
+            quantity,
+            unitPrice,
+            taxRate
+        };
+
+        // Example: every 10th row overrides the column formula
+        if ((i + 1) % 10 === 0) {
+            row['total'] = '=quantity * unitPrice * 0.9';
+        }
+
+        rows.push(row);
+    }
+
+    // Optional totals row
+    rows.push({
+        product: 'TOTAL',
+        total: `=SUM(D1:D${count})`,
+        grandTotal: `=SUM(F1:F${count})`
+    });
+
+    return rows;
+}
+
+    /**
+     * Nothing to seed anymore. Formulas are declared entirely in the column
+     * definitions (`ColumnDef.formula`) and row data (`=`-prefixed values), and the
+     * grid discovers and registers them automatically at load. `GridApi.setCellFormula`
+     * still works for runtime changes and overrides any declared formula — e.g.:
+     *
+     * ```ts
+     * // api.setCellFormula(api.getAllRows()[0].nodeId, 'total', '=quantity * unitPrice * 1.2');
+     * ```
+     */
+    onFormulaGridReady(api: GridApi): void {
+        // Enable .xlsx import for the formula playground too — imported =A1+B1
+        // cells register with the Formula Engine and compute automatically.
+        api.registerImportParser(new SheetJsWorkbookParser(XLSX));
+    }
 }

@@ -1,11 +1,14 @@
 import type { RowNode } from '../types/row.types';
 import type { GridOptions } from '../types/grid.types';
 import type { GridCore } from '../core/grid-core';
+import type { GridApi } from '../core/grid-api';
+import type { DetailComponent } from '../types/detail-component.types';
 import type { MasterDetailEngine } from '../engines/master-detail/master-detail-engine';
 import type { IconRenderer } from '../icons/icon-renderer';
 import type { ThemeManager } from '../theme/theme-manager';
 import { GridEventType } from '../types/event.types';
 import { detailNodeId } from '../types/row.types';
+import { DetailComponentHost, type DetailComponentHostDeps } from './detail-component-host';
 import { createDiv } from './dom-utils';
 
 /**
@@ -27,13 +30,40 @@ export type NestedGridFactory = (containerEl: HTMLElement, options: GridOptions)
  */
 const DETAIL_ROW_PADDING_PX = 20;
 
+/** Width of `.pg-row--detail-container`'s `border-bottom`, which `box-sizing: border-box` also charges against the row height. */
+const DETAIL_ROW_BORDER_PX = 1;
+
+/**
+ * Total vertical space a detail row spends on chrome rather than content:
+ * padding on both edges plus the bottom border.
+ *
+ * Exported because every "content height → row height" conversion must agree on
+ * it — `DetailComponentHost` and `GridApi.setDetailHeight` both take content
+ * pixels from the consumer and add this back. Getting it wrong is not a
+ * cosmetic 1px: a renderer whose content sizes itself from the row (anything
+ * `height: 100%`) measures the deficit, reports a smaller content height, and
+ * the two shrink each other one pixel at a time until the panel collapses.
+ */
+export const DETAIL_ROW_VERTICAL_CHROME_PX = DETAIL_ROW_PADDING_PX * 2 + DETAIL_ROW_BORDER_PX;
+
 /** Fallback for `MasterDetailConfig.keepDetailGridsCount` when unset. */
 const DEFAULT_KEEP_DETAIL_GRIDS_COUNT = 10;
+
+/**
+ * Content height (px, excluding {@link DETAIL_ROW_VERTICAL_CHROME_PX}) of the
+ * empty-state section shown for a row with no detail content. Fixed rather
+ * than measured: the section holds one icon and one line of text, so a
+ * `ResizeObserver` round trip would cost a layout pass to rediscover a
+ * constant.
+ */
+const EMPTY_DETAIL_CONTENT_HEIGHT_PX = 72;
 
 interface DetailEntry {
   containerEl: HTMLElement;
   instance: GridCore | null;
-  /** `true` once real content (nested grid or `detailRendererFn` output) has replaced the loading indicator. */
+  /** Mounted custom detail component, when `masterDetail.renderer` is configured. Mutually exclusive with {@link instance}. */
+  componentHost: DetailComponentHost | null;
+  /** `true` once real content (nested grid, custom component, or `detailRendererFn` output) has replaced the loading indicator. */
   contentBuilt: boolean;
   /** `true` once `beginCollapse` has started the shrink/fade-out — `sync()` must leave it alone until its own timer/transitionend destroys it. */
   collapsing: boolean;
@@ -48,22 +78,24 @@ interface DetailEntry {
  * Living outside those panels is what makes the detail section span the
  * full grid width regardless of pinned columns and stay put during
  * horizontal scroll: its content wrapper only ever receives the vertical
- * `--pg-scroll-y` transform (see `base-styles.ts`), never the horizontal one.
+ * `--pg-row-offset-y` transform (see `base-styles.ts`), never the horizontal one.
  *
  * Detail containers are cached by `nodeId` and reused across renders exactly
- * like `BodyRenderer.renderedRowMap` — a nested `GridCore` instance is
- * expensive to construct (it builds an entire independent grid), so it is
- * created lazily on first expand. While a row remains expanded but scrolls
- * outside the virtualized render window, its container is hidden
- * (`display: none`) rather than destroyed, trading a small constant amount
- * of retained memory (bounded by how many rows a user has actually expanded)
- * for avoiding repeated fetch/mount/destroy churn on every scroll frame.
+ * like `BodyRenderer.renderedRowMap` — detail content (a nested `GridCore`, or
+ * a custom component built from `masterDetail.renderer`) is expensive to
+ * construct, so it is created lazily on first expand. While a row remains
+ * expanded but scrolls outside the virtualized render window, its container is
+ * hidden (`display: none`) rather than destroyed, trading a small constant
+ * amount of retained memory (bounded by how many rows a user has actually
+ * expanded) for avoiding repeated fetch/mount/destroy churn on every scroll
+ * frame.
  *
  * On collapse, the entry is likewise not destroyed immediately — it moves
  * into {@link collapsedCache}, an LRU keyed by `MasterDetailConfig.keepDetailGridsCount`,
  * so re-expanding the same row restores the nested grid's live state (sort,
- * column order/width, scroll, selection) instead of rebuilding from scratch.
- * Only once evicted from that bounded cache is the instance actually destroyed.
+ * column order/width, scroll, selection), or a custom component's own internal
+ * state, instead of rebuilding from scratch. Only once evicted from that
+ * bounded cache is the content actually destroyed.
  */
 export class DetailRowRenderer {
   private layerEl: HTMLElement | null = null;
@@ -82,7 +114,9 @@ export class DetailRowRenderer {
   private nestedGridFactory: NestedGridFactory | null = null;
   private iconRenderer: IconRenderer | null = null;
   private themeManager: ThemeManager | null = null;
-  private parentApi: unknown = null;
+  private parentApi: GridApi | null = null;
+  /** Shared collaborator bundle handed to every {@link DetailComponentHost}. Built once `parentApi` arrives, since a host cannot exist without it. */
+  private componentHostDeps: DetailComponentHostDeps | null = null;
   /** Forwards a wheel delta to the parent grid's own vertical scroll. Set by `GridRenderer` so nested grids never capture wheel gestures for themselves. */
   private parentScrollForwarder: ((delta: number) => void) | null = null;
 
@@ -115,9 +149,26 @@ export class DetailRowRenderer {
     this.parentScrollForwarder = fn;
   }
 
-  /** Late-bound once `GridApi` exists (after `GridCore`'s constructor finishes building context). Passed through to `detailRendererFn` as `parentApi`. */
+  /**
+   * Late-bound once `GridApi` exists (after `GridCore`'s constructor finishes
+   * building context). Passed through to `detailRendererFn` as `parentApi`,
+   * exposed to custom detail components as `DetailContext.api`, and used to
+   * build {@link componentHostDeps}.
+   */
   setParentApi(api: unknown): void {
-    this.parentApi = api;
+    this.parentApi = api as GridApi;
+    this.componentHostDeps = {
+      engine: this.masterDetailEngine!,
+      api: this.parentApi,
+      // Routed through `beginCollapse` first so a programmatic
+      // `ctx.collapse()` plays the same shrink/fade as the toggle chevron —
+      // see `beginCollapse` for why the order matters.
+      collapse: (parentNodeId: string) => {
+        this.beginCollapse(parentNodeId);
+        this.parentApi?.collapseDetail(parentNodeId);
+      },
+      verticalChrome: DETAIL_ROW_VERTICAL_CHROME_PX,
+    };
   }
 
   /**
@@ -161,11 +212,15 @@ export class DetailRowRenderer {
     }
   }
 
-  /** Reuses a cached collapsed entry (preserving its nested grid's live state) when one exists, otherwise builds a fresh one. */
+  /** Reuses a cached collapsed entry (preserving its nested grid's or custom component's live state) when one exists, otherwise builds a fresh one. */
   private reviveOrBuildEntry(row: RowNode): DetailEntry {
     const cached = this.collapsedCache.get(row.nodeId);
     if (cached) {
       this.collapsedCache.delete(row.nodeId);
+      // The cached host still points at the detail node from the pipeline run
+      // that built it; re-point it so `ctx.data`/`ctx.rowNode` resolve against
+      // live state without the component being re-created.
+      cached.componentHost?.setRow(row);
       return cached;
     }
     return this.buildEntry(row);
@@ -250,13 +305,36 @@ export class DetailRowRenderer {
     return this.entries.get(detailNodeId(parentNodeId))?.instance ?? undefined;
   }
 
+  /**
+   * The custom detail component mounted for `parentNodeId`'s detail row.
+   * `undefined` when the row is not expanded, its content has not been built
+   * yet, or `masterDetail.renderer` is a plain function (which has no
+   * instance). Backs `GridApi.getDetailComponent`.
+   */
+  getDetailComponent(parentNodeId: string): DetailComponent | undefined {
+    return this.entries.get(detailNodeId(parentNodeId))?.componentHost?.getComponent() ?? undefined;
+  }
+
+  /**
+   * Re-resolves `masterDetail.props` for `parentNodeId`'s mounted component
+   * and asks it to update in place. Backs `GridApi.refreshDetail`.
+   *
+   * @returns `true` if a mounted component was refreshed.
+   */
+  refreshDetailComponent(parentNodeId: string): boolean {
+    const host = this.entries.get(detailNodeId(parentNodeId))?.componentHost;
+    if (!host) return false;
+    host.refresh();
+    return true;
+  }
+
   // ─── Private ────────────────────────────────────────────────────────────
 
   private buildEntry(row: RowNode): DetailEntry {
     const containerEl = createDiv('pg-row pg-row--detail-container');
     containerEl.setAttribute('data-node-id', row.nodeId);
     this.contentEl!.appendChild(containerEl);
-    return { containerEl, instance: null, contentBuilt: false, collapsing: false, cleanupFns: [] };
+    return { containerEl, instance: null, componentHost: null, contentBuilt: false, collapsing: false, cleanupFns: [] };
   }
 
   /**
@@ -298,6 +376,19 @@ export class DetailRowRenderer {
     const engine = this.masterDetailEngine!;
     const parentNodeId = row.parentNodeId!;
 
+    // A row the consumer declared detail-less, expanded anyway because
+    // EmptyDetailToggleMode.Interactive keeps its chevron working. There is
+    // nothing to fetch and no nested grid to build — show the empty state and
+    // shrink the section to fit it, since the auto-height observer (which
+    // measures a nested grid) never runs on this path.
+    if (!engine.hasDetail(row.data)) {
+      entry.containerEl.innerHTML = '';
+      entry.containerEl.appendChild(this.buildEmptyIndicator(engine.getEmptyDetailText()));
+      entry.contentBuilt = true;
+      engine.setDetailHeight(parentNodeId, EMPTY_DETAIL_CONTENT_HEIGHT_PX + DETAIL_ROW_VERTICAL_CHROME_PX);
+      return;
+    }
+
     if (engine.isPending(parentNodeId)) {
       if (!entry.containerEl.querySelector('.pg-detail-loading')) {
         entry.containerEl.appendChild(this.buildLoadingIndicator());
@@ -307,6 +398,26 @@ export class DetailRowRenderer {
 
     entry.containerEl.innerHTML = '';
     const config = engine.getConfig();
+
+    // Precedence: custom component > legacy `detailRendererFn` > nested grid.
+    // Each is a complete replacement for the ones below it, so exactly one
+    // content source ever mounts into a detail row.
+    if (config?.renderer) {
+      const host = new DetailComponentHost(
+        this.componentHostDeps!,
+        row,
+        entry.containerEl,
+        // A user-resizable row and a fixed-height row both take their height
+        // from somewhere other than the content, so auto-measurement would
+        // only fight them.
+        !config.detailResizable && config.detailAutoHeight !== false,
+      );
+      entry.componentHost = host;
+      host.mount();
+      entry.contentBuilt = true;
+      if (config.detailResizable) this.attachResizeHandle(entry, parentNodeId);
+      return;
+    }
 
     if (config?.detailRendererFn) {
       const result = config.detailRendererFn({
@@ -391,7 +502,14 @@ export class DetailRowRenderer {
       const totalContentPx = parseFloat(wrapperEl.style.getPropertyValue('--pg-content-height')) || 0;
       const headerEl = wrapperEl.querySelector<HTMLElement>('.pg-grid__header');
       const footerEl = wrapperEl.querySelector<HTMLElement>('.pg-grid__footer');
-      const chrome = (headerEl?.offsetHeight ?? 0) + (footerEl?.offsetHeight ?? 0) + 2; // + border
+      // The horizontal scrollbar row is chrome too: it is a flex sibling of the
+      // nested body, so whatever height it takes comes straight out of the rows'
+      // own space. Omitting it makes the detail row exactly that much too short,
+      // and the nested grid answers by growing a vertical scrollbar it does not
+      // need. `offsetHeight` is 0 while the row is hidden (`.pg-scrollbar--hidden`
+      // is `display: none`), so the common no-overflow case adds nothing.
+      const hScrollEl = wrapperEl.querySelector<HTMLElement>('.pg-scrollbar-h-row');
+      const chrome = (headerEl?.offsetHeight ?? 0) + (footerEl?.offsetHeight ?? 0) + (hScrollEl?.offsetHeight ?? 0) + 2; // + border
       this.masterDetailEngine!.setDetailHeight(parentNodeId, chrome + totalContentPx + DETAIL_ROW_PADDING_PX * 2);
     };
 
@@ -439,8 +557,24 @@ export class DetailRowRenderer {
     return el;
   }
 
+  /**
+   * Empty state for an expanded row with no detail content — deliberately
+   * shaped like the grid's own no-rows overlay (icon above a single line of
+   * text) so the two read as the same thing at two scales.
+   */
+  private buildEmptyIndicator(text: string): HTMLElement {
+    const el = createDiv('pg-detail-empty');
+    el.setAttribute('role', 'status');
+    el.appendChild(this.iconRenderer!.render('info', { size: 20, className: 'pg-detail-empty__icon' }));
+    const label = createDiv('pg-detail-empty__text');
+    label.textContent = text;
+    el.appendChild(label);
+    return el;
+  }
+
   private destroyEntry(entry: DetailEntry): void {
     for (const fn of entry.cleanupFns) fn();
+    entry.componentHost?.destroy();
     entry.instance?.destroy();
     entry.containerEl.remove();
   }

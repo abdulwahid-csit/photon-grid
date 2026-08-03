@@ -25,10 +25,17 @@ export const rootCss = `
   position: relative;
   --pg-scroll-x: 0px;
   --pg-scroll-y: 0px;
+  --pg-row-origin-y: 0px;
+  --pg-row-offset-y: 0px;
   --pg-content-height: 0px;
   --pg-center-content-width: 0px;
   --pg-left-panel-width: auto;
   --pg-right-panel-width: auto;
+  /* Height of the band currently occupied by sticky rows (Master/Detail or
+     Tree Data ancestors) — published per frame by GridRenderer.performRender,
+     0 when nothing is stuck. Bounds the sticky layer's pinned-edge shadow;
+     see master-detail.css.ts. */
+  --pg-sticky-block-height: 0px;
   --pg-header-row-height: 44px;
   --pg-filter-row-height: 36px;
 }

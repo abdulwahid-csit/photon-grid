@@ -1,5 +1,20 @@
 export { PhotonGrid, default } from './photon-grid';
 
+// Vue-flavoured Master/Detail renderers. `PhotonGridOptions` widens the core's
+// `masterDetail.renderer` to accept a Vue component; the helpers are exported
+// for consumers who want to adapt a renderer themselves (e.g. when building
+// options outside a `<PhotonGrid>` binding).
+export {
+  adaptVueDetailRenderer,
+  adaptVueOptions,
+  createVueDetailRenderer,
+} from './vue-renderer-adapter';
+export type {
+  PhotonGridOptions,
+  VueDetailRenderer,
+  VueMasterDetailConfig,
+} from './vue-renderer-adapter';
+
 // Re-export the core types for convenience so consumers can import column and
 // option types straight from the Vue package. Types only — the core runtime is
 // a peer dependency, not bundled.

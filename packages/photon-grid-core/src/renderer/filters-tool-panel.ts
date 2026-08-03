@@ -140,14 +140,16 @@ export class FiltersToolPanel {
    * Builds the launcher button + panel and appends them to the grid wrapper.
    * Call once per grid instance.
    *
-   * @param wrapperEl - The `.pg-grid` root element (the panel floats over it).
-   * @param config    - Feature configuration (`defaultOpen` opens it immediately).
+   * @param wrapperEl  - The `.pg-grid` root element (the panel floats over it).
+   * @param toolsBarEl - The shared `.pg-grid__tools` bar the launcher docks into
+   *                     so it lays out beside other launchers instead of stacking.
+   * @param config     - Feature configuration (`defaultOpen` opens it immediately).
    */
-  mount(wrapperEl: HTMLElement, config: FiltersToolPanelConfig): void {
+  mount(wrapperEl: HTMLElement, toolsBarEl: HTMLElement, config: FiltersToolPanelConfig): void {
     this.wrapperEl = wrapperEl;
     this.launcherEl = this.buildLauncher();
     this.panelEl = this.buildPanel();
-    wrapperEl.appendChild(this.launcherEl);
+    toolsBarEl.appendChild(this.launcherEl);
     wrapperEl.appendChild(this.panelEl);
 
     this.syncFromModel(this.deps.getFilterModel());

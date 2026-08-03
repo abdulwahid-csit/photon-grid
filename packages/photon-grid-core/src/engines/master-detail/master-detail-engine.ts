@@ -1,6 +1,8 @@
 import type { RowNode } from '../../types/row.types';
 import type { GridOptions } from '../../types/grid.types';
 import type { MasterDetailConfig } from '../../types/master-detail.types';
+import type { DetailEvent } from '../../types/detail-component.types';
+import { EmptyDetailToggleMode } from '../../types/master-detail.types';
 import type { GridStore } from '../../core/grid-store';
 import type { RowModel } from '../../core/row-model';
 import type { EventBus } from '../../event-bus/event-bus';
@@ -8,6 +10,9 @@ import type { ThemeMode, ThemeVariant } from '../../types/theme.types';
 import { GridEventType } from '../../types/event.types';
 
 const DEFAULT_DETAIL_HEIGHT = 200;
+
+/** Fallback for {@link MasterDetailConfig.emptyDetailText}. */
+const DEFAULT_EMPTY_DETAIL_TEXT = 'No results found';
 
 /**
  * Drives the Master/Detail row-expansion feature.
@@ -67,9 +72,33 @@ export class MasterDetailEngine {
     return this.store.get('expandedRowIds').has(nodeId);
   }
 
-  /** Whether `rowData` is eligible for expansion at all (drives whether a toggle icon renders). */
+  /** Whether `rowData` has real detail content behind it (drives which toggle variant renders, and whether `getDetailData` is called). */
   hasDetail(rowData: Record<string, unknown>): boolean {
     return this.config?.hasDetail ? this.config.hasDetail(rowData) : true;
+  }
+
+  /** Resolved {@link MasterDetailConfig.emptyDetailToggle} — what the toggle column renders for a row `hasDetail` rejects. */
+  getEmptyDetailToggleMode(): EmptyDetailToggleMode {
+    return this.config?.emptyDetailToggle ?? EmptyDetailToggleMode.Interactive;
+  }
+
+  /** Resolved {@link MasterDetailConfig.emptyDetailText} — shown in place of a nested grid for a detail-less row. */
+  getEmptyDetailText(): string {
+    return this.config?.emptyDetailText ?? DEFAULT_EMPTY_DETAIL_TEXT;
+  }
+
+  /**
+   * Whether a row gets a detail section injected when expanded.
+   *
+   * Wider than {@link hasDetail} on purpose: under
+   * {@link EmptyDetailToggleMode.Interactive} a detail-less row keeps a working
+   * chevron, so it must also get a detail row to expand into — one that
+   * `DetailRowRenderer` fills with the empty-state message instead of a nested
+   * grid. Under the other modes such a row has no toggle at all and can never
+   * reach an expanded state.
+   */
+  canExpand(rowData: Record<string, unknown>): boolean {
+    return this.hasDetail(rowData) || this.getEmptyDetailToggleMode() === EmptyDetailToggleMode.Interactive;
   }
 
   expand(row: RowNode): void {
@@ -130,13 +159,30 @@ export class MasterDetailEngine {
     const result: RowNode[] = [];
     for (const row of rows) {
       result.push(row);
-      if (row.type === 'data' && expanded.has(row.nodeId) && this.hasDetail(row.data)) {
+      // `canExpand`, not `hasDetail` — a detail-less row keeps a working
+      // chevron under EmptyDetailToggleMode.Interactive and must get a detail
+      // row to expand into, which renders the empty-state message instead of
+      // a nested grid.
+      if (row.type === 'data' && expanded.has(row.nodeId) && this.canExpand(row.data)) {
         const height = this.heightCache.get(row.nodeId) ?? this.config.detailFixedHeight ?? DEFAULT_DETAIL_HEIGHT;
         const clamped = this.clampHeight(height);
         result.push(this.rowModel.createDetailNode(row, row.data, clamped));
       }
     }
     return result;
+  }
+
+  /**
+   * Re-publishes a custom detail-component event on the grid's event bus.
+   *
+   * `masterDetail.events` already gives consumers named callbacks; this is the
+   * single-stream counterpart framework wrappers bind to when they need to
+   * surface every detail event as one output without knowing the names up
+   * front. Called by `DetailComponentHost` after the named handler (if any)
+   * has run.
+   */
+  emitDetailEvent(event: DetailEvent): void {
+    this.eventBus.emit(GridEventType.ROW_DETAIL_EVENT, event);
   }
 
   getCachedDetailData(nodeId: string): Record<string, unknown>[] | undefined {
@@ -214,7 +260,11 @@ export class MasterDetailEngine {
 
   private fetchDetailDataIfNeeded(row: RowNode): void {
     const getDetailData = this.config?.getDetailData;
-    if (!getDetailData || this.detailDataCache.has(row.nodeId)) return;
+    // A row the consumer has already declared detail-less has nothing to
+    // fetch — its detail section renders the empty state, so calling out for
+    // data would be a guaranteed-wasted round trip (and, for an async source,
+    // a spinner that resolves to nothing).
+    if (!getDetailData || !this.hasDetail(row.data) || this.detailDataCache.has(row.nodeId)) return;
 
     const result = getDetailData(row.data);
     if (!(result instanceof Promise)) {

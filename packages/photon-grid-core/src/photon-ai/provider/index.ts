@@ -16,10 +16,12 @@ export type {
   PhotonAIGridState,
   PhotonAISortState,
   PhotonAIFilterState,
+  PhotonAIContextScope,
 } from './ai-provider.types';
-export { PhotonAIErrorKind, PhotonAIProviderError, describeProviderError } from './ai-provider.types';
+export { PhotonAIErrorKind, PhotonAIProviderError, describeProviderError, PhotonAIDomain } from './ai-provider.types';
 export { HttpAIProvider } from './http-ai-provider';
 export { GridContextBuilder } from './grid-context-builder';
+export { ContextRouter, domainsForIntentKey } from './context-router';
 export { CommandNormalizer } from './command-normalizer';
 export { buildSystemInstruction, serializeGridContext } from './system-prompt';
 export { getPreset, coerceGeneration, parseGenerationText, type ProviderPreset } from './presets';

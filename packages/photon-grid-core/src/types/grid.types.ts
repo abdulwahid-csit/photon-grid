@@ -6,6 +6,14 @@ import type { MasterDetailConfig } from './master-detail.types';
 import type { PhotonAIConfig } from './photon-ai.types';
 import type { TreeDataConfig } from './tree-data.types';
 import type { FormulaConfig } from './formula.types';
+import type { AutoFillConfig } from './autofill.types';
+import type { RowMenuConfig } from './row-menu.types';
+import type { RowDragOptions } from './row-drag.types';
+import type { ImportConfig } from './import.types';
+import type { ToolbarConfig } from './toolbar.types';
+import type { RowModelType, ServerSideConfig, ServerSideDatasource } from './server-side.types';
+import type { InfiniteScrollConfig } from './infinite.types';
+import type { ToastServiceConfigInput } from '../toast/toast.types';
 import type { ChartPanelType } from '../chart/chart-panel';
 import type { ChartModel, ChartModelPatch } from '../chart/model/chart-model';
 import type {
@@ -199,7 +207,7 @@ export interface ColumnGroupConfig {
 
 export interface GridOptions {
   /** Column definitions. Only `field` is required per column — see {@link ColumnDefInput}. */
-  columns: ColumnDefInput[];
+  columns?: ColumnDefInput[];
   data?: Record<string, unknown>[];
 
   /**
@@ -208,7 +216,7 @@ export interface GridOptions {
    *
    * @example
    * ```ts
-   * new GridCore(el, { columns, mode: 'dark', variant: 'quartz' });
+   * new GridCore(el, { columns, mode: 'dark', variant: 'ion' });
    * ```
    */
   mode?: ThemeMode;
@@ -224,7 +232,7 @@ export interface GridOptions {
   /**
    * @deprecated Use {@link GridOptions.mode} and {@link GridOptions.variant}
    * instead. Retained for backward compatibility: legacy values such as
-   * `'dark'`, `'quartz'` or `'pg-quartz-theme'` are mapped onto the mode/variant
+   * `'dark'`, `'ion'` or `'pg-ion-theme'` are mapped onto the mode/variant
    * axes at runtime.
    */
   theme?: BuiltInThemeName | string;
@@ -297,6 +305,48 @@ export interface GridOptions {
   grouping?: Partial<RowGroupingConfig>;
   virtualScroll?: Partial<VirtualScrollConfig>;
   exportConfig?: Partial<ExportConfig>;
+
+  /**
+   * Which row model backs the grid. `'client'` (default) keeps all data
+   * operations in-memory. `'server'` turns the grid into a rendering engine and
+   * delegates sorting/filtering/searching/pagination to
+   * {@link serverSideDatasource}. @default `'client'` @see {@link RowModelType}
+   */
+  rowModel?: RowModelType;
+  /**
+   * Row-drag behaviour. The grab handle itself is opted into per column with
+   * {@link ColumnDef.rowDrag}; this controls whether the grid applies the
+   * reorder on drop or leaves it to the application.
+   *
+   * Defaults to managed under `rowModel: 'client'` and unmanaged under the
+   * server-backed models. @see {@link RowDragOptions}
+   */
+  rowDrag?: RowDragOptions;
+  /**
+   * Tuning for the Server-Side Row Model (debounce, response cache, retries).
+   * Only used when `rowModel: 'server'`. @see {@link ServerSideConfig}
+   */
+  serverSide?: Partial<ServerSideConfig>;
+  /**
+   * Tuning for the Infinite Row Model (page size, prefetch, cache bound,
+   * concurrency, retries) plus its five lifecycle callbacks. Only used when
+   * `rowModel: 'infinite'`. Uses the same {@link serverSideDatasource}, so a
+   * datasource written for `'server'` works unchanged.
+   * @see {@link InfiniteScrollConfig}
+   */
+  infinite?: InfiniteScrollConfig;
+  /**
+   * The datasource the grid calls to fetch each slice of rows in server mode.
+   * Required when `rowModel: 'server'`. @see {@link ServerSideDatasource}
+   */
+  serverSideDatasource?: ServerSideDatasource;
+
+  /**
+   * Theme Manager — mounts a "Theme" launcher in the top-right tools strip for
+   * applying saved themes, exporting/importing, and resetting the AI-generated
+   * theme (see `gridApi.photonAI`). Set `true` (or `{ enabled: true }`) to show it.
+   */
+  themeManager?: boolean | { enabled: boolean };
 
   sortConfig?: SortConfig[];
   filterModel?: FilterModel;
@@ -388,6 +438,57 @@ export interface GridOptions {
    * stay correct across sort/filter/pagination. @see {@link FormulaConfig}
    */
   formula?: FormulaConfig;
+
+  /**
+   * AutoFill Engine — intelligent drag-to-fill. When the user drags a range's
+   * fill handle, the engine continues the detected pattern instead of copying:
+   * numeric/date series, month & weekday names, `Item001 → Item002`, alphabet,
+   * booleans, and a copy fallback. Pure and framework-independent; the fill
+   * handle is the only integration point. @see {@link AutoFillConfig}
+   */
+  autofill?: AutoFillConfig;
+
+  /**
+   * Row context menu — the menu opened by right-clicking a data row.
+   *
+   * Adds host-authored actions alongside (or instead of) the built-in
+   * clipboard, chart and export entries. Items accept an icon from the grid's
+   * icon registry, an optional keyboard hint, and `children` for a hover
+   * fly-out submenu; `disabled` / `hidden` may be predicates evaluated against
+   * the clicked row. Activations invoke the item's `action` and emit
+   * `ROW_MENU_ITEM_CLICKED`. @see {@link RowMenuConfig}
+   */
+  rowMenu?: RowMenuConfig;
+
+  /**
+   * Import Engine — an opt-in **Import ▾** button at the grid's top-right
+   * corner that ingests Excel / CSV / TSV / Clipboard data through a single
+   * unified pipeline and feeds it in via the same public seams as
+   * {@link GridApi.setData}/{@link GridApi.setColumns}. `.xlsx` support requires
+   * registering a workbook parser (the optional SheetJS adapter). Formulas in
+   * imported cells are registered with the Formula Engine, never evaluated by
+   * the importer. @see {@link ImportConfig}
+   */
+  import?: ImportConfig;
+
+  /**
+   * Toolbar — the configurable top strip above the header. Hosts a fully
+   * configurable, event-only **tab strip** (e.g. Active / Inactive / Final
+   * Settlement) on the left, an optional **global search** (positionable left or
+   * right, wired to the quick-filter), and visibility toggles for the Filters
+   * funnel and Import launchers on the right. When omitted, the strip falls back
+   * to legacy behaviour (launchers appear whenever their own features are
+   * enabled). @see {@link ToolbarConfig}
+   */
+  toolbar?: ToolbarConfig;
+
+  /**
+   * Toast notifications — configures the grid's built-in transient message
+   * system (position, duration, max visible, animation…). Access the live
+   * service via `GridApi.toasts` to show success/error/warning/info toasts.
+   * @see {@link ToastServiceConfigInput}
+   */
+  toast?: ToastServiceConfigInput;
 
   enableStateManagement?: boolean;
   stateKey?: string;

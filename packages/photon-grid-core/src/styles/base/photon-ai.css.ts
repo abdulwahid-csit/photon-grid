@@ -261,4 +261,119 @@ export const photonAiCss = `/* ────────────────�
   }
 }
 
+/* ──────────────────── Markdown in assistant replies ──────────────────── */
+/*
+ * Assistant messages render as Markdown (see photon-ai/chat/markdown-renderer).
+ * Every value below is a theme token so code blocks re-skin with the grid in
+ * light, dark, and any custom theme — a hardcoded editor palette would be the
+ * one part of the panel that ignored the user's theme.
+ *
+ * The bubble sets white-space: pre-wrap for plain replies; block children
+ * here reset it so Markdown controls its own wrapping, while <pre> deliberately
+ * keeps "pre" to preserve code indentation.
+ */
+.pg-ai-md__p,
+.pg-ai-md__heading,
+.pg-ai-md__list {
+  white-space: normal;
+}
+.pg-ai-md__p + .pg-ai-md__p,
+.pg-ai-md__p + .pg-ai-md__list,
+.pg-ai-md__list + .pg-ai-md__p,
+.pg-ai-md__code + .pg-ai-md__p,
+.pg-ai-md__p + .pg-ai-md__code,
+.pg-ai-md__heading + .pg-ai-md__p {
+  margin-top: 8px;
+}
+.pg-ai-md__heading {
+  font-weight: var(--pg-typography-font-weight-semi-bold, 600);
+  line-height: 1.3;
+}
+.pg-ai-md__heading--1 { font-size: var(--pg-typography-font-size-lg, 15px); }
+.pg-ai-md__heading--2 { font-size: var(--pg-typography-font-size-md, 14px); }
+.pg-ai-md__heading--3,
+.pg-ai-md__heading--4 { font-size: var(--pg-typography-font-size-sm, 13px); }
+.pg-ai-md__list {
+  margin: 0;
+  padding-left: 20px;
+}
+.pg-ai-md__list li + li { margin-top: 3px; }
+.pg-ai-md__strong { font-weight: var(--pg-typography-font-weight-semi-bold, 600); }
+
+.pg-ai-md__code-inline {
+  padding: 1px 5px;
+  border-radius: var(--pg-borders-radius-sm, 4px);
+  background: var(--pg-colors-background-alt, #f1f5f9);
+  border: var(--pg-borders-width-thin, 1px) solid var(--pg-colors-border, #e2e8f0);
+  font-family: var(--pg-typography-font-family-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 0.92em;
+  word-break: break-word;
+}
+
+.pg-ai-md__code {
+  margin: 8px 0;
+  border: var(--pg-borders-width-thin, 1px) solid var(--pg-colors-border, #e2e8f0);
+  border-radius: var(--pg-borders-radius-md, 6px);
+  background: var(--pg-colors-surface, #ffffff);
+  overflow: hidden;
+}
+.pg-ai-md__code-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 6px 4px 10px;
+  background: var(--pg-colors-background-alt, #f1f5f9);
+  border-bottom: var(--pg-borders-width-thin, 1px) solid var(--pg-colors-border, #e2e8f0);
+}
+.pg-ai-md__code-lang {
+  font-size: var(--pg-typography-font-size-xs, 11px);
+  font-weight: var(--pg-typography-font-weight-medium, 500);
+  color: var(--pg-colors-text-secondary, #475569);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.pg-ai-md__copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: var(--pg-borders-width-thin, 1px) solid transparent;
+  border-radius: var(--pg-borders-radius-sm, 4px);
+  background: transparent;
+  color: var(--pg-colors-text-secondary, #475569);
+  font-family: inherit;
+  font-size: var(--pg-typography-font-size-xs, 11px);
+  cursor: pointer;
+  transition: background var(--pg-transitions-duration-fast, 100ms),
+              color var(--pg-transitions-duration-fast, 100ms);
+}
+.pg-ai-md__copy:hover {
+  background: var(--pg-colors-surface, #ffffff);
+  border-color: var(--pg-colors-border, #e2e8f0);
+  color: var(--pg-colors-text-primary, #0f172a);
+}
+.pg-ai-md__copy:focus-visible {
+  outline: none;
+  border-color: var(--pg-colors-primary, #2563eb);
+  box-shadow: 0 0 0 2px var(--pg-colors-primary-subtle, rgba(37, 99, 235, 0.2));
+}
+.pg-ai-md__copy--done { color: var(--pg-colors-success, #16a34a); }
+
+.pg-ai-md__pre {
+  margin: 0;
+  padding: 10px 12px;
+  overflow-x: auto;
+  white-space: pre;
+  font-family: var(--pg-typography-font-family-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: var(--pg-typography-font-size-xs, 12px);
+  line-height: 1.55;
+  color: var(--pg-colors-text-primary, #0f172a);
+  tab-size: 2;
+}
+
+/* A code block needs the full bubble width to be readable; the 85% cap that
+   suits prose makes 60-column snippets wrap awkwardly. */
+.pg-ai-panel__message--assistant:has(.pg-ai-md__code) { max-width: 97%; }
+
 `;

@@ -15,26 +15,31 @@ import type { ColumnDataType, ColumnPinPosition } from '../../types/column.types
  * target and a valid value. Deliberately excludes render functions, widths,
  * and other presentation-only fields — sending them would waste tokens and
  * leak irrelevant internals into the prompt.
+ *
+ * The capability flags and `options` are all optional and emitted only when a
+ * routed domain needs them: `sortable` goes out for sort requests, `pinned` for
+ * pinning requests, `options` for filtering. Across a wide grid this is the
+ * single largest saving in the whole context, since it multiplies per column.
  */
 export interface PhotonAIColumnContext {
   /** Stable machine id — the value the model must echo back in a command's `colId`/`colIds`. */
   readonly colId: string;
   /** Human-facing column title (what the user is most likely to type). */
   readonly header: string;
-  /** Underlying data field key. */
-  readonly field: string;
+  /** Underlying data field key. Omitted when identical to `colId` (the common case). */
+  readonly field?: string;
   /** Data type — tells the model which filter operators and value formats make sense. */
   readonly type: ColumnDataType;
-  readonly sortable: boolean;
-  readonly filterable: boolean;
-  readonly groupable: boolean;
+  readonly sortable?: boolean;
+  readonly filterable?: boolean;
+  readonly groupable?: boolean;
   /** Current pin side, or `null` when unpinned. */
-  readonly pinned: ColumnPinPosition;
-  readonly visible: boolean;
+  readonly pinned?: ColumnPinPosition;
+  readonly visible?: boolean;
   /**
    * Allowed values for `dropdown`/`enum`-style columns, so the model filters
    * by a value that actually exists rather than guessing. Omitted for
-   * free-form columns.
+   * free-form columns and for domains that never compare values.
    */
   readonly options?: readonly (string | number)[];
 }
@@ -50,14 +55,22 @@ export interface PhotonAICapability {
   readonly description: string;
 }
 
-/** A concise, model-friendly snapshot of the grid's live state at prompt time. */
+/**
+ * A concise, model-friendly snapshot of the grid's live state at prompt time.
+ *
+ * Every field beyond the row counts is optional: the context router omits the
+ * slices no in-scope domain needs, so a "hide the id column" request carries no
+ * sort array, no filter summaries, and no grouping list. Omitted (rather than
+ * empty) is deliberate — an empty array still costs tokens and, worse, reads to
+ * the model as a positive assertion that nothing is sorted/filtered.
+ */
 export interface PhotonAIGridState {
   readonly totalRowCount: number;
   readonly visibleRowCount: number;
-  readonly sort: readonly PhotonAISortState[];
-  readonly filters: readonly PhotonAIFilterState[];
-  readonly groupedColumns: readonly string[];
-  readonly selectedRowCount: number;
+  readonly sort?: readonly PhotonAISortState[];
+  readonly filters?: readonly PhotonAIFilterState[];
+  readonly groupedColumns?: readonly string[];
+  readonly selectedRowCount?: number;
 }
 
 export interface PhotonAISortState {
@@ -76,11 +89,66 @@ export interface PhotonAIFilterState {
  * what columns exist, what actions are possible, and what state the grid is
  * currently in. Built fresh per request by {@link PhotonAIService} so the
  * model always reasons over the grid's *current* shape.
+ *
+ * Since context routing was introduced this is a *scoped* view: only the
+ * capabilities, columns, and state slices relevant to the classified request
+ * are populated (see {@link PhotonAIContextScope}). A sort request no longer
+ * carries filter operators, pin state, or every column's flags.
  */
 export interface PhotonGridContext {
   readonly columns: readonly PhotonAIColumnContext[];
   readonly capabilities: readonly PhotonAICapability[];
   readonly state: PhotonAIGridState;
+}
+
+/**
+ * The functional areas a user request can touch. Each domain owns a slice of
+ * the grid context and a slice of the system prompt, so classifying a prompt
+ * into domains is what lets Photon AI send only what the model actually needs.
+ *
+ * Domains are deliberately coarse — one per user-visible grid concept — because
+ * the goal is to exclude *most* of the context, not to hair-split which of two
+ * neighbouring capabilities applies. Over-including within a domain is cheap;
+ * under-including across domains breaks the request.
+ */
+export enum PhotonAIDomain {
+  /** Sorting: ascending/descending/clear, plus current sort state. */
+  Sort = 'sort',
+  /** Filtering: operators, values, current filter state. The costliest domain. */
+  Filter = 'filter',
+  /** Column visibility: hide/show. */
+  Visibility = 'visibility',
+  /** Column pinning: left/right/unpin. */
+  Pinning = 'pinning',
+  /** Row grouping and group expand/collapse. */
+  Grouping = 'grouping',
+  /** Row/cell/column selection and clipboard. */
+  Selection = 'selection',
+  /** Column reordering (move to start/end). */
+  Layout = 'layout',
+  /** Questions about the grid's own state (counts, "what's sorted?", help). */
+  Info = 'info',
+}
+
+/**
+ * The resolved plan for one prompt: which domains to include, and whether the
+ * column list can be narrowed to specific columns the user named.
+ */
+export interface PhotonAIContextScope {
+  /** Domains whose capabilities, state, and prompt sections must be sent. */
+  readonly domains: ReadonlySet<PhotonAIDomain>;
+  /**
+   * `colId`s the request appears to reference. When non-empty the context
+   * carries only these columns; when empty every column is sent (the request
+   * is either grid-wide or too ambiguous to narrow safely).
+   */
+  readonly columnIds: readonly string[];
+  /**
+   * `true` when the classifier could not confidently attribute the prompt to
+   * any domain and fell back to sending everything. Surfaced for telemetry and
+   * tests — a rising rate here means the alias catalog needs widening.
+   */
+  readonly fellBack: boolean;
 }
 
 /**

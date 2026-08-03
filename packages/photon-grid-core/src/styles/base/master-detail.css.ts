@@ -40,7 +40,10 @@ export const masterDetailCss = `/* ───────────────
   position: relative;
   width: 100%;
   height: 100%;
-  transform: translateY(var(--pg-scroll-y, 0px));
+  /* Same rebased offset the data-row panels use — detail containers are
+     positioned by RowPositionSheet too, so they must share its origin.
+     See the note above .pg-panel__content in panels.css.ts. */
+  transform: translateY(var(--pg-row-offset-y, 0px));
 }
 /* Sticky Master/Detail row layer — a TOP-LEVEL sibling of the left/center/
    right panels and of .pg-detail-layer (not nested inside any of them).
@@ -62,20 +65,50 @@ export const masterDetailCss = `/* ───────────────
   pointer-events: none;
   z-index: 3;
 }
-/* Mirrors .pg-panel--left's own pinned-edge shadow. That shadow lives on the
-   panel container itself, which a stuck row's own background paints over
-   for its own height once moved into this overlay — without repeating it
-   here, the pinned-edge shadow has a visible gap wherever a sticky row
-   currently sits.
-   z-index: 2 (matching .pg-panel--left/--right's own z-index, base-styles.ts
-   ~line 334) is required, not optional — this shadow bleeds *rightward*,
-   into the center region's own horizontal space, and .pg-sticky-layer__center
-   is appended after it in the DOM (see GridRenderer.buildStickyLayer); on
-   equal stacking contexts a later sibling paints over an earlier one, so
-   without an explicit z-index center's own background silently covers the
-   bled-through part of this shadow, while the right shadow (appended last)
-   was never affected — z-index makes both sides correct regardless of
-   append order instead of depending on it. */
+/* Pinned-edge shadow PATCH for the sticky band only — deliberately NOT a
+   full-height divider.
+   The real, full-height pinned-edge shadow lives on .pg-grid__body >
+   .pg-panel--left/--right (panels.css.ts), one stacking level *below*
+   .pg-detail-layer, so an expanded detail row's opaque full-width background
+   covers it and the shadow can never stripe across detail content. This layer
+   sits *above* the detail layer (z-index 3), so anything painted here would
+   punch straight back through a detail row — which is exactly the artefact
+   these pseudo-elements are height-bounded to avoid.
+   What they patch: a stuck row's own opaque cells sit at z-index 3 and cover
+   the panel-level shadow for that row's height, leaving a visible gap in the
+   divider wherever a sticky row currently is. --pg-sticky-block-height (see
+   GridRenderer.performRender) is exactly the stacked height of the rows
+   currently parked in this layer — 0px when none are — so the patch spans the
+   stuck band and not one pixel more.
+   Drawn as pseudo-elements of the layer itself rather than on the region
+   elements below: those set overflow:hidden (to clip their rows), which also
+   clips an outward box-shadow, and their height is 100% by structural
+   necessity — the two constraints that made the old full-height shadow bleed
+   over detail rows in the first place.
+   z-index: 2 is required, not cosmetic — this shadow bleeds sideways into
+   .pg-sticky-layer__center's own horizontal space, whose row backgrounds are
+   opaque; without it, ::before would lose to a later-painted sibling. */
+.pg-sticky-layer::before,
+.pg-sticky-layer::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  height: var(--pg-sticky-block-height, 0px);
+  pointer-events: none;
+  z-index: 2;
+}
+.pg-sticky-layer::before {
+  left: 0;
+  width: var(--pg-left-panel-width, 0px);
+  box-shadow: var(--pg-shadows-pinned-left, 2px 0 4px rgba(0,0,0,0.06));
+}
+.pg-sticky-layer::after {
+  right: 0;
+  width: var(--pg-right-panel-width, 0px);
+  box-shadow: var(--pg-shadows-pinned-right, -2px 0 4px rgba(0,0,0,0.06));
+}
+/* z-index: 2 keeps a stuck row's pinned cells above the center region's own
+   (z-index: 1) — the same pinned-column elevation .pg-panel--left has. */
 .pg-sticky-layer__left {
   position: absolute;
   top: 0;
@@ -83,7 +116,6 @@ export const masterDetailCss = `/* ───────────────
   height: 100%;
   width: var(--pg-left-panel-width, 0px);
   overflow: hidden;
-  box-shadow: 2px 0 4px rgba(0,0,0,0.06);
   z-index: 2;
 }
 .pg-sticky-layer__center {
@@ -104,7 +136,8 @@ export const masterDetailCss = `/* ───────────────
   width: var(--pg-center-content-width, 100%);
   transform: translateX(var(--pg-scroll-x, 0px));
 }
-/* Mirrors .pg-panel--right's own pinned-edge shadow — see .pg-sticky-layer__left above. */
+/* Right-side twin of .pg-sticky-layer__left — see the note above it. The
+   pinned-edge shadow is on .pg-sticky-layer::after, not here. */
 .pg-sticky-layer__right {
   position: absolute;
   top: 0;
@@ -112,7 +145,6 @@ export const masterDetailCss = `/* ───────────────
   height: 100%;
   width: var(--pg-right-panel-width, 0px);
   overflow: hidden;
-  box-shadow: -2px 0 4px rgba(0,0,0,0.06);
 }
 .pg-row--sticky {
   /* The sticky layer container above is pointer-events:none (so empty space
@@ -156,6 +188,20 @@ export const masterDetailCss = `/* ───────────────
   width: 100%;
   height: 100%;
 }
+/* Content wrapper for a custom detail component (masterDetail.renderer).
+   Deliberately has NO height of its own: that is what makes its measured
+   size the component's natural content height rather than an echo of the
+   row height Photon just assigned it, which is what keeps
+   DetailComponentHost's ResizeObserver free of a feedback loop. */
+.pg-detail-component-host {
+  width: 100%;
+}
+/* Fixed-height / user-resizable rows take their height from somewhere other
+   than the content, so the host fills the row instead of measuring it —
+   applied when detailAutoHeight is false or detailResizable is on. */
+.pg-detail-component-host--fill {
+  height: 100%;
+}
 .pg-detail-loading {
   display: flex;
   align-items: center;
@@ -163,6 +209,22 @@ export const masterDetailCss = `/* ───────────────
   width: 100%;
   height: 100%;
   color: var(--pg-colors-text-secondary, #64748b);
+}
+/* Shown in place of a nested grid when an expanded row has no detail content
+   (EmptyDetailToggleMode.Interactive) — mirrors the grid's own no-rows overlay
+   so both read as the same state at two different scales. */
+.pg-detail-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--pg-spacing-xs, 4px);
+  width: 100%;
+  height: 100%;
+  color: var(--pg-colors-text-secondary, #64748b);
+}
+.pg-detail-empty__text {
+  font-size: var(--pg-typography-font-size-sm, 0.75rem);
 }
 .pg-detail-toggle {
   display: inline-flex;
@@ -183,6 +245,19 @@ export const masterDetailCss = `/* ───────────────
 .pg-detail-toggle:hover {
   background: var(--pg-colors-row-hover, #f0f7ff);
   color: var(--pg-colors-text-primary, #1e293b);
+}
+/* Inert spacer with the toggle's exact box metrics (EmptyDetailToggleMode.
+   Placeholder) — keeps the toggle column's left edge straight on rows with no
+   detail without offering an affordance that leads nowhere. Every property
+   here must track .pg-detail-toggle's box above; nothing else. */
+.pg-detail-toggle-placeholder {
+  display: inline-flex;
+  flex-shrink: 0;
+  width: var(--pg-group-toggle-size, 24px);
+  height: var(--pg-group-toggle-size, 24px);
+  margin-left: 8px;
+  margin-right: 4px;
+  pointer-events: none;
 }
 .pg-detail-resize-handle {
   position: absolute;

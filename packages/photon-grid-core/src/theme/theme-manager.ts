@@ -3,6 +3,7 @@ import { THEME_VARIANT_CLASS } from '../types/theme.types';
 import type { EventBus } from '../event-bus/event-bus';
 import { GridEventType } from '../types/event.types';
 import { CssVarInjector } from './css-var-injector';
+import { TOKEN_PREFIX } from './css-var-injector';
 import { lightTheme } from './themes/light-theme';
 import { darkTheme } from './themes/dark-theme';
 
@@ -25,7 +26,7 @@ interface ResolvedLegacyTheme {
  *
  * 1. **Mode** (`light` / `dark`) — the full color palette, injected as design
  *    tokens (CSS custom properties) scoped to the grid's container element.
- * 2. **Variant** (`quartz` / `alpine` / …) — a cosmetic skin applied as a CSS
+ * 2. **Variant** (`ion` / `neon` / …) — a cosmetic skin applied as a CSS
  *    class on that same container. Variant stylesheets only override structural
  *    and accent concerns, so any variant composes with either mode.
  *
@@ -42,6 +43,8 @@ export class ThemeManager {
   private activeMode: Theme;
   private activeVariant: ThemeVariant | 'none' = 'none';
   private scopeEl: HTMLElement | null = null;
+  /** Names of inline token overrides applied via {@link applyTokenOverrides}, for clean removal. */
+  private readonly tokenOverrideKeys = new Set<string>();
 
   /** Monotonic source for unique per-instance scope ids. */
   private static scopeSeq = 0;
@@ -112,9 +115,46 @@ export class ThemeManager {
   }
 
   /**
+   * Overlay a subset of design-token CSS variables directly on the scope
+   * container as inline properties — used by the AI Theme Engine for instant,
+   * rebuild-free preview/apply. Inline properties win over the scoped mode
+   * stylesheet in the cascade, so these override the active mode without
+   * touching it. The same variables are mirrored onto `document.documentElement`
+   * so portaled menus/overlays (appended to `<body>`) pick them up too.
+   *
+   * @param vars    - Map of full `--pg-*` variable names to values.
+   * @param scopeEl - Optional container; defaults to the current scope element.
+   */
+  applyTokenOverrides(vars: Readonly<Record<string, string>>, scopeEl?: HTMLElement): void {
+    if (scopeEl) this.scopeEl = scopeEl;
+    const target = this.scopeEl ?? document.documentElement;
+    const root = document.documentElement;
+    for (const [name, value] of Object.entries(vars)) {
+      if (!name.startsWith(TOKEN_PREFIX)) continue;
+      this.tokenOverrideKeys.add(name);
+      target.style.setProperty(name, value);
+      if (root !== target) root.style.setProperty(name, value);
+    }
+  }
+
+  /**
+   * Remove every inline token override applied via {@link applyTokenOverrides},
+   * reverting the grid to its active mode/variant styling.
+   */
+  clearTokenOverrides(scopeEl?: HTMLElement): void {
+    const target = scopeEl ?? this.scopeEl ?? document.documentElement;
+    const root = document.documentElement;
+    for (const name of this.tokenOverrideKeys) {
+      target.style.removeProperty(name);
+      if (root !== target) root.style.removeProperty(name);
+    }
+    this.tokenOverrideKeys.clear();
+  }
+
+  /**
    * Backward-compatible entry point for the deprecated `theme` option / API.
-   * Normalizes a legacy value (e.g. `'dark'`, `'quartz'`, `'pg-quartz-theme'`,
-   * `'quartz-dark'`) onto the mode/variant axes and applies it.
+   * Normalizes a legacy value (e.g. `'dark'`, `'ion'`, `'pg-ion-theme'`,
+   * `'ion-dark'`) onto the mode/variant axes and applies it.
    *
    * @deprecated Prefer {@link applyMode} + {@link applyVariant}.
    */
@@ -132,7 +172,7 @@ export class ThemeManager {
     if (!mode && variant === undefined) {
       console.warn(
         `[PhotonGrid] Theme "${nameOrTheme}" not recognized. Expected a mode ` +
-          `('light' | 'dark') or variant ('quartz' | 'alpine' | 'balham' | 'material').`,
+          `('light' | 'dark') or variant ('ion' | 'neon' | 'photon' | 'quantum').`,
       );
     }
   }
@@ -194,7 +234,7 @@ export class ThemeManager {
 
   /** Map a legacy `theme` string onto the mode/variant axes. */
   private static parseLegacyTheme(name: string): ResolvedLegacyTheme {
-    // Strip the historical `pg-…-theme` wrapper so `pg-quartz-theme` → `quartz`.
+    // Strip the historical `pg-…-theme` wrapper so `pg-ion-theme` → `ion`.
     const normalized = name
       .trim()
       .toLowerCase()
@@ -205,12 +245,12 @@ export class ThemeManager {
       return { mode: normalized };
     }
 
-    // Split an optional trailing mode suffix, e.g. `quartz-dark`.
+    // Split an optional trailing mode suffix, e.g. `ion-dark`.
     const [base, suffix] = normalized.split('-');
     const mode: ThemeMode | undefined =
       suffix === 'light' || suffix === 'dark' ? suffix : undefined;
 
-    if (base === 'quartz' || base === 'alpine' || base === 'balham' || base === 'material') {
+    if (base === 'ion' || base === 'neon' || base === 'photon' || base === 'quantum') {
       return { variant: base, mode };
     }
 

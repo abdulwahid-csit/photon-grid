@@ -7,13 +7,25 @@ import {
     TemplateRef,
     createComponent,
 } from '@angular/core';
+import type { Type } from '@angular/core';
 
-import type { ColumnDef, RendererOutput } from 'photon-grid-core';
+import type {
+    ColumnDef,
+    DetailComponent,
+    DetailComponentConstructor,
+    DetailContext,
+    DetailRenderer,
+    GridOptions,
+    RendererOutput,
+} from 'photon-grid-core';
 
 import {
+    AngularDetailRenderer,
     CellRenderer,
     ColumnRendererMap,
     ColumnDef as GridColumnDef,
+    DetailTemplateContext,
+    PhotonGridOptions,
     RendererContext,
     isComponentRendererSpec,
     isTemplateRendererSpec,
@@ -84,6 +96,31 @@ export class RendererAdapter {
     /** Recursively converts `GridColumnDef[]` into plain `ColumnDef[]`. */
     adaptColumns(columns: readonly GridColumnDef[]): ColumnDef[] {
         return columns.map((column) => this.adaptColumn(column));
+    }
+
+    /**
+     * Converts Angular-flavoured grid options into what the core accepts.
+     *
+     * Currently that is `masterDetail.renderer`: an `<ng-template>` or an
+     * Angular component is wrapped in a core `DetailComponent` class that owns
+     * its embedded view / component ref and disposes it in `destroy()`.
+     *
+     * Returns the original object untouched when there is nothing Angular to
+     * adapt, so the common case allocates nothing.
+     */
+    adaptOptions(options: Partial<PhotonGridOptions>): Partial<GridOptions> {
+        const masterDetail = options.masterDetail;
+        if (!masterDetail?.renderer) {
+            return options as Partial<GridOptions>;
+        }
+
+        return {
+            ...options,
+            masterDetail: {
+                ...masterDetail,
+                renderer: this.adaptDetailRenderer(masterDetail.renderer),
+            },
+        } as Partial<GridOptions>;
     }
 
     /**
@@ -316,6 +353,161 @@ export class RendererAdapter {
         host.classList.add('photon-grid__template-host');
         host.append(...viewRef.rootNodes);
         return host;
+    }
+
+    // ── Master/Detail ────────────────────────────────────────────────────────
+
+    /**
+     * Resolves any of the accepted {@link AngularDetailRenderer} forms to a
+     * core `DetailRenderer`. Core forms (a `DetailComponent` class, a function,
+     * an HTML string) are passed straight through — the wrapper only adds
+     * Angular forms, it never intercepts what the core already understands.
+     */
+    private adaptDetailRenderer(renderer: AngularDetailRenderer): DetailRenderer {
+        if (renderer instanceof TemplateRef) {
+            return this.createTemplateDetailRenderer(renderer);
+        }
+
+        if (this.isComponentType(renderer)) {
+            return this.createComponentDetailRenderer(renderer);
+        }
+
+        return renderer as DetailRenderer;
+    }
+
+    /**
+     * Wraps an `<ng-template>` in a core `DetailComponent` class.
+     *
+     * A class (rather than a `(ctx) => HTMLElement` function) because only the
+     * class form gets `destroy()` — an embedded view that is merely detached
+     * from the DOM is still attached to `ApplicationRef` and would keep being
+     * change-detected forever.
+     *
+     * `refresh` returns `true`: the template context reads `data`/`props`
+     * through live accessors, so a change-detection pass *is* the whole update.
+     * Re-creating the view would throw away scroll position, focus and any
+     * component state inside the template for no benefit.
+     */
+    private createTemplateDetailRenderer(
+        template: TemplateRef<DetailTemplateContext>,
+    ): DetailComponentConstructor {
+        // Captured so the returned class — which the core constructs with no
+        // arguments — can still reach this adapter's ApplicationRef.
+        const adapter = this;
+
+        return class TemplateDetailRenderer implements DetailComponent {
+            private viewRef?: EmbeddedViewRef<DetailTemplateContext>;
+
+            init(ctx: DetailContext): HTMLElement {
+                const viewRef = template.createEmbeddedView(adapter.buildDetailTemplateContext(ctx));
+
+                // Attaching to ApplicationRef is what makes the template
+                // participate in normal change detection (zone triggers, async
+                // pipe, event bindings) for as long as the row stays expanded.
+                adapter.appRef.attachView(viewRef);
+                viewRef.detectChanges();
+
+                this.viewRef = viewRef;
+
+                const host = document.createElement('div');
+                host.className = 'photon-grid__detail-host';
+                host.append(...viewRef.rootNodes);
+                return host;
+            }
+
+            refresh(): boolean {
+                if (!this.viewRef) {
+                    return false;
+                }
+                this.viewRef.detectChanges();
+                return true;
+            }
+
+            destroy(): void {
+                if (!this.viewRef) {
+                    return;
+                }
+                adapter.appRef.detachView(this.viewRef);
+                this.viewRef.destroy();
+                this.viewRef = undefined;
+            }
+        };
+    }
+
+    /**
+     * Wraps an Angular `@Component` in a core `DetailComponent` class. The
+     * instance is created once per expanded row and updated in place on
+     * refresh — the core's detail lifecycle has real update/teardown hooks, so
+     * none of the mount-per-invocation machinery cell renderers need applies here.
+     */
+    private createComponentDetailRenderer(component: Type<unknown>): DetailComponentConstructor {
+        const adapter = this;
+
+        return class ComponentDetailRenderer implements DetailComponent {
+            private ref?: ComponentRef<unknown>;
+
+            init(ctx: DetailContext): HTMLElement {
+                const ref = createComponent(component, {
+                    environmentInjector: adapter.environmentInjector,
+                    elementInjector: adapter.elementInjector,
+                });
+
+                adapter.applyDetailInputs(ref, ctx);
+                adapter.appRef.attachView(ref.hostView);
+                ref.changeDetectorRef.detectChanges();
+
+                this.ref = ref;
+                return ref.location.nativeElement as HTMLElement;
+            }
+
+            refresh(ctx: DetailContext): boolean {
+                if (!this.ref) {
+                    return false;
+                }
+                adapter.applyDetailInputs(this.ref, ctx);
+                this.ref.changeDetectorRef.detectChanges();
+                return true;
+            }
+
+            destroy(): void {
+                if (!this.ref) {
+                    return;
+                }
+                adapter.appRef.detachView(this.ref.hostView);
+                this.ref.destroy();
+                this.ref = undefined;
+            }
+        };
+    }
+
+    /**
+     * Builds the template locals, with `data` and `props` as accessors onto the
+     * core context rather than snapshots — that is what keeps a `let-data`
+     * binding current across row transactions without rebuilding the view.
+     *
+     * There is no per-renderer context mapper: extra locals belong in
+     * `masterDetail.props`, which reaches the template as `let-props`.
+     */
+    private buildDetailTemplateContext(ctx: DetailContext): DetailTemplateContext {
+        const context = { $implicit: ctx, ctx } as DetailTemplateContext;
+
+        Object.defineProperties(context, {
+            data: { get: () => ctx.data, enumerable: true },
+            props: { get: () => ctx.props, enumerable: true },
+        });
+
+        return context;
+    }
+
+    /**
+     * Feeds `ctx`/`data`/`props` into a detail component. Anything else the
+     * component needs comes from `masterDetail.props`, which arrives as the
+     * `props` input.
+     */
+    private applyDetailInputs(ref: ComponentRef<unknown>, ctx: DetailContext): void {
+        this.setComponentInput(ref, 'ctx', ctx);
+        this.setComponentInput(ref, 'data', ctx.data);
+        this.setComponentInput(ref, 'props', ctx.props);
     }
 
     private cleanupRemovedNode(node: Node): void {

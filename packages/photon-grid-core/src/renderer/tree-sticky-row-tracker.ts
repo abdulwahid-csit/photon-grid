@@ -12,6 +12,17 @@ export interface TreeStickyResult {
   entries: TreeStickyEntry[];
   /** The virtualization window's `start` index, widened so every sticky ancestor's cells stay rendered even though virtualization would otherwise have scrolled past them. */
   minStart: number;
+  /**
+   * Height in pixels of the band the sticky overlay actually occupies — the
+   * lowest `top + height` across the whole stacked ancestor chain, and `0`
+   * when nothing is sticky.
+   *
+   * Published by `GridRenderer` as `--pg-sticky-block-height` so the sticky
+   * layer's pinned-edge shadow spans exactly the stuck rows and no further —
+   * see `StickyRowResult.blockHeight` for why a full-height shadow there is
+   * wrong.
+   */
+  blockHeight: number;
 }
 
 /**
@@ -91,7 +102,7 @@ function findChildAtOffset(children: readonly RowNode[], offset: number, fallbac
  */
 export class TreeStickyRowTracker {
   compute(rows: RowNode[], scrollTop: number, rowHeight: number, windowStart: number): TreeStickyResult {
-    const none: TreeStickyResult = { entries: [], minStart: windowStart };
+    const none: TreeStickyResult = { entries: [], minStart: windowStart, blockHeight: 0 };
     if (rows.length === 0) return none;
 
     const idx = findRowAtOffset(rows, scrollTop, rowHeight);
@@ -106,6 +117,7 @@ export class TreeStickyRowTracker {
 
     let minStart = windowStart;
     let stackedTop = 0;
+    let blockHeight = 0;
     const entries: TreeStickyEntry[] = [];
 
     for (;;) {
@@ -113,7 +125,12 @@ export class TreeStickyRowTracker {
       const height = candidate.height ?? rowHeight;
       const subtreeEnd = candidate.subtreeEndTop ?? Infinity;
       const offsetPx = Math.max(-height, Math.min(0, subtreeEnd - effectiveOffset - height));
-      entries.push({ nodeId: candidate.nodeId, top: stackedTop + offsetPx });
+      const top = stackedTop + offsetPx;
+      entries.push({ nodeId: candidate.nodeId, top });
+      // Tracked as a running max rather than read off the last entry: a level
+      // deep in its own push-off zone sits higher than the one above it, so
+      // "deepest" is not always "lowest".
+      blockHeight = Math.max(blockHeight, top + height);
       minStart = Math.min(minStart, candidate.rowIndex);
 
       if (effectiveOffset >= subtreeEnd) break; // exhausted this level's subtree — nothing deeper to cascade into
@@ -127,6 +144,6 @@ export class TreeStickyRowTracker {
       candidate = child;
     }
 
-    return { entries, minStart };
+    return { entries, minStart, blockHeight: Math.max(0, blockHeight) };
   }
 }

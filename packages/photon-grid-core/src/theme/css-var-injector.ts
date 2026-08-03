@@ -1,12 +1,21 @@
 import type { ThemeTokens } from '../types/theme.types';
 
-const PREFIX = '--pg';
+/** CSS custom-property prefix for every Photon design token. */
+export const TOKEN_PREFIX = '--pg';
+const PREFIX = TOKEN_PREFIX;
 
-function toKebab(str: string): string {
+/** Converts a camelCase token key to kebab-case (`headerBackground` → `header-background`). */
+export function toKebab(str: string): string {
   return str.replace(/([A-Z])/g, (m) => `-${m.toLowerCase()}`);
 }
 
-function flattenTokens(
+/**
+ * Recursively flattens a (possibly nested) token object into a map of full
+ * CSS-variable names → string values, e.g. `{ colors: { headerBackground } }`
+ * → `--pg-colors-header-background`. Exported so the AI Theme Registry derives
+ * the exact same real variable names the injector produces.
+ */
+export function flattenTokens(
   obj: Record<string, unknown>,
   prefix: string,
   result: Map<string, string>,
@@ -19,6 +28,13 @@ function flattenTokens(
       flattenTokens(value as Record<string, unknown>, cssKey, result);
     }
   }
+}
+
+/** Flattens a full {@link ThemeTokens} tree into a `--pg-*` → value map. */
+export function flattenThemeTokens(tokens: ThemeTokens): Map<string, string> {
+  const vars = new Map<string, string>();
+  flattenTokens(tokens as unknown as Record<string, unknown>, PREFIX, vars);
+  return vars;
 }
 
 export class CssVarInjector {

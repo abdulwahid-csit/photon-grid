@@ -94,7 +94,8 @@ export const headerCss = `/* ─────────────────
 .pg-th--align-center .pg-th__label { text-align: center; }
 .pg-th--align-center .pg-th__content,
 .pg-th--no-group .pg-th__content {
-  justify-content: center;
+  // justify-content: center;
+  background: var(--pg-colors-header-background, #f8fafc);
 }
 .pg-th--no-group .pg-th__label {
   text-align: center;

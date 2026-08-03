@@ -49,7 +49,10 @@ function readText(source: unknown, path: readonly (string | number)[]): string {
 
 const GEMINI_PRESET: ProviderPreset = {
   defaultApiUrl: 'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent',
-  defaultModel: 'gemini-2.5-flash',
+  // Rolling alias: always points at the current stable Gemini Flash. Pinned ids
+  // (e.g. `gemini-2.5-flash`) are retired for keys created after their sunset
+  // and start answering 404, so an alias is the safer out-of-the-box default.
+  defaultModel: 'gemini-flash-latest',
   buildUrl: geminiUrl,
   buildHeaders: () => ({}),
   transformRequest: (request) => ({

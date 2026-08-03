@@ -4,6 +4,8 @@ import { createDiv } from './dom-utils';
 export class OverlayRenderer {
   private loadingEl: HTMLElement | null = null;
   private noRowsEl: HTMLElement | null = null;
+  private errorEl: HTMLElement | null = null;
+  private errorTimer: ReturnType<typeof setTimeout> | null = null;
   private containerEl: HTMLElement | null = null;
 
   constructor(private iconRenderer: IconRenderer) {}
@@ -64,9 +66,49 @@ export class OverlayRenderer {
     this.noRowsEl = null;
   }
 
+  /**
+   * Shows a compact, bottom-anchored error toast — used so import/validation
+   * failures are visibly surfaced instead of failing silently. Auto-dismisses
+   * after {@link autoHideMs} (pass `0` to keep it until {@link hideError}).
+   *
+   * @param text       - The user-facing error message.
+   * @param autoHideMs - Auto-dismiss delay in ms. @default 6000
+   */
+  showError(text: string, autoHideMs = 6000): void {
+    this.hideError();
+
+    const overlay = createDiv('pg-overlay pg-overlay--error');
+    overlay.setAttribute('role', 'alert');
+    overlay.setAttribute('aria-live', 'assertive');
+
+    const icon = this.iconRenderer.render('warning', { size: 20, className: 'pg-overlay__icon' });
+    const label = createDiv('pg-overlay__text');
+    label.textContent = text;
+
+    overlay.appendChild(icon);
+    overlay.appendChild(label);
+
+    this.errorEl = overlay;
+    this.containerEl?.appendChild(overlay);
+
+    if (autoHideMs > 0) {
+      this.errorTimer = setTimeout(() => this.hideError(), autoHideMs);
+    }
+  }
+
+  hideError(): void {
+    if (this.errorTimer) {
+      clearTimeout(this.errorTimer);
+      this.errorTimer = null;
+    }
+    this.errorEl?.remove();
+    this.errorEl = null;
+  }
+
   hideAll(): void {
     this.hideLoading();
     this.hideNoRows();
+    this.hideError();
   }
 
   destroy(): void {

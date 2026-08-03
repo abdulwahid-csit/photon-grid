@@ -11,6 +11,8 @@ import {
 import { GridCore, GridEventType } from 'photon-grid-core';
 import type { ColumnDefInput, GridApi, GridOptions } from 'photon-grid-core';
 
+import { adaptVueOptions, type PhotonGridOptions } from './vue-renderer-adapter';
+
 /**
  * Maps a core grid event to the Vue event this component emits. Kept as a flat
  * table so the wrapper stays declarative and easy to extend.
@@ -72,13 +74,28 @@ export const PhotonGrid = defineComponent({
      *     provider: {
      *       type: PhotonAIProviderType.Gemini,
      *       apiKey: import.meta.env.VITE_GEMINI_API_KEY,
-     *       model: 'gemini-2.5-flash',
+     *       model: 'gemini-flash-latest',
      *     },
      *   },
      * };
      * ```
+     *
+     * A Master/Detail row may be rendered by a Vue component through
+     * `options.masterDetail.renderer` — see {@link PhotonGridOptions}:
+     *
+     * @example Vue component as a Master/Detail renderer
+     * ```ts
+     * const options = {
+     *   masterDetail: {
+     *     enabled: true,
+     *     renderer: OrderDetail,                       // any Vue component
+     *     props: (ctx) => ({ orders: ctx.detailData ?? [] }),
+     *     events: { save: (e) => persist(e.payload) },
+     *   },
+     * };
+     * ```
      */
-    options: { type: Object as PropType<Partial<GridOptions>>, default: () => ({}) },
+    options: { type: Object as PropType<Partial<PhotonGridOptions>>, default: () => ({}) },
   },
   emits: [
     'gridReady',
@@ -114,7 +131,7 @@ export const PhotonGrid = defineComponent({
     const build = (): void => {
       if (!host.value) return;
       const merged = {
-        ...(props.options ?? {}),
+        ...adaptVueOptions(props.options ?? {}),
         columns: props.columns ?? [],
         data: props.dataSet ?? [],
       } as GridOptions;

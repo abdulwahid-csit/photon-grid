@@ -53,6 +53,42 @@ export function extractReferences(root: AstNode): Reference[] {
 }
 
 /**
+ * Collects every bare `Name` node string from an AST — the row-relative
+ * field-name / column-letter references (and any named ranges, which the caller
+ * filters out). The calculation engine turns these into per-row precedent edges
+ * so a formula like `=quantity * unitPrice` recomputes when its row's `quantity`
+ * changes.
+ *
+ * @param root - The formula's root AST node.
+ * @returns Every `Name` node's name, in traversal order (duplicates preserved).
+ */
+export function extractNames(root: AstNode): string[] {
+  const names: string[] = [];
+  const stack: AstNode[] = [root];
+
+  while (stack.length > 0) {
+    const node = stack.pop() as AstNode;
+    switch (node.type) {
+      case AstNodeType.Name:
+        names.push(node.name);
+        break;
+      case AstNodeType.Unary:
+        stack.push(node.operand);
+        break;
+      case AstNodeType.Binary:
+        stack.push(node.left, node.right);
+        break;
+      case AstNodeType.Function:
+        for (let i = 0; i < node.args.length; i++) stack.push(node.args[i]);
+        break;
+      default:
+        break;
+    }
+  }
+  return names;
+}
+
+/**
  * `true` when the AST contains at least one call to a function named in
  * `volatileNames` (upper-cased). Used to flag volatile formula cells.
  *

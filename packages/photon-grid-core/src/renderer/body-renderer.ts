@@ -5,9 +5,13 @@ import type { EventBus } from '../event-bus/event-bus';
 import type { IconRenderer } from '../icons/icon-renderer';
 import type { RowSelectionEngine } from '../engines/selection/row-selection-engine';
 import { GridEventType } from '../types/event.types';
+import { EmptyDetailToggleMode } from '../types/master-detail.types';
 import { CellRenderer } from './cell-renderer';
 import { formatValue } from '../engines/editing/value-parser';
 import { createDiv, toggleClass } from './dom-utils';
+import { ViewportVDom } from './vdom/viewport-vdom';
+import { CellPatcher } from './vdom/cell-patcher';
+import type { RenderedRowRef, VDomRenderContext, VDomStats } from './vdom/vdom.types';
 import { resolveColumnRenderer } from './renderer-resolver';
 import { applyTreeToggle, syncTreeToggle, type TreeToggleRenderConfig } from './tree-cell-renderer';
 import { isTouchPointer, DRAG_THRESHOLD_TOUCH } from '../core/pointer-utils';
@@ -72,6 +76,8 @@ export interface BodyRendererOptions {
     toggleColumnId: string;
     isExpandedFn: (nodeId: string) => boolean;
     hasDetailFn: (rowData: Record<string, unknown>) => boolean;
+    /** What to render in the toggle column for a row `hasDetailFn` rejects — see {@link EmptyDetailToggleMode}. */
+    emptyToggleMode: EmptyDetailToggleMode;
   };
   /**
    * When Tree Data is enabled, drives indentation (`data-level` on the row
@@ -90,6 +96,18 @@ interface PanelRowSet {
 export class BodyRenderer {
   private cellRenderer = new CellRenderer();
   private renderedRowMap = new Map<string, PanelRowSet>();
+
+  /**
+   * Viewport Virtual DOM — the mirror of the rows currently in the DOM.
+   *
+   * Kept in sync at the end of every {@link renderRows} pass so that real-time
+   * data updates can be applied as individual cell patches instead of row
+   * rebuilds. See `src/renderer/vdom`.
+   */
+  private readonly vdom: ViewportVDom;
+
+  /** Reused buffer feeding `ViewportVDom.sync` — avoids an array per render. */
+  private readonly syncRefs: RenderedRowRef[] = [];
 
   private leftContent: HTMLElement | null = null;
   private centerContent: HTMLElement | null = null;
@@ -126,7 +144,9 @@ export class BodyRenderer {
     private eventBus: EventBus,
     private iconRenderer: IconRenderer,
     private rowSelectionEngine: RowSelectionEngine,
-  ) {}
+  ) {
+    this.vdom = new ViewportVDom(new CellPatcher(this.cellRenderer, iconRenderer));
+  }
 
   setPanels(
     leftContent: HTMLElement | null,
@@ -169,28 +189,42 @@ export class BodyRenderer {
    * Sets (or clears) the hovered row by `nodeId`, moving the `pg-row--hover`
    * class across all panels in one pass. No-op when the target is unchanged, so
    * it is cheap to call every scroll frame.
+   *
+   * Resolves the row's parts through `renderedRowMap` — an O(1) lookup of the
+   * exact three elements — rather than a `querySelectorAll` sweep per panel.
+   * Falls back to a scoped query only for a row that is rendered but not in the
+   * map (a Master/Detail or Tree row parked in the sticky overlay, whose DOM is
+   * re-parented out of the content panels by `setStickyRows`).
    */
   private setHoveredRow(nodeId: string | null): void {
     if (nodeId === this.hoveredNodeId) return;
-    if (this.hoveredNodeId) {
-      for (const p of this.hoverPanels) {
-        p.querySelectorAll<HTMLElement>(`[data-node-id="${this.hoveredNodeId}"]`).forEach((r) => r.classList.remove('pg-row--hover'));
-      }
-    }
+    if (this.hoveredNodeId) this.applyHoverClass(this.hoveredNodeId, false);
     this.hoveredNodeId = nodeId;
-    if (nodeId) {
-      for (const p of this.hoverPanels) {
-        p.querySelectorAll<HTMLElement>(`[data-node-id="${nodeId}"]`).forEach((r) => r.classList.add('pg-row--hover'));
+    if (nodeId) this.applyHoverClass(nodeId, true);
+  }
+
+  /** Adds/removes `pg-row--hover` on every panel part of one row. */
+  private applyHoverClass(nodeId: string, on: boolean): void {
+    const ps = this.renderedRowMap.get(nodeId);
+    if (ps) {
+      for (const el of [ps.left, ps.center, ps.right]) {
+        if (el) toggleClass(el, 'pg-row--hover', on);
       }
+      return;
+    }
+    for (const p of this.hoverPanels) {
+      p.querySelectorAll<HTMLElement>(`[data-node-id="${nodeId}"]`)
+        .forEach((r) => toggleClass(r, 'pg-row--hover', on));
     }
   }
 
   /**
    * Re-evaluates which row sits under the last-known pointer position and
-   * updates the hover accordingly. Called after each `renderRows` so that while
-   * the body scrolls under a stationary cursor (wheel/momentum), the row now
-   * beneath the pointer becomes the hovered one. Cheap when idle: a single
-   * `elementFromPoint` only while the pointer is inside the body.
+   * updates the hover accordingly. Called at the start of every `renderRows`
+   * (before row classes are derived) so that while the body scrolls under a
+   * stationary cursor (wheel/momentum), the row now beneath the pointer becomes
+   * the hovered one. Cheap when idle: a single `elementFromPoint` only while the
+   * pointer is inside the body.
    */
   refreshHoverAtPointer(): void {
     if (!this.pointerInside) return;
@@ -267,6 +301,16 @@ export class BodyRenderer {
   ): void {
     const cStart = options.centerColStart ?? 0;
     const cEnd = cStart + centerCols.length;
+
+    // Resolve the hovered row BEFORE any row class is derived. `getRowClass`
+    // reads `hoveredNodeId`, and the rows already sit at their post-scroll
+    // positions by now (GridRenderer updates the RowPositionSheet ahead of this
+    // call), so hit-testing here means recycled rows are stamped with the
+    // correct hover in the same pass that repositions them — no frame where the
+    // highlight is missing or stale. It also self-corrects during a row drag:
+    // `.pg-grid--row-dragging .pg-row` sets `pointer-events: none`, so the hit
+    // test resolves past the rows and clears the hover instead of re-applying it.
+    this.refreshHoverAtPointer();
 
     // When the visible center col range changes, invalidate all center panels
     if (cStart !== this.lastCenterStart || cEnd !== this.lastCenterEnd) {
@@ -354,10 +398,99 @@ export class BodyRenderer {
     this.serialColumnSelection = !!options.serialColumnSelection;
     this.refreshRowSelectionEdges();
 
-    // Rows just moved under the (possibly stationary) pointer — re-hit-test so
-    // the hovered row tracks the scroll instead of sticking to a scrolled-away
-    // (or recycled) node. No-op unless the pointer is inside the body.
+    // Rows just moved under the (possibly stationary) pointer. The pre-pass at
+    // the top of this method already stamped `pg-row--hover` into every row's
+    // className, so this second hit-test only catches the case where appending
+    // the fragments above changed what sits under the cursor (a row entering
+    // the window at the pointer's exact position). `setHoveredRow` early-returns
+    // when the target is unchanged, so this is a single `elementFromPoint` in
+    // the common case and a no-op when the pointer is outside the body.
     this.refreshHoverAtPointer();
+
+    // Adopt the freshly painted window into the Virtual DOM. This is the one
+    // moment the DOM is guaranteed to agree with the data, so it is where the
+    // baseline values for future diffs are recorded.
+    this.syncVirtualDom(rows, options);
+  }
+
+  /**
+   * Reconciles the Virtual DOM with the rows currently in the DOM.
+   *
+   * Rows whose panel elements were reused keep their recorded cells, so a pure
+   * scroll costs a map write per row and nothing else.
+   *
+   * @param rows    - Rows in the current render window.
+   * @param options - Render options carrying the column list and formatting.
+   */
+  private syncVirtualDom(rows: RowNode[], options: BodyRendererOptions): void {
+    const ctx = this.buildVDomContext(options);
+    if (!ctx) return;
+
+    this.syncRefs.length = 0;
+    for (let i = 0; i < rows.length; i++) {
+      const ps = this.renderedRowMap.get(rows[i].nodeId);
+      if (!ps) continue;
+      this.syncRefs.push({ row: rows[i], left: ps.left, center: ps.center, right: ps.right });
+    }
+    this.vdom.sync(this.syncRefs, ctx);
+    this.syncRefs.length = 0;
+  }
+
+  /**
+   * Builds the render context the Virtual DOM needs to reproduce a cell exactly
+   * as the initial render produced it.
+   *
+   * Returns `null` when the column list is unavailable — the diff has nothing
+   * to resolve against and must be skipped rather than guessed at.
+   */
+  private buildVDomContext(options: BodyRendererOptions): VDomRenderContext | null {
+    const columns = options.allLeafColumns;
+    if (!columns || columns.length === 0) return null;
+
+    const columnsById = new Map<string, ColumnDef>();
+    for (let i = 0; i < columns.length; i++) columnsById.set(columns[i].colId, columns[i]);
+
+    return {
+      columnsById,
+      dateFormat: options.dateFormat,
+      timeZone: options.timeZone,
+      currencySymbol: options.currencySymbol,
+      locale: options.locale,
+      api: options.api ?? null,
+    };
+  }
+
+  /**
+   * Diffs rendered rows against their last-rendered values and writes only the
+   * cells that changed.
+   *
+   * This is the real-time update path: no row is rebuilt, no cell element is
+   * replaced, and every piece of cell state (focus, open editor, selection,
+   * hover, custom-renderer DOM) survives untouched.
+   *
+   * @param nodeIds - Rows to diff, or `null` for the whole viewport.
+   * @param options - Render options carrying the column list and formatting.
+   * @returns The number of cells written to the DOM.
+   */
+  patchCells(nodeIds: Iterable<string> | null, options: BodyRendererOptions): number {
+    const ctx = this.buildVDomContext(options);
+    if (!ctx) return 0;
+    return this.vdom.patchRows(nodeIds, ctx);
+  }
+
+  /** `true` when the row is currently rendered and tracked by the Virtual DOM. */
+  isRowRendered(nodeId: string): boolean {
+    return this.vdom.has(nodeId);
+  }
+
+  /** Virtual DOM counters — see {@link VDomStats}. */
+  getVDomStats(): VDomStats {
+    return this.vdom.getStats();
+  }
+
+  /** Zeroes the Virtual DOM counters without discarding the tracked tree. */
+  resetVDomStats(): void {
+    this.vdom.resetStats();
   }
 
   /**
@@ -376,7 +509,12 @@ export class BodyRenderer {
     const visible = this.store.get('visibleRows') as RowNode[];
     const selectedIds = this.store.get('selectedRowIds') as Set<string>;
     const indexById = new Map<string, number>();
-    for (let i = 0; i < visible.length; i++) indexById.set(visible[i].nodeId, i);
+    // `visible` is sparse under a demand-loading row model; unloaded indices
+    // simply do not participate in the selection-edge calculation.
+    for (let i = 0; i < visible.length; i++) {
+      const node = visible[i];
+      if (node) indexById.set(node.nodeId, i);
+    }
 
     for (const [nodeId, ps] of this.renderedRowMap) {
       const parts = [ps.left, ps.center, ps.right].filter((e): e is HTMLElement => e !== null);
@@ -441,6 +579,8 @@ export class BodyRenderer {
       ps.right?.remove();
     }
     this.renderedRowMap.clear();
+    // The virtual tree must never outlive the elements it references.
+    this.vdom.clear();
     this.lastCenterStart = -1;
     this.lastCenterEnd = -1;
   }
@@ -466,10 +606,26 @@ export class BodyRenderer {
         this.renderedRowMap.delete(nodeId);
       }
     }
+    // Drop the same rows from the virtual tree so it never points at detached
+    // elements; they are re-adopted when the next render rebuilds them.
+    this.vdom.evict(nodeIds);
   }
 
   destroy(): void {
     this.clear();
+  }
+
+  /**
+   * The live render cache: `nodeId` → the row's per-panel DOM parts.
+   *
+   * Exposed read-only for `RowAnimator`, which needs the exact elements that
+   * currently represent each row. Handing over this map means the animator does
+   * no `querySelectorAll` of its own, and — because these are the same reused
+   * nodes across renders — it also guarantees the FLIP operates on DOM that
+   * survived the sort rather than on freshly-built replacements.
+   */
+  getRenderedRows(): ReadonlyMap<string, { left: HTMLElement | null; center: HTMLElement | null; right: HTMLElement | null }> {
+    return this.renderedRowMap;
   }
 
   // ─── Private ─────────────────────────────────────────────────────────────
@@ -928,6 +1084,12 @@ export class BodyRenderer {
    * rebuilt wholesale by cell-edit start/stop (`GridCore.startCellEdit` /
    * `renderCellValue`), which would silently destroy a toggle placed inside it
    * the first time this column is edited.
+   *
+   * Rows the consumer's `hasDetail` rejects still get *something* here by
+   * default: the toggle takes up real width in the cell, so omitting it
+   * outright shifts that row's text left and leaves the toggle column's edge
+   * ragged wherever detail-less rows sit between expandable ones. See
+   * {@link EmptyDetailToggleMode} for the three ways that is resolved.
    */
   private applyMasterDetailToggle(
     cellEl: HTMLElement,
@@ -937,7 +1099,21 @@ export class BodyRenderer {
   ): void {
     const md = options.masterDetail;
     if (!md || row.type !== 'data' || colDef.colId !== md.toggleColumnId) return;
-    if (!md.hasDetailFn(row.data)) return;
+
+    if (!md.hasDetailFn(row.data)) {
+      if (md.emptyToggleMode === EmptyDetailToggleMode.Hidden) return;
+      if (md.emptyToggleMode === EmptyDetailToggleMode.Placeholder) {
+        // Deliberately not `.pg-detail-toggle` — that class is the selector
+        // `syncRow` and the pointerdown guard both key off, and a spacer must
+        // match neither. It only mirrors the toggle's box metrics.
+        const spacer = createDiv('pg-detail-toggle-placeholder');
+        spacer.setAttribute('aria-hidden', 'true');
+        this.insertBeforeCellInner(cellEl, spacer);
+        return;
+      }
+      // EmptyDetailToggleMode.Interactive: falls through to the real toggle —
+      // expanding it shows the empty-state message (see `DetailRowRenderer`).
+    }
 
     const isExpanded = md.isExpandedFn(row.nodeId);
     const toggleBtn = createDiv('pg-detail-toggle');
@@ -946,17 +1122,18 @@ export class BodyRenderer {
     toggleBtn.setAttribute('aria-label', isExpanded ? 'Collapse detail' : 'Expand detail');
     toggleBtn.appendChild(this.iconRenderer.render(isExpanded ? 'chevronDown' : 'chevronRight', { size: 16 }));
 
-    const inner = cellEl.querySelector<HTMLElement>('.pg-cell__inner');
-    if (inner) {
-      cellEl.insertBefore(toggleBtn, inner);
-    } else {
-      cellEl.insertBefore(toggleBtn, cellEl.firstChild);
-    }
+    this.insertBeforeCellInner(cellEl, toggleBtn);
 
     toggleBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       this.eventBus.emit(GridEventType.ROW_DETAIL_TOGGLE_CLICKED, { row, colDef });
     });
+  }
+
+  /** Places `el` immediately before the cell's value wrapper, falling back to the cell's start when the wrapper has not been built yet. */
+  private insertBeforeCellInner(cellEl: HTMLElement, el: HTMLElement): void {
+    const inner = cellEl.querySelector<HTMLElement>('.pg-cell__inner');
+    cellEl.insertBefore(el, inner ?? cellEl.firstChild);
   }
 
   private attachRowListeners(
@@ -1073,10 +1250,25 @@ export class BodyRenderer {
 
   private getRowClass(row: RowNode, displayIndex: number, options: BodyRendererOptions): string {
     const cls = ['pg-row'];
+    // Hover is part of the row's class *identity*, not a decoration applied
+    // afterwards. Both callers of this method (buildSingleRow for brand-new
+    // rows, updatePanelRow for recycled ones) assign the result to
+    // `el.className` wholesale, so any class not produced here is destroyed on
+    // every render pass. Deriving it from the tracked `hoveredNodeId` keeps the
+    // highlight stable across the render churn of a scroll: a recycled row that
+    // still sits under the pointer keeps its hover, and a row entering the
+    // virtual window already under the pointer gets it on first paint rather
+    // than only after the next `mousemove`.
+    if (row.nodeId === this.hoveredNodeId) cls.push('pg-row--hover');
     if (row.selected) cls.push('pg-row--selected');
     if (row.type === 'group') cls.push('pg-row--group');
     if (row.type === 'group-footer') cls.push('pg-row--group-footer');
     if (row.type === 'detail') cls.push('pg-row--detail');
+    // A placeholder row published by a demand-loading row model for data that
+    // has not arrived yet. The class drives the skeleton shimmer; the row is
+    // otherwise an ordinary (empty) data row, so layout is identical to the
+    // real row that replaces it — which is what stops the swap being visible.
+    if (row.type === 'loading') cls.push('pg-row--skeleton');
     if (options.treeData && row.type === 'data') cls.push('pg-row--tree');
     if (row.isTreeFiller) cls.push('pg-row--tree-filler');
     if (options.rowShading && displayIndex % 2 === 1) cls.push('pg-row--alt');

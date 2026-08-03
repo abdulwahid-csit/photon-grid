@@ -34,6 +34,19 @@ export class RowModel {
     });
   }
 
+  /**
+   * Builds {@link RowNode}s from raw data **without** publishing to the store or
+   * emitting `DATA_CHANGED` — used by the Server-Side Row Model to materialise a
+   * fetched page into nodes it lays out and publishes itself (avoiding the
+   * `setRowData` side effects: formula discovery, undo-history reset, and the
+   * data-changed event). Pass `rowHeight` to set the default height for the
+   * built nodes; it falls back to the current default when omitted.
+   */
+  buildNodes(data: Record<string, unknown>[], rowHeight?: number): RowNode[] {
+    if (rowHeight !== undefined) this.defaultRowHeight = rowHeight;
+    return this.buildRowNodes(data);
+  }
+
   appendRowData(data: Record<string, unknown>[]): void {
     const existingNodes = this.store.get('allRows');
     const newNodes = this.buildRowNodes(data, existingNodes.length);
@@ -49,10 +62,41 @@ export class RowModel {
 
   updateRow(nodeId: string, newData: Partial<Record<string, unknown>>): void {
     const rows = this.store.get('allRows');
-    const node = rows.find((r) => r.nodeId === nodeId);
+    const node = this.ensureIndex().get(nodeId);
     if (!node) return;
     node.data = { ...node.data, ...newData };
     this.store.set('allRows', [...rows]);
+  }
+
+  /**
+   * Merges field values into a row's data **in place**, without publishing to
+   * the store.
+   *
+   * The primitive behind real-time updates: no new array is allocated, no store
+   * watcher fires, and the row pipeline (filter → sort → group → paginate) is
+   * not re-run. The caller is responsible for repainting — normally by handing
+   * the affected `nodeId`s to the renderer's Virtual DOM, which patches just
+   * the cells whose values changed.
+   *
+   * Use {@link updateRow} or {@link applyTransaction} instead whenever the
+   * change can affect row *membership or order* (a value the grid is currently
+   * filtering or sorting on).
+   *
+   * @param nodeId - Row to mutate.
+   * @param values - Field → value pairs to merge into `row.data`.
+   * @returns The mutated node, or `undefined` when no such row exists.
+   */
+  mergeRowValues(
+    nodeId: string,
+    values: Readonly<Record<string, unknown>>,
+  ): RowNode | undefined {
+    const node = this.ensureIndex().get(nodeId);
+    if (!node) return undefined;
+    // A fresh object (rather than in-place field writes) keeps `row.data`
+    // reference-comparable, which is what lets consumers holding a previous
+    // snapshot — undo/redo, formulas, custom renderers — detect the change.
+    node.data = { ...node.data, ...values };
+    return node;
   }
 
   removeRows(nodeIds: string[]): void {
@@ -64,7 +108,7 @@ export class RowModel {
   }
 
   getRowNode(nodeId: string): RowNode | undefined {
-    return this.store.get('allRows').find((r) => r.nodeId === nodeId);
+    return this.ensureIndex().get(nodeId);
   }
 
   getRowByIndex(index: number): RowNode | undefined {
@@ -210,6 +254,36 @@ export class RowModel {
     this.store.set('totalRowCount', next.length);
 
     return { add: added, update: updated, remove: removed };
+  }
+
+  /**
+   * `nodeId` → node index over `allRows`.
+   *
+   * Every lookup in this class used to be a linear scan, which is invisible at
+   * 100 rows and fatal for a real-time feed against 100 000: a stream applying
+   * thousands of updates per second would spend its entire budget in `find`.
+   */
+  private nodeIndex = new Map<string, RowNode>();
+
+  /**
+   * The `allRows` array the index was built from.
+   *
+   * The store is written by several subsystems (server row model, clipboard,
+   * row drag), not only by this class, so the index is validated against the
+   * array *reference* rather than trusting local bookkeeping. Rebuilding is
+   * O(n) but happens only when the row list is actually replaced; a stream of
+   * in-place value updates never invalidates it.
+   */
+  private indexedRef: readonly RowNode[] | null = null;
+
+  /** Returns the `nodeId` index, rebuilding it if the row list was replaced. */
+  private ensureIndex(): Map<string, RowNode> {
+    const rows = this.store.get('allRows');
+    if (rows === this.indexedRef) return this.nodeIndex;
+    this.nodeIndex.clear();
+    for (let i = 0; i < rows.length; i++) this.nodeIndex.set(rows[i].nodeId, rows[i]);
+    this.indexedRef = rows;
+    return this.nodeIndex;
   }
 
   private buildRowNodes(

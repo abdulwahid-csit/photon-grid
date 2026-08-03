@@ -52,6 +52,28 @@ export interface EvalContext {
   resolveName(name: string): Reference | null;
 
   /**
+   * Positional row index (data-model order) of the cell currently being
+   * evaluated. Mutated by the calculation engine before each cell's evaluation
+   * so **row-relative** references (field-name and column-letter) know which
+   * row they belong to. The AST is shared/cached across rows, so the row must
+   * never be baked into it — it is supplied here instead.
+   */
+  currentRowIndex: number;
+
+  /**
+   * Resolves a **row-relative** bare reference — a column identified by its data
+   * `field` (`quantity`) or by its spreadsheet column letter (`B`) — to the value
+   * in the given row. Named ranges are handled by {@link resolveName} first; this
+   * is the fallback. Returns `#NAME?` when the name matches no column and `#REF!`
+   * when the resolved cell falls outside the live data bounds.
+   *
+   * @param name     - The bare identifier as written (case-insensitive letters).
+   * @param rowIndex - The data-model row the reference resolves against
+   *                   (normally {@link currentRowIndex}).
+   */
+  resolveRowRelative(name: string, rowIndex: number): FormulaValue;
+
+  /**
    * Current wall-clock time as epoch milliseconds. Injected (not `Date.now()`)
    * so `NOW`/`TODAY` are deterministic under test and consistent within a pass.
    */

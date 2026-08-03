@@ -21,7 +21,7 @@ import type {
   ThemeChangedEvent,
 } from 'photon-grid-core';
 
-import { ReactRendererAdapter, type PhotonGridColumnDef } from './react-renderer-adapter';
+import { ReactRendererAdapter, type PhotonGridColumnDef, type PhotonGridOptions } from './react-renderer-adapter';
 
 export interface PhotonGridProps {
   columns?: PhotonGridColumnDef[];
@@ -48,14 +48,22 @@ export interface PhotonGridProps {
    *       provider: {
    *         type: PhotonAIProviderType.Gemini,
    *         apiKey: import.meta.env.VITE_GEMINI_API_KEY,
-   *         model: 'gemini-2.5-flash',
+   *         model: 'gemini-flash-latest',
    *       },
    *     },
    *   }}
    * />
    * ```
+   * @example React component as a Master/Detail renderer
+   * ```tsx
+   * const OrderDetail = ({ data, ctx }) => (
+   *   <button onClick={() => ctx.emit('save', data)}>Save {data.account}</button>
+   * );
+   *
+   * <PhotonGrid options={{ masterDetail: { enabled: true, renderer: OrderDetail } }} />
+   * ```
    */
-  options?: Partial<GridOptions>;
+  options?: Partial<PhotonGridOptions>;
   onGridReady?: (api: GridApi) => void;
   onDataChanged?: (event: DataChangedEvent) => void;
   onRowClicked?: (payload: RowClickPayload) => void;
@@ -95,10 +103,10 @@ export function PhotonGrid(props: PhotonGridProps): JSX.Element {
     rendererAdapterRef.current = rendererAdapter;
 
     const mergedOptions: GridOptions = {
-      ...options,
+      ...rendererAdapter.adaptOptions(options),
       columns: rendererAdapter.adaptColumns(columns),
       data: dataSet,
-    };
+    } as GridOptions;
 
     const grid = new GridCore(host, mergedOptions);
     gridRef.current = grid;

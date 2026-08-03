@@ -36,6 +36,10 @@ class TestAdapter implements FormulaGridAdapter {
   getFieldForCol(colId: string): string | null {
     return colId;
   }
+  getColIdForField(field: string): string | null {
+    const idx = this.getColIndex(field);
+    return idx >= 0 && idx < this.getColumnCount() ? field : null;
+  }
   readCell(nodeId: string, colId: string): unknown {
     return this.cells[this.getRowIndex(nodeId)]?.[this.getColIndex(colId)] ?? null;
   }

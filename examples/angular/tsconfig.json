@@ -25,6 +25,9 @@
       ],
       "photon-grid-core": [
         "../../packages/photon-grid-core/dist"
+      ],
+      "photon-grid-core/import/sheetjs": [
+        "../../packages/photon-grid-core/dist/engines/import/adapters/sheetjs-workbook-parser"
       ]
     },
     "lib": [

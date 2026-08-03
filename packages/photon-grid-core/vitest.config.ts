@@ -15,8 +15,11 @@ export default defineConfig({
     globals: false,
     coverage: {
       provider: 'v8',
-      include: ['src/formula/**/*.ts'],
-      exclude: ['src/formula/**/*.types.ts', 'src/formula/index.ts'],
+      include: ['src/formula/**/*.ts', 'src/autofill/**/*.ts'],
+      exclude: [
+        'src/formula/**/*.types.ts', 'src/formula/index.ts',
+        'src/autofill/**/*.types.ts', 'src/autofill/index.ts',
+      ],
     },
   },
 });

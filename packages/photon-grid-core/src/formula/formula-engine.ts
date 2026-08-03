@@ -212,6 +212,34 @@ export class FormulaEngine {
   }
 
   /**
+   * Bulk-registers many formulas (declarative discovery from column defs / row
+   * data) and recomputes once. Entries whose column did not opt in
+   * (`colDef.allowFormula`) are skipped. A disabled engine is a no-op. Later
+   * `setFormula`/`setCellFormula` calls override any entry set here.
+   *
+   * @param entries - `{ nodeId, colId, source }` formulas to register.
+   * @returns The cells whose value changed.
+   */
+  setFormulas(entries: readonly { nodeId: string; colId: string; source: string }[]): RecalculationResult {
+    if (!this.isEnabled()) return EMPTY_RESULT;
+    const allowed = entries.filter((e) => this.adapter.allowsFormula(e.colId));
+    if (allowed.length === 0) return EMPTY_RESULT;
+    return this.calc.registerFormulas(allowed);
+  }
+
+  /**
+   * Removes every formula owned by any of the given rows (e.g. deleted rows) and
+   * recomputes dependents, so structural row changes leave no orphaned formulas.
+   *
+   * @param nodeIds - Stable ids of the removed rows.
+   * @returns The cells whose value changed.
+   */
+  purgeNodes(nodeIds: ReadonlySet<string>): RecalculationResult {
+    if (!this.isEnabled()) return EMPTY_RESULT;
+    return this.calc.purgeNodes(nodeIds);
+  }
+
+  /**
    * Recomputes formula cells. Volatile cells are always recomputed; when
    * `force` is `true`, every formula cell is recomputed.
    *

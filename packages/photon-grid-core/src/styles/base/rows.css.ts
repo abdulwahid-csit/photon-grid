@@ -6,6 +6,17 @@
  * cascade depends on it.
  */
 export const rowsCss = `/* ──────────────────── Rows ──────────────────── */
+/*
+ * Rows are positioned with \`top\` (written by RowPositionSheet) and that
+ * property is deliberately NOT transitioned: \`top\` drives layout, so animating
+ * it would force a layout pass for every row on every frame. Row movement is
+ * played back on \`transform\` instead (see RowAnimator), which the compositor
+ * runs without layout or paint.
+ *
+ * \`transition\` below is therefore scoped to \`background\` alone (row hover).
+ * Adding \`top\`, \`left\`, or \`margin\` here would put the CSS in a fight with the
+ * FLIP and make sorting visibly stutter.
+ */
 .pg-row {
   display: flex;
   align-items: stretch;

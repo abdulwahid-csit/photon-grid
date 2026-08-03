@@ -6,10 +6,27 @@ import type {
   ColumnGroupHeaderRemovedEvent,
 } from '../column-groups/column-group.types';
 import type { RowNode, RowDropPayload, RowClickPayload, RowEditPayload } from './row.types';
+import type { DetailEvent } from './detail-component.types';
+import type { RowDragStartPayload, RowDragEndPayload } from './row-drag.types';
 import type { FilterModel, QuickFilterConfig } from './filter.types';
 import type { CellRange } from './grid.types';
 import type { ChartModel } from '../chart/model/chart-model';
 import type { TreeNodeToggleClickedPayload, TreeNodeTogglePayload, TreeChildrenLoadedPayload } from './tree-data.types';
+import type {
+  ImportStartEvent,
+  ImportProgressEvent,
+  ImportCompleteEvent,
+  ImportErrorEvent,
+} from './import.types';
+import type { ToolbarTab } from './toolbar.types';
+import type { ServerSideRequest } from './server-side.types';
+import type {
+  InfiniteCacheEvent,
+  InfiniteDataReceivedEvent,
+  InfiniteDataRequestEvent,
+  InfiniteErrorEvent,
+} from './infinite.types';
+import type { GeneratedTheme } from './theme-ai.types';
 
 export const GridEventType = {
   READY: 'grid:ready',
@@ -28,6 +45,8 @@ export const GridEventType = {
   ROW_COLLAPSED: 'row:collapsed',
   ROW_GROUP_OPENED: 'row:groupOpened',
   ROW_DROP: 'row:drop',
+  ROW_DRAG_START: 'row:dragStart',
+  ROW_DRAG_END: 'row:dragEnd',
   ROW_EDIT_START: 'row:editStart',
   ROW_EDIT_STOP: 'row:editStop',
 
@@ -64,6 +83,11 @@ export const GridEventType = {
   EXPORT_COMPLETE: 'export:complete',
   EXPORT_ERROR: 'export:error',
 
+  IMPORT_START: 'import:start',
+  IMPORT_PROGRESS: 'import:progress',
+  IMPORT_COMPLETE: 'import:complete',
+  IMPORT_ERROR: 'import:error',
+
   DRAG_STARTED: 'drag:started',
   DRAG_OVER: 'drag:over',
   DRAG_STOPPED: 'drag:stopped',
@@ -78,6 +102,15 @@ export const GridEventType = {
 
   CELL_CONTEXT_MENU: 'cell:contextMenu',
 
+  /** A row context-menu item was activated (built-in or custom). */
+  ROW_MENU_ITEM_CLICKED: 'rowMenu:itemClicked',
+
+  /** An async row context-menu action rejected. */
+  ROW_MENU_ITEM_ERROR: 'rowMenu:itemError',
+
+  /** The row context menu closed — by an action, a dismissal, or Escape. */
+  ROW_MENU_CLOSED: 'rowMenu:closed',
+
   COLUMN_GROUP_HEADER_COLLAPSED: 'columnGroup:collapsed',
   COLUMN_GROUP_HEADER_EXPANDED:  'columnGroup:expanded',
   COLUMN_GROUP_HEADER_CREATED:   'columnGroup:created',
@@ -87,11 +120,35 @@ export const GridEventType = {
   ROW_DETAIL_OPENED: 'row:detailOpened',
   ROW_DETAIL_CLOSED: 'row:detailClosed',
   ROW_DETAIL_HEIGHT_CHANGED: 'row:detailHeightChanged',
+  ROW_DETAIL_EVENT: 'row:detailEvent',
 
   TREE_NODE_TOGGLE_CLICKED: 'tree:nodeToggleClicked',
   TREE_NODE_EXPANDED: 'tree:nodeExpanded',
   TREE_NODE_COLLAPSED: 'tree:nodeCollapsed',
   TREE_CHILDREN_LOADED: 'tree:childrenLoaded',
+
+  TOOLBAR_TAB_CHANGED: 'toolbar:tabChanged',
+  TOOLBAR_SEARCH_CHANGED: 'toolbar:searchChanged',
+
+  SERVER_REQUEST: 'server:request',
+  SERVER_SUCCESS: 'server:success',
+  SERVER_ERROR: 'server:error',
+  SERVER_REFRESH: 'server:refresh',
+  SERVER_RETRY: 'server:retry',
+
+  /** Infinite Row Model — a page is about to be requested. */
+  INFINITE_DATA_REQUEST: 'infinite:dataRequest',
+  /** Infinite Row Model — a page's rows arrived and were applied. */
+  INFINITE_DATA_RECEIVED: 'infinite:dataReceived',
+  /** Infinite Row Model — a page failed after exhausting retries. */
+  INFINITE_ERROR: 'infinite:error',
+  /** Infinite Row Model — a page was served from cache. */
+  INFINITE_CACHE_HIT: 'infinite:cacheHit',
+  /** Infinite Row Model — a page was absent from cache and had to be fetched. */
+  INFINITE_CACHE_MISS: 'infinite:cacheMiss',
+
+  THEME_AI_APPLIED: 'themeAI:applied',
+  THEME_AI_ERROR: 'themeAI:error',
 } as const;
 
 export type GridEventType = (typeof GridEventType)[keyof typeof GridEventType];
@@ -134,6 +191,70 @@ export interface CellValueChangedEvent {
   colDef: ColumnDef;
   oldValue: unknown;
   newValue: unknown;
+  rowIndex: number;
+}
+
+/**
+ * Emitted when a row context-menu entry is activated, for both built-in and
+ * custom items.
+ *
+ * Lets an application handle menu actions centrally through the event bus as an
+ * alternative to per-item `action` callbacks; when an item defines `action`,
+ * both fire (the callback first).
+ */
+export interface RowMenuItemClickedEvent {
+  /** The item's `id`, or the built-in item id. Empty when a custom item omits one. */
+  itemId: string;
+  /** The item's rendered label. */
+  label: string;
+  /** `true` for items supplied through `GridOptions.rowMenu`. */
+  custom: boolean;
+  /** The row the menu was opened on, or `null` if it could not be resolved. */
+  row: RowNode | null;
+  /** Display index of that row. */
+  rowIndex: number;
+  /** The column whose cell was right-clicked, or `null`. */
+  colDef: ColumnDef | null;
+  /** Which kind of item fired. `'action'` for every built-in entry. */
+  itemType?: 'action' | 'submenu' | 'checkbox' | 'radio';
+  /** State *after* the activation, for checkbox and radio items only. */
+  checked?: boolean;
+  /** The selected option's value, for radio items only. */
+  value?: string;
+}
+
+/**
+ * Emitted when the row context menu closes, whichever route closed it: an
+ * item's action, `ctx.close()`, a click outside, or Escape.
+ *
+ * Fires once per open/close cycle. Typical use is restoring focus to the grid
+ * or logging dismissals.
+ */
+export interface RowMenuClosedEvent {
+  /** The row the menu had been opened on, or `null`. */
+  row: RowNode | null;
+  /** Display index of that row. */
+  rowIndex: number;
+  /** The column whose cell had been right-clicked, or `null`. */
+  colDef: ColumnDef | null;
+}
+
+/**
+ * Emitted when a row context-menu action returns a promise that rejects.
+ *
+ * The menu stays open so the user can retry; an application typically
+ * subscribes to surface a toast.
+ */
+export interface RowMenuItemErrorEvent {
+  /** The failing item's `id`, or empty when it has none. */
+  itemId: string;
+  /** The failing item's rendered label. */
+  label: string;
+  /** Whatever the action's promise rejected with. */
+  error: unknown;
+  /** The row the menu was opened on, or `null`. */
+  row: RowNode | null;
+  /** Display index of that row. */
   rowIndex: number;
 }
 export interface CellSelectionChangedEvent {
@@ -194,6 +315,7 @@ export interface RowDetailHeightChangedEvent {
   height: number;
 }
 
+
 /** Fired once when a range chart is first created. */
 export interface ChartCreatedEvent {
   chartId: string;
@@ -218,6 +340,89 @@ export interface ChartDestroyedEvent {
   chartType: string;
 }
 
+/**
+ * Payload of `TOOLBAR_TAB_CHANGED` — fired when the user (or `setActiveToolbarTab`)
+ * selects a different toolbar tab. Purely informational: the grid does not
+ * filter data on the host's behalf.
+ */
+export interface ToolbarTabChangedEvent {
+  /** Id of the newly selected tab. */
+  readonly tabId: string;
+  /** Id of the previously selected tab, or `null` if none was selected. */
+  readonly previousTabId: string | null;
+  /** The full definition of the newly selected tab. */
+  readonly tab: ToolbarTab;
+}
+
+/** Payload of `TOOLBAR_SEARCH_CHANGED` — fired (debounced) as the toolbar's global search query changes. */
+export interface ToolbarSearchChangedEvent {
+  /** The current, trimmed search query (empty string when cleared). */
+  readonly query: string;
+}
+
+/**
+ * Payload of `SERVER_REQUEST` — fired when the Server-Side Row Model is about to
+ * fetch a slice (before the datasource's `getRows` is invoked).
+ */
+export interface ServerRequestEvent {
+  /** The request being issued. */
+  readonly request: ServerSideRequest;
+  /** `true` when served synchronously from cache (no datasource call will follow). */
+  readonly fromCache: boolean;
+}
+
+/** Payload of `SERVER_SUCCESS` — fired after a fetched (or cached) slice is applied to the grid. */
+export interface ServerSuccessEvent {
+  /** The request that produced this result. */
+  readonly request: ServerSideRequest;
+  /** Number of rows returned for this slice. */
+  readonly rowCount: number;
+  /** Total rows across all pages, when the datasource supplied it. */
+  readonly totalRows?: number;
+  /** `true` when the result came from the response cache. */
+  readonly fromCache: boolean;
+}
+
+/** Payload of `SERVER_ERROR` — fired when a request ultimately fails (after any retries). */
+export interface ServerErrorEvent {
+  /** The request that failed. */
+  readonly request: ServerSideRequest;
+  /** The error thrown/passed to `params.fail`. */
+  readonly error: unknown;
+  /** A user-facing message derived from {@link error}. */
+  readonly message: string;
+}
+
+/** Payload of `SERVER_REFRESH` — fired when `api.refreshServerSide()` is called. */
+export interface ServerRefreshEvent {
+  /** `true` when the response cache was purged as part of the refresh. */
+  readonly purge: boolean;
+}
+
+/** Payload of `SERVER_RETRY` — fired before each retry attempt of a failed request. */
+export interface ServerRetryEvent {
+  /** The request being retried. */
+  readonly request: ServerSideRequest;
+  /** 1-based attempt number about to run. */
+  readonly attempt: number;
+  /** The error from the previous attempt. */
+  readonly error: unknown;
+}
+
+/** Payload of `THEME_AI_APPLIED` — fired when the AI Theme Engine applies (or clears) a theme. */
+export interface ThemeAiAppliedEvent {
+  /** The applied theme, or `null` when reverting to the base mode/variant. */
+  readonly theme: GeneratedTheme | null;
+}
+
+/** Payload of `THEME_AI_ERROR` — fired when an AI theme request fails. */
+export interface ThemeAiErrorEvent {
+  /** A user-facing error message. */
+  readonly message: string;
+  /** The underlying error. */
+  readonly error: unknown;
+}
+
 export type GridEventMap = {
   [GridEventType.READY]: ReadyEvent;
   [GridEventType.DATA_CHANGED]: DataChangedEvent;
@@ -229,9 +434,14 @@ export type GridEventMap = {
   [GridEventType.ROW_CLICKED]: RowClickPayload;
   [GridEventType.ROW_DOUBLE_CLICKED]: RowClickPayload;
   [GridEventType.ROW_DROP]: RowDropPayload;
+  [GridEventType.ROW_DRAG_START]: RowDragStartPayload;
+  [GridEventType.ROW_DRAG_END]: RowDragEndPayload;
   [GridEventType.CELL_CLICKED]: CellClickedEvent;
   [GridEventType.CELL_DOUBLE_CLICKED]: CellClickedEvent;
   [GridEventType.CELL_VALUE_CHANGED]: CellValueChangedEvent;
+  [GridEventType.ROW_MENU_ITEM_CLICKED]: RowMenuItemClickedEvent;
+  [GridEventType.ROW_MENU_ITEM_ERROR]: RowMenuItemErrorEvent;
+  [GridEventType.ROW_MENU_CLOSED]: RowMenuClosedEvent;
   [GridEventType.CELL_SELECTION_CHANGED]: CellSelectionChangedEvent;
   [GridEventType.COLUMN_RESIZED]: ColumnResizedEvent;
   [GridEventType.COLUMN_MOVED]: ColumnMovedEvent;
@@ -246,6 +456,10 @@ export type GridEventMap = {
   [GridEventType.THEME_CHANGED]: ThemeChangedEvent;
   [GridEventType.EXPORT_START]: ExportEvent;
   [GridEventType.EXPORT_COMPLETE]: ExportEvent;
+  [GridEventType.IMPORT_START]: ImportStartEvent;
+  [GridEventType.IMPORT_PROGRESS]: ImportProgressEvent;
+  [GridEventType.IMPORT_COMPLETE]: ImportCompleteEvent;
+  [GridEventType.IMPORT_ERROR]: ImportErrorEvent;
   [GridEventType.ROW_EDIT_START]: RowEditPayload;
   [GridEventType.CELL_VALUE_CHANGED]: CellValueChangedEvent;
   [GridEventType.COLUMN_GROUP_HEADER_COLLAPSED]: ColumnGroupHeaderCollapsedEvent;
@@ -260,8 +474,23 @@ export type GridEventMap = {
   [GridEventType.TREE_CHILDREN_LOADED]: TreeChildrenLoadedPayload;
   [GridEventType.ROW_DETAIL_CLOSED]: RowDetailClosedEvent;
   [GridEventType.ROW_DETAIL_HEIGHT_CHANGED]: RowDetailHeightChangedEvent;
+  [GridEventType.ROW_DETAIL_EVENT]: DetailEvent;
   [GridEventType.CHART_CREATED]: ChartCreatedEvent;
   [GridEventType.CHART_RANGE_SELECTION_CHANGED]: ChartRangeSelectionChangedEvent;
   [GridEventType.CHART_OPTIONS_CHANGED]: ChartOptionsChangedEvent;
   [GridEventType.CHART_DESTROYED]: ChartDestroyedEvent;
+  [GridEventType.TOOLBAR_TAB_CHANGED]: ToolbarTabChangedEvent;
+  [GridEventType.TOOLBAR_SEARCH_CHANGED]: ToolbarSearchChangedEvent;
+  [GridEventType.SERVER_REQUEST]: ServerRequestEvent;
+  [GridEventType.SERVER_SUCCESS]: ServerSuccessEvent;
+  [GridEventType.SERVER_ERROR]: ServerErrorEvent;
+  [GridEventType.SERVER_REFRESH]: ServerRefreshEvent;
+  [GridEventType.SERVER_RETRY]: ServerRetryEvent;
+  [GridEventType.INFINITE_DATA_REQUEST]: InfiniteDataRequestEvent;
+  [GridEventType.INFINITE_DATA_RECEIVED]: InfiniteDataReceivedEvent;
+  [GridEventType.INFINITE_ERROR]: InfiniteErrorEvent;
+  [GridEventType.INFINITE_CACHE_HIT]: InfiniteCacheEvent;
+  [GridEventType.INFINITE_CACHE_MISS]: InfiniteCacheEvent;
+  [GridEventType.THEME_AI_APPLIED]: ThemeAiAppliedEvent;
+  [GridEventType.THEME_AI_ERROR]: ThemeAiErrorEvent;
 };

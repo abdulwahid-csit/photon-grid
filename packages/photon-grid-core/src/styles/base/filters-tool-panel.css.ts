@@ -13,14 +13,50 @@
  */
 export const filtersToolPanelCss = `/* ──────────────────── Filters Tool Panel ──────────────────── */
 
-/* Launcher — a funnel button floating at the grid's top-right corner. Absolute
-   positioning keeps it out of the flex layout so it never affects row/column
-   virtualization; the grid wrapper's own bounds keep it contained. */
+/* Shared tools strip — a dedicated toolbar row pinned to the very top of the
+   grid (mounted as the first child of .pg-grid, above the header). It is split
+   into a left region (toolbar tabs + left-docked search) and a right region
+   (right-docked search + the Filters funnel / Import launchers), so nothing
+   overlaps the column headers underneath. As a normal flow child it
+   participates in the grid's flex-column layout, so the header/body shift down
+   by its height instead of being covered.
+
+   Its height is fixed at 48px (32px launcher + 2×8px padding) so the dropdown
+   panels below (.pg-filters-panel / .pg-import-menu at top:48px) anchor flush
+   beneath it. Keep that arithmetic in sync if the padding changes. */
+.pg-grid__tools {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px;
+  background: var(--pg-colors-surface, #ffffff);
+  border-bottom: 1px solid var(--pg-colors-border, #e2e8f0);
+}
+/* Left region — tab strip + left-docked search, packed from the start. */
+.pg-grid__tools__left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+/* Right region — right-docked search + the Filters/Import launchers, packed
+   toward the end. Grows so it always hugs the right edge even when the left
+   region is empty. */
+.pg-grid__tools__right {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* Launcher — a funnel button living in the shared tools bar. position: relative
+   anchors the active-count badge; ordering keeps the funnel left of Import. */
 .pg-filters-launcher {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  z-index: var(--pg-z-index-filter-panel, 200);
+  position: relative;
+  order: 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -87,6 +123,7 @@ export const filtersToolPanelCss = `/* ─────────────�
   right: 8px;
   z-index: var(--pg-z-index-filter-panel, 200);
   width: min(320px, calc(100% - 16px));
+  min-height: min(280px, calc(100% - 64px));
   max-height: calc(100% - 64px);
   display: none;
   flex-direction: column;
@@ -148,7 +185,7 @@ export const filtersToolPanelCss = `/* ─────────────�
 .pg-filters-panel__sections {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 20px;
 }
 
 /* ── Section (collapsible active filter) ── */
@@ -255,16 +292,20 @@ export const filtersToolPanelCss = `/* ─────────────�
 }
 .pg-filters-panel__add-icon svg { display: block; }
 
-/* Column picker — a popover floating above the Add-Filter button. */
+/* Column picker — a popover that fills the panel body between the header and the
+   Add-Filter button. Anchored on all four edges (top below the header, bottom
+   above the footer button) so its height derives from the panel's real edges —
+   never a fixed max-height that could grow past the panel top and clip the
+   search box / first columns. The inner col-list scrolls; the box never does. */
 .pg-filters-panel__add-dropdown {
   position: absolute;
+  top: 44px;
   left: 8px;
   right: 8px;
   bottom: 50px;
   z-index: 1;
   display: flex;
   flex-direction: column;
-  max-height: 260px;
   background: var(--pg-colors-surface, #ffffff);
   border: 1px solid var(--pg-colors-border, #e2e8f0);
   border-radius: var(--pg-borders-radius-md, 6px);

@@ -517,7 +517,11 @@ export class ColumnModel {
       minWidth: 40,
       visible: true,
       sortable: true,
-      filterable: true,
+      // `filterable` is deliberately NOT defaulted. Every consumer tests it as
+      // `!== false`, so an omitted value already means "filterable" — and
+      // leaving it absent is what lets the header distinguish an explicit
+      // `filterable: true` (show the funnel) from a column that merely inherits
+      // the capability. Defaulting it here would erase that distinction.
       resizable: true,
       draggable: true,
       editable: false,
@@ -530,6 +534,9 @@ export class ColumnModel {
       // type falls back to plain text, header to the field in Title Case.
       type: col.type ?? 'string',
       header: col.header ?? toTitleCase(col.field),
+      // A declared column formula implicitly opts the column into the Formula
+      // Engine, unless the author explicitly opted out with `allowFormula: false`.
+      allowFormula: col.allowFormula ?? (col.formula != null ? true : undefined),
     };
   }
 

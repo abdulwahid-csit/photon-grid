@@ -207,7 +207,7 @@ export interface ColumnGroupConfig {
 
 export interface GridOptions {
   /** Column definitions. Only `field` is required per column — see {@link ColumnDefInput}. */
-  columns: ColumnDefInput[];
+  columns?: ColumnDefInput[];
   data?: Record<string, unknown>[];
 
   /**

@@ -26,6 +26,7 @@ import { MasterDetailGridComponent } from './master-detail-grid.component';
 import { CommonModule } from '@angular/common';
 import { environment } from '../environments/environment';
 import { ToastPosition } from '../../../../packages/photon-grid-core/dist/toast/toast.types';
+import { NestedColComponent } from "./nested-cols-data.component";
 
 /** Emoji flags for the fixed country list used by `generateData` below. */
 
@@ -37,7 +38,7 @@ import { ToastPosition } from '../../../../packages/photon-grid-core/dist/toast/
 @Component({
     selector: 'app-root',
     standalone: true,
-    imports: [PhotonGridComponent, CommonModule, RealtimeGridComponent, InfiniteGridComponent, MasterDetailGridComponent],
+    imports: [PhotonGridComponent, CommonModule, RealtimeGridComponent, InfiniteGridComponent, MasterDetailGridComponent, NestedColComponent],
     templateUrl: './app.component.html', 
     styleUrls: ['./app.component.scss', './linear-theme.scss'],
     changeDetection: ChangeDetectionStrategy.OnPush,

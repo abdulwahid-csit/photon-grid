@@ -2371,9 +2371,10 @@ export class GridRenderer {
         // that rebuild on the same 180 ms curve the live drag shift uses.
         if (changeKind === ColumnChangeKind.STRUCTURAL) {
           this.columnAnimator.capture(this.lastColumnPositions, 'visibility');
-        } else if (changeKind === ColumnChangeKind.ORDER_ONLY) {
-          this.columnAnimator.capture(this.lastColumnPositions, 'reorder');
-        }
+        } 
+        // else if (changeKind === ColumnChangeKind.ORDER_ONLY) {
+        //   this.columnAnimator.capture(this.lastColumnPositions, 'reorder');
+        // }
 
         this.headerRendered = false;
         this.lastCenterColStart = -1;

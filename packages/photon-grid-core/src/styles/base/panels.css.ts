@@ -53,6 +53,7 @@ export const panelsCss = `/* ─────────────────
 .pg-panel--left {
   z-index: 2;
   width: var(--pg-left-panel-width, auto);
+  border-right: 1px solid var(--pg-colors-border, #e2e8f0);
 }
 .pg-panel--center {
   flex: 1 1 0;
@@ -61,8 +62,9 @@ export const panelsCss = `/* ─────────────────
 }
 .pg-panel--right {
   z-index: 2;
-  width: var(--pg-right-panel-width, auto);
-  padding-inline: 1px
+  width: calc(var(--pg-right-panel-width, auto) - 1px);
+  border-left: 1px solid var(--pg-colors-border, #e2e8f0);
+  // padding-inline: 1px
 }
 /* ── Pinned-region divider ──────────────────────────────────────────────
    Structural boundary between a frozen (pinned) column region and the
@@ -91,6 +93,9 @@ export const panelsCss = `/* ─────────────────
 //   pointer-events: none;
 // }
 .pg-panel--left::after  { right: 0; }
+// .pg-panel .pg-panel--left{
+//   border-right: 1px solid var(--pg-colors-border, #e2e8f0));
+// }
 .pg-panel--right::after { left: 0; }
 
 /* ── Pinned-edge shadow ─────────────────────────────────────────────────
@@ -109,10 +114,12 @@ export const panelsCss = `/* ─────────────────
    Scoped to .pg-grid__body so the *header* panels — same .pg-panel classes,
    different container — are untouched. */
 .pg-grid__body > .pg-panel--left {
-  box-shadow: var(--pg-shadows-pinned-left, 2px 0 4px rgba(0,0,0,0.06));
+  // box-shadow: var(--pg-shadows-pinned-left, 2px 0 4px rgba(0,0,0,0.06));
+  border-right: 1px solid var(--pg-colors-border, #e2e8f0);
 }
 .pg-grid__body > .pg-panel--right {
-  box-shadow: var(--pg-shadows-pinned-right, -2px 0 4px rgba(0,0,0,0.06));
+  // box-shadow: var(--pg-shadows-pinned-right, -2px 0 4px rgba(0,0,0,0.06));
+  border-left: 1px solid var(--pg-colors-border, #e2e8f0);
 }
 
 /* ──────────────────── Panel header ──────────────────── */

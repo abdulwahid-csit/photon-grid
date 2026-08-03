@@ -31,12 +31,14 @@
 
   <!-- Streaming demo for the viewport Virtual DOM: custom cell renderers fed by
        a setInterval market simulation, patched cell-by-cell with no re-render. -->
-  <!-- <app-realtime-grid></app-realtime-grid> -->
+  <app-realtime-grid></app-realtime-grid>
 
   <!-- Master/Detail: each account row expands into its own nested Photon Grid
        of orders — lazily fetched, auto-sized, independently sortable, and
        bubbling its row clicks back up to the parent. -->
-  <app-master-detail-grid></app-master-detail-grid>
+  <!-- <app-master-detail-grid></app-master-detail-grid> -->
+
+  <!-- <app-nested-cols></app-nested-cols> -->
 
   <!-- Infinite scrolling over a million rows from a mock backend: pages load on
        demand with prefetch, are cached LRU, and unloaded rows render as

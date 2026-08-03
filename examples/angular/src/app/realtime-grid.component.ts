@@ -24,37 +24,23 @@ import { GridEventType } from 'photon-grid-core';
 
 /** One instrument in the simulated market feed. */
 interface Tick {
-    /**
-     * Row identity. `__photon_id__` is the field the core reads to derive
-     * `RowNode.nodeId`, so seeding it with the symbol lets the feed address
-     * rows by ticker and the grid resolve them in O(1).
-     */
     readonly __photon_id__: string;
-    readonly symbol: string;
-    readonly name: string;
-    /** Session opening price — the baseline Chg / Chg % are measured against. */
-    readonly open: number;
-    price: number;
-    /**
-     * Current step direction and strength, in `[-1, 1]`.
-     *
-     * Carried between ticks so the walk has momentum: prices form runs and
-     * reversals instead of jittering around a flat line, which is what makes
-     * the Trend sparkline show a real shape.
-     */
-    velocity: number;
-    change: number;
-    changePct: number;
-    bid: number;
-    ask: number;
-    volume: number;
+
+    readonly ticker: string;
+    readonly company: string;
+    readonly instrument: string;
+
+    pnl: number;
+    roi: number;
+
+    totalValue: number;
+    marketValue: number;
+
+    quantity: number;
+
     spark: number[];
-    /** Set from the row context menu — never by the feed. */
-    watched: boolean;
-    /** Set from the row context menu; blocks the Trade submenu while `true`. */
-    halted: boolean;
-    /** Not touched by the feed — proves untouched cells are never repainted. */
-    readonly sector: string;
+
+    velocity: number;
 }
 
 /** How much of the previous step's direction carries into the next one. */
@@ -132,7 +118,7 @@ const SYMBOLS = [
             </div>
         </header>
 
-        <dl class="rt__stats">
+        <!-- <dl class="rt__stats">
             <div class="rt__stat">
                 <dt>Updates pushed</dt>
                 <dd>{{ updatesPushed | number }}</dd>
@@ -165,7 +151,7 @@ const SYMBOLS = [
                 <dt>Last row-menu action</dt>
                 <dd class="rt__stat-text">{{ lastMenuAction }}</dd>
             </div>
-        </dl>
+        </dl> -->
 
         <section class="rt__grid">
             <photon-grid-angular
@@ -208,6 +194,95 @@ const SYMBOLS = [
             gap: 8px;
             margin: 0 0 12px;
         }
+        .pg-symbol-cell{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    height:100%;
+}
+
+.pg-symbol-logo{
+    width:34px;
+    height:34px;
+    border-radius:10px;
+    object-fit:cover;
+    box-shadow:0 2px 8px rgba(0,0,0,.15);
+}
+
+.pg-symbol{
+    font-weight:700;
+    font-size:13px;
+}
+
+.pg-exchange{
+    font-size:11px;
+    color:#8b8b8b;
+}
+
+.pg-company-title{
+    font-weight:600;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+}
+
+.pg-company-sub{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    font-size:11px;
+    color:#888;
+}
+
+.pg-live-dot{
+    width:8px;
+    height:8px;
+    border-radius:50%;
+    background:#23c552;
+    animation: pulse 1.6s infinite;
+}
+
+@keyframes pulse{
+    0%{transform:scale(.9);box-shadow:0 0 0 0 rgba(35,197,82,.5);}
+    70%{transform:scale(1);box-shadow:0 0 0 8px rgba(35,197,82,0);}
+    100%{transform:scale(.9);}
+}
+
+.pg-status-list{
+    display:flex;
+    gap:6px;
+    flex-wrap:wrap;
+}
+
+.pg-status{
+    display:inline-flex;
+    align-items:center;
+    gap:4px;
+    padding:3px 8px;
+    border-radius:999px;
+    font-size:11px;
+    font-weight:600;
+}
+
+.pg-status.success{
+    background:#e8fff0;
+    color:#14a44d;
+}
+
+.pg-status.warning{
+    background:#fff6de;
+    color:#d48806;
+}
+
+.pg-status.primary{
+    background:#e9f3ff;
+    color:#1677ff;
+}
+
+.pg-status.danger{
+    background:#ffeaea;
+    color:#d93025;
+}
         .rt__stat {
             flex: 1 1 130px;
             border: 1px solid #e2e8f0;
@@ -291,24 +366,91 @@ const SYMBOLS = [
            danger class comes from an item's \`cssClass\`. */
         .rt-menu-dot { width: 8px; height: 8px; border-radius: 999px; }
         .rt-menu-danger .pg-context-menu__label { color: #dc2626; }
+        .portfolio-company{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    height:100%;
+}
+
+.portfolio-logo{
+    width:28px;
+    height:28px;
+    border-radius:50%;
+    object-fit:cover;
+    flex-shrink:0;
+    border:1px solid #e6e6e6;
+    background:#fff;
+}
+
+.portfolio-company-info{
+    overflow:hidden;
+}
+
+.portfolio-ticker{
+    font-weight:700;
+    color:#222;
+    font-size:14px;
+    line-height:18px;
+}
+
+.portfolio-company-name{
+    color:#666;
+    font-size:13px;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+}
+
+.portfolio-value{
+    display:flex;
+    justify-content:flex-end;
+    align-items:center;
+    gap:10px;
+    width:100%;
+}
+
+.portfolio-positive{
+    color:#1ea94b;
+    font-weight:500;
+    font-variant-numeric:tabular-nums;
+}
+
+.portfolio-negative{
+    color:#ff2b63;
+    font-weight:500;
+    font-variant-numeric:tabular-nums;
+}
+
+.portfolio-badge{
+    background:#b9ddb3;
+    color:#23402a;
+    border-radius:999px;
+    padding:3px 10px;
+    font-size:13px;
+    font-weight:500;
+    min-width:58px;
+    text-align:center;
+    font-variant-numeric:tabular-nums;
+}
     `],
 })
 export class RealtimeGridComponent implements OnInit, OnDestroy {
     /** How many rows each tick touches. */
     readonly rowsPerTick = 12;
     /** Feed period in milliseconds. */
-    intervalMs = 100;
+    intervalMs = 50;
 
     columns: ColumnDef[] = [];
     data: Record<string, unknown>[] = [];
 
     readonly options: GridOptions = {
-        columns: [],
         rowHeight: 40,
-        showSerialNumber: true,
+        showSerialNumber: false,
         showVerticalBorders: false,
         rowShading: false,
         mode: 'light',
+        showGroupingBar: true,
         
         
         // variant: 'quantum',
@@ -323,115 +465,115 @@ export class RealtimeGridComponent implements OnInit, OnDestroy {
          * evaluated against the row that was actually clicked.
          */
         rowMenu: {
-            suppressItems: ['paste', 'copy', 'export', 'copyWithHeaders', 'chartRange'],
-            items: [
-                {
-                    // A checkbox reads its state from the row. Toggles keep the
-                    // menu open by default; `ctx.close()` overrides that so this
-                    // one dismisses as soon as it is set.
-                    id: 'watch',
-                    type: 'checkbox',
-                    label: 'Watchlist',
-                    icon: 'eye',
-                    kbd: 'W',
-                    checked: (ctx) => this.isWatched(ctx.data),
-                    action: (ctx) => {
-                        this.setWatched(ctx.data, !this.isWatched(ctx.data));
-                        ctx.close();
-                    },
-                },
-                {
-                    // Left open on purpose, for contrast: halting and un-halting
-                    // several instruments in one visit needs no re-opening.
-                    id: 'halt',
-                    type: 'checkbox',
-                    label: 'Trading halted',
-                    icon: 'lock',
-                    checked: (ctx) => ctx.data?.['halted'] === true,
-                    action: (ctx) => {
-                        this.toggleHalt(ctx.data);
-                        ctx.close();
-                    },
-                },
-                { type: 'separator' },
-                {
-                    id: 'trade',
-                    label: (ctx) => `Trade ${String(ctx.data?.['symbol'] ?? '')}`,
-                    // Custom icon renderer: a coloured dot reflecting direction,
-                    // which the icon registry has no equivalent for.
-                    icon: (ctx) => makeDirectionDot(Number(ctx.data?.['change'] ?? 0)),
-                    // Halted instruments cannot be traded — the whole submenu
-                    // greys out, chevron and all.
-                    disabled: (ctx) => ctx.data?.['halted'] === true,
-                    children: [
-                        { id: 'buy', label: 'Buy', icon: 'add', action: (ctx) => this.trade(ctx.data, 'Buy') },
-                        { id: 'sell', label: 'Sell', icon: 'minus', action: (ctx) => this.trade(ctx.data, 'Sell') },
-                        { type: 'separator' },
-                        {
-                            id: 'alert',
-                            label: 'Price alert',
-                            icon: 'info',
-                            // Third level — nesting is unbounded.
-                            children: [
-                                { id: 'alert-above', label: 'When above last', icon: 'sortAsc', action: (ctx) => this.alert(ctx.data, 'above') },
-                                { id: 'alert-below', label: 'When below last', icon: 'sortDesc', action: (ctx) => this.alert(ctx.data, 'below') },
-                            ],
-                        },
-                    ],
-                },
-                {
-                    id: 'lots',
-                    label: 'Default lot size',
-                    icon: 'columns',
-                    // A radio group: one option selected at a time, state owned
-                    // by the application exactly like a checkbox.
-                    children: ([100, 500, 1000] as const).map((size) => ({
-                        type: 'radio' as const,
-                        group: 'lotSize',
-                        id: `lot-${size}`,
-                        value: String(size),
-                        label: size.toLocaleString('en-US'),
-                        checked: () => this.lotSize === size,
-                        action: () => this.setLotSize(size),
-                    })),
-                },
-                { type: 'separator' },
-                {
-                    id: 'refresh',
-                    // Async action: the item shows a spinner and the menu stays
-                    // open until the promise settles.
-                    label: 'Re-sync from server',
-                    icon: 'refresh',
-                    action: (ctx) => this.resyncInstrument(ctx.data),
-                },
-                {
-                    id: 'delist',
-                    label: 'Delist instrument',
-                    icon: 'trash',
-                    cssClass: 'rt-menu-danger',
-                    // Declarative confirmation, rendered by the grid's dialog.
-                    confirm: {
-                        title: 'Delist instrument?',
-                        message: (ctx) =>
-                            `${String(ctx.data?.['symbol'])} will be removed from the board. This cannot be undone.`,
-                        confirmLabel: 'Delist',
-                        danger: true,
-                    },
-                    action: (ctx) => this.delist(ctx.data),
-                },
-            ],
-            // Built per open, so the label can name the clicked instrument.
-            getItems: (ctx) => {
-                const symbol = ctx.data?.['symbol'];
-                if (typeof symbol !== 'string') return [];
-                return [{
-                    id: 'copy-symbol',
-                    label: `Copy "${symbol}"`,
-                    icon: 'copy',
-                    tooltip: 'Copies the ticker to the clipboard',
-                    action: () => void navigator.clipboard?.writeText(symbol),
-                }];
-            },
+            // suppressItems: ['paste', 'copy', 'export', 'copyWithHeaders', 'chartRange'],
+        //     items: [
+        //         {
+        //             // A checkbox reads its state from the row. Toggles keep the
+        //             // menu open by default; `ctx.close()` overrides that so this
+        //             // one dismisses as soon as it is set.
+        //             id: 'watch',
+        //             type: 'checkbox',
+        //             label: 'Watchlist',
+        //             icon: 'eye',
+        //             kbd: 'W',
+        //             checked: (ctx) => this.isWatched(ctx.data),
+        //             action: (ctx) => {
+        //                 this.setWatched(ctx.data, !this.isWatched(ctx.data));
+        //                 ctx.close();
+        //             },
+        //         },
+        //         {
+        //             // Left open on purpose, for contrast: halting and un-halting
+        //             // several instruments in one visit needs no re-opening.
+        //             id: 'halt',
+        //             type: 'checkbox',
+        //             label: 'Trading halted',
+        //             icon: 'lock',
+        //             checked: (ctx) => ctx.data?.['halted'] === true,
+        //             action: (ctx) => {
+        //                 this.toggleHalt(ctx.data);
+        //                 ctx.close();
+        //             },
+        //         },
+        //         { type: 'separator' },
+        //         {
+        //             id: 'trade',
+        //             label: (ctx) => `Trade ${String(ctx.data?.['symbol'] ?? '')}`,
+        //             // Custom icon renderer: a coloured dot reflecting direction,
+        //             // which the icon registry has no equivalent for.
+        //             icon: (ctx) => makeDirectionDot(Number(ctx.data?.['change'] ?? 0)),
+        //             // Halted instruments cannot be traded — the whole submenu
+        //             // greys out, chevron and all.
+        //             disabled: (ctx) => ctx.data?.['halted'] === true,
+        //             children: [
+        //                 { id: 'buy', label: 'Buy', icon: 'add', action: (ctx) => this.trade(ctx.data, 'Buy') },
+        //                 { id: 'sell', label: 'Sell', icon: 'minus', action: (ctx) => this.trade(ctx.data, 'Sell') },
+        //                 { type: 'separator' },
+        //                 {
+        //                     id: 'alert',
+        //                     label: 'Price alert',
+        //                     icon: 'info',
+        //                     // Third level — nesting is unbounded.
+        //                     children: [
+        //                         { id: 'alert-above', label: 'When above last', icon: 'sortAsc', action: (ctx) => this.alert(ctx.data, 'above') },
+        //                         { id: 'alert-below', label: 'When below last', icon: 'sortDesc', action: (ctx) => this.alert(ctx.data, 'below') },
+        //                     ],
+        //                 },
+        //             ],
+        //         },
+        //         {
+        //             id: 'lots',
+        //             label: 'Default lot size',
+        //             icon: 'columns',
+        //             // A radio group: one option selected at a time, state owned
+        //             // by the application exactly like a checkbox.
+        //             children: ([100, 500, 1000] as const).map((size) => ({
+        //                 type: 'radio' as const,
+        //                 group: 'lotSize',
+        //                 id: `lot-${size}`,
+        //                 value: String(size),
+        //                 label: size.toLocaleString('en-US'),
+        //                 checked: () => this.lotSize === size,
+        //                 action: () => this.setLotSize(size),
+        //             })),
+        //         },
+        //         { type: 'separator' },
+        //         {
+        //             id: 'refresh',
+        //             // Async action: the item shows a spinner and the menu stays
+        //             // open until the promise settles.
+        //             label: 'Re-sync from server',
+        //             icon: 'refresh',
+        //             action: (ctx) => this.resyncInstrument(ctx.data),
+        //         },
+        //         {
+        //             id: 'delist',
+        //             label: 'Delist instrument',
+        //             icon: 'trash',
+        //             cssClass: 'rt-menu-danger',
+        //             // Declarative confirmation, rendered by the grid's dialog.
+        //             confirm: {
+        //                 title: 'Delist instrument?',
+        //                 message: (ctx) =>
+        //                     `${String(ctx.data?.['symbol'])} will be removed from the board. This cannot be undone.`,
+        //                 confirmLabel: 'Delist',
+        //                 danger: true,
+        //             },
+        //             action: (ctx) => this.delist(ctx.data),
+        //         },
+        //     ],
+        //     // Built per open, so the label can name the clicked instrument.
+        //     getItems: (ctx) => {
+        //         const symbol = ctx.data?.['symbol'];
+        //         if (typeof symbol !== 'string') return [];
+        //         return [{
+        //             id: 'copy-symbol',
+        //             label: `Copy "${symbol}"`,
+        //             icon: 'copy',
+        //             tooltip: 'Copies the ticker to the clipboard',
+        //             action: () => void navigator.clipboard?.writeText(symbol),
+        //         }];
+        //     },
         },
     } ;
 
@@ -545,10 +687,15 @@ export class RealtimeGridComponent implements OnInit, OnDestroy {
     }
 
     ngOnInit(): void {
-        this.ticks = this.seedTicks();
-        this.data = this.ticks as unknown as Record<string, unknown>[];
-        this.columns = this.buildColumns();
-    }
+    this.ticks = this.buildData().map(row => ({
+        ...row,
+        __photon_id__: row.ticker,
+        velocity: (Math.random() - 0.5) * 2,
+    }));
+
+    this.data = this.ticks as unknown as Record<string, unknown>[];
+    this.columns = this.buildColumns();
+}
 
     ngOnDestroy(): void {
         this.stop();
@@ -639,50 +786,104 @@ export class RealtimeGridComponent implements OnInit, OnDestroy {
      * sending a narrow payload keeps the comparison cost proportional to the
      * change rather than to the row width.
      */
-    private pushTick(): void {
-        if (!this.api) return;
+  private pushTick(): void {
+    if (!this.api) return;
 
-        const updates: CellUpdate[] = [];
-        for (let i = 0; i < this.rowsPerTick; i++) {
-            const tick = this.ticks[this.cursor];
-            this.cursor = (this.cursor + 1) % this.ticks.length;
+    const updates: CellUpdate[] = [];
 
-            // Momentum-driven random walk. A pure per-tick coin flip produces a
-            // flat, noisy line; carrying (and slowly mean-reverting) a velocity
-            // term makes prices form visible runs and reversals, which is what
-            // gives the Trend sparkline real shape.
-            tick.velocity = tick.velocity * MOMENTUM + (Math.random() - 0.5) * (1 - MOMENTUM) * 2;
-            tick.velocity = clamp(tick.velocity, -1, 1);
+    for (let i = 0; i < this.rowsPerTick; i++) {
 
-            const step = tick.velocity * tick.price * STEP_AMPLITUDE;
-            const price = Math.max(1, tick.price + step);
-            // Total move against the session's opening price — the number a
-            // trading screen actually shows.
-            const change = price - tick.open;
-            const spread = Math.max(0.01, price * 0.0004);
+        const tick = this.ticks[this.cursor];
+        this.cursor = (this.cursor + 1) % this.ticks.length;
 
-            tick.price = price;
-            tick.change = change;
-            tick.spark = [...tick.spark.slice(1), round(price, 2)];
+        // Normal movement
+        tick.velocity =
+            tick.velocity * 0.82 +
+            (Math.random() - 0.5) * 0.6;
 
-            updates.push({
-                nodeId: tick.symbol,
-                values: {
-                    price: round(price, 2),
-                    change: round(change, 2),
-                    changePct: round((change / tick.open) * 100, 2),
-                    bid: round(price - spread, 2),
-                    ask: round(price + spread, 2),
-                    volume: tick.volume + Math.floor(Math.random() * 5_000),
-                    spark: tick.spark,
-                },
-            });
+        // Random market events
+        const r = Math.random();
+
+        if (r < 0.03) {
+            // Huge spike/crash (3%)
+            tick.velocity += (Math.random() > 0.5 ? 1 : -1) * (4 + Math.random() * 6);
+        } else if (r < 0.12) {
+            // Medium move (9%)
+            tick.velocity += (Math.random() > 0.5 ? 1 : -1) * (1 + Math.random() * 3);
         }
 
-        this.api.applyCellUpdates(updates);
-        this.updatesPushed += updates.length;
+        // Don't clamp too aggressively
+        tick.velocity = clamp(tick.velocity, -8, 8);
+
+        const pnlDelta = tick.velocity * (2 + Math.random() * 5);
+
+        tick.pnl = round(tick.pnl + pnlDelta, 2);
+
+        tick.roi = Math.max(
+            0,
+            round(
+                tick.roi +
+                    pnlDelta * 0.18 +
+                    (Math.random() - 0.5) * 2,
+                2
+            )
+        );
+
+        tick.totalValue = round(
+            tick.totalValue +
+                pnlDelta * (15 + Math.random() * 30),
+            2
+        );
+
+        tick.marketValue = Math.max(
+            0,
+            round(
+                tick.marketValue +
+                    pnlDelta * (8 + Math.random() * 15),
+                2
+            )
+        );
+
+        // Occasionally rebalance holdings
+        if (Math.random() < 0.12) {
+            tick.quantity = Math.max(
+                1,
+                tick.quantity + Math.floor(Math.random() * 120 - 60)
+            );
+        }
+
+        // Make the sparkline jump dramatically sometimes
+        const last = tick.spark[tick.spark.length - 1];
+
+        let sparkDelta = tick.velocity * 4 + (Math.random() - 0.5) * 8;
+
+        if (Math.random() < 0.05) {
+            sparkDelta += (Math.random() > 0.5 ? 40 : -40);
+        }
+
+        const next = Math.max(5, last + sparkDelta);
+
+        tick.spark = [
+            ...tick.spark.slice(1),
+            round(next, 2),
+        ];
+
+        updates.push({
+            nodeId: tick.ticker,
+            values: {
+                pnl: tick.pnl,
+                roi: tick.roi,
+                totalValue: tick.totalValue,
+                marketValue: tick.marketValue,
+                quantity: tick.quantity,
+                spark: tick.spark,
+            },
+        });
     }
 
+    this.api.applyCellUpdates(updates);
+    this.updatesPushed += updates.length;
+}
     /** Copies the grid's counters into the view and samples the frame rate. */
     private pullStats(): void {
         if (!this.api) return;
@@ -698,160 +899,351 @@ export class RealtimeGridComponent implements OnInit, OnDestroy {
         this.cdr.markForCheck();
     }
 
-    private seedTicks(): Tick[] {
-        return SYMBOLS.map((symbol, i) => {
-            const open = round(20 + Math.random() * 480, 2);
+    // private seedTicks(): Tick[] {
+    //     return SYMBOLS.map((symbol, i) => {
+    //         const open = round(20 + Math.random() * 480, 2);
 
-            // Pre-run the same momentum walk the feed uses, so every row starts
-            // with a trend line that already has character rather than a flat
-            // band of noise waiting to develop.
-            const spark: number[] = [];
-            let price = open;
-            let velocity = (Math.random() - 0.5) * 2;
-            for (let p = 0; p < SPARK_POINTS; p++) {
-                velocity = clamp(velocity * MOMENTUM + (Math.random() - 0.5) * (1 - MOMENTUM) * 2, -1, 1);
-                price = Math.max(1, price + velocity * price * STEP_AMPLITUDE);
-                spark.push(round(price, 2));
-            }
+    //         // Pre-run the same momentum walk the feed uses, so every row starts
+    //         // with a trend line that already has character rather than a flat
+    //         // band of noise waiting to develop.
+    //         const spark: number[] = [];
+    //         let price = open;
+    //         let velocity = (Math.random() - 0.5) * 2;
+    //         for (let p = 0; p < SPARK_POINTS; p++) {
+    //             velocity = clamp(velocity * MOMENTUM + (Math.random() - 0.5) * (1 - MOMENTUM) * 2, -1, 1);
+    //             price = Math.max(1, price + velocity * price * STEP_AMPLITUDE);
+    //             spark.push(round(price, 2));
+    //         }
 
-            const change = price - open;
-            return {
-                __photon_id__: symbol,
-                symbol,
-                name: `${symbol} Holdings`,
-                open,
-                price: round(price, 2),
-                velocity,
-                change: round(change, 2),
-                changePct: round((change / open) * 100, 2),
-                bid: round(price - 0.02, 2),
-                ask: round(price + 0.02, 2),
-                volume: 100_000 + Math.floor(Math.random() * 900_000),
-                spark,
-                watched: false,
-                halted: false,
-                sector: SECTORS[i % SECTORS.length],
-            };
-        });
-    }
+    //         const change = price - open;
+    //         return {
+    //             __photon_id__: symbol,
+    //             symbol,
+    //             name: `${symbol} Holdings`,
+    //             open,
+    //             price: round(price, 2),
+    //             velocity,
+    //             change: round(change, 2),
+    //             changePct: round((change / open) * 100, 2),
+    //             bid: round(price - 0.02, 2),
+    //             ask: round(price + 0.02, 2),
+    //             volume: 100_000 + Math.floor(Math.random() * 900_000),
+    //             spark,
+    //             watched: false,
+    //             halted: false,
+    //             sector: SECTORS[i % SECTORS.length],
+    //         };
+    //     });
+    // }
 
     private buildColumns(): ColumnDef[] {
-        return [
-            { colId: 'symbol', field: 'symbol', header: 'Symbol', type: 'string', width: 100, pinned: 'left', filterable: true, configurable: true },
-            { colId: 'name', field: 'name', header: 'Instrument', type: 'string', width: 180 },
-            {
-                colId: 'price',
-                field: 'price',
-                header: 'Last',
-                type: 'number',
-                width: 120,
-                textAlign: 'right',
-                // Custom renderer: rebuilt in place on change, never re-mounted.
-                // Its element is created inside the *existing* cell, so the
-                // cell's selection/focus state is untouched.
-                renderer: {
-                    display: (params: DisplayRendererParams) => {
-                        const el = document.createElement('span');
-                        el.className = 'rt-price';
-                        el.style.textAlign = 'right';
-                        el.style.width = '100%';
-                        el.textContent = Number(params.value ?? 0).toFixed(2);
-                        return el;
-                    },
-                },
-            },
-            {
-                colId: 'change',
-                field: 'change',
-                header: 'Chg',
-                type: 'number',
-                width: 130,
-                textAlign: 'right',
-                // A value-dependent class: the patcher swaps it as the value
-                // crosses zero without disturbing the cell's other classes.
-                cellCssClass: (params) => directionClass(Number(params.value)),
-                renderer: {
-                    display: (params: DisplayRendererParams) => {
-                        const value = Number(params.value ?? 0);
-                        return renderDeltaBadge(value, value.toFixed(2));
-                    },
-                },
-            },
-            {
-                colId: 'changePct',
-                field: 'changePct',
-                header: 'Chg %',
-                type: 'number',
-                width: 130,
-                textAlign: 'right',
-                cellCssClass: (params) => directionClass(Number(params.value)),
-                renderer: {
-                    display: (params: DisplayRendererParams) => {
-                        const value = Number(params.value ?? 0);
-                        return renderDeltaBadge(value, `${value.toFixed(2)}%`);
-                    },
-                },
-            },
-            { colId: 'bid', field: 'bid', header: 'Bid', type: 'number', width: 110, textAlign: 'right' },
-            { colId: 'ask', field: 'ask', header: 'Ask', type: 'number', width: 110, textAlign: 'right' },
-            {
-                colId: 'volume',
-                field: 'volume',
-                header: 'Volume',
-                type: 'currency',
-                width: 130,
-                textAlign: 'right',
-                // valueFormatter: (params) => Number(params.value ?? 0).toLocaleString('en-US'),
-            },
-            {
-        
-                colId: 'spark',
-                field: 'spark',
-                header: 'Trend',
-                type: 'sparkline',
-                filterable: false,
-                sortable: false,
-                width: 250,
-                minWidth: 250,
-                sparkline: {
-                    type: 'area',
-                    // The default 'auto' baseline scales the axis to this
-                    // series' own min…max, so the bars encode the price
-                    // variation. With `baseline: 'zero'`, a series sitting
-                    // around 300 would map onto a 0…305 axis and every bar
-                    // would come out the same full height.
-                    stroke: '#01500f',
-                    fill: 'rgba(71, 163, 255, 0.16)',
-                    barSpacing: 0.25,
-                    padding: 4,
-                    axisMax: 1000,
-                    
+    return [
+        {
+    colId: 'ticker',
+    field: 'ticker',
+    header: 'Ticker',
+    width: 340,
+    type: 'string',
+    renderer: {
+        display: (params: DisplayRendererParams) => {
+            const row = params.row as any;
 
-                },
-            },
-            // Never touched by the feed — watch it stay perfectly still.
-            { colId: 'sector', field: 'sector', header: 'Sector', type: 'string', minWidth: 150, flex: 1, filterable: true, configurable: true },
-            // Driven only by the row context menu, so right-clicking a row and
-            // choosing an action repaints exactly this one cell.
-            {
-                colId: 'status',
-                field: 'watched',
-                header: 'Flags',
-                type: 'string',
-                width: 120,
-                renderer: {
-                    display: (params: DisplayRendererParams) => {
-                        const row = params.row as Record<string, unknown>;
-                        const el = document.createElement('span');
-                        el.className = 'rt-flags';
-                        if (row['watched'] === true) el.appendChild(makeFlag('Watch', 'rt-flag--watch'));
-                        if (row['halted'] === true) el.appendChild(makeFlag('Halted', 'rt-flag--halt'));
-                        return el;
+            const root = document.createElement('div');
+            root.className = 'portfolio-company';
+
+            const logo = document.createElement('img');
+            logo.className = 'portfolio-logo';
+            logo.src = `https://logo.clearbit.com/${row.company
+                .replace(/[^a-zA-Z0-9 ]/g, '')
+                .split(' ')[0]
+                .toLowerCase()}.com`;
+
+            logo.onerror = () => {
+                logo.src = `https://ui-avatars.com/api/?background=random&color=fff&name=${row.ticker}`;
+            };
+
+            const content = document.createElement('div');
+            content.className = 'portfolio-company-info';
+
+            const ticker = document.createElement('div');
+            ticker.className = 'portfolio-ticker';
+            ticker.textContent = row.ticker;
+
+            const company = document.createElement('div');
+            company.className = 'portfolio-company-name';
+            company.textContent = row.company;
+
+            content.append(ticker, company);
+            root.append(logo, content);
+
+            return root;
+        },
+    },
+},
+
+        {
+                    colId: 'spark',
+                    field: 'spark',
+                    header: 'Trend',
+                    type: 'sparkline',
+                    width: 280,
+                    minWidth: 280,
+                    sortable: false,
+                    filterable: false,
+                    sparkline: {
+                        type: 'column',
+                        stroke: '#7bacfa',
+                        fill: '#4c8df6',
                     },
                 },
-            },
-        ] as ColumnDef[];
-    }
+
+        {
+                    colId: 'instrument',
+                    field: 'instrument',
+                    header: 'Instrument',
+                    width: 160,
+                     flex: 1,
+                     textAlign: 'right',
+                },
+                
+
+        {
+    colId: 'pnl',
+    field: 'pnl',
+    header: 'P&L',
+    width: 190,
+    textAlign: 'right',
+    renderer: {
+        display: (params: DisplayRendererParams) => {
+
+            const row = params.row as any;
+
+            const positive = row.pnl >= 0;
+
+            const root = document.createElement('div');
+            root.className = 'portfolio-value';
+
+            const value = document.createElement('span');
+            value.className = positive
+                ? 'portfolio-positive'
+                : 'portfolio-negative';
+
+            value.textContent =
+                `${positive ? '↑' : '↓'} ${Math.abs(row.pnl).toLocaleString(undefined, {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                })}`;
+
+            const badge = document.createElement('span');
+            badge.className = 'portfolio-badge';
+            badge.textContent = row.roi.toLocaleString(undefined, {
+                maximumFractionDigits: 2,
+            });
+
+            root.append(value, badge);
+
+            return root;
+        },
+    },
+     flex: 1,
+},
+                {
+    colId: 'totalValue',
+    field: 'totalValue',
+    header: 'Total Value',
+    width: 210,
+    textAlign: 'right',
+    renderer: {
+        display: (params: DisplayRendererParams) => {
+
+            const row = params.row as any;
+
+            const positive = row.totalValue >= 0;
+
+            const root = document.createElement('div');
+            root.className = 'portfolio-value';
+
+            const value = document.createElement('span');
+            value.className = positive
+                ? 'portfolio-positive'
+                : 'portfolio-negative';
+
+            value.textContent =
+                `${positive ? '↑' : '↓'} ${Math.abs(row.totalValue).toLocaleString(undefined, {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                })}`;
+
+            const badge = document.createElement('span');
+            badge.className = 'portfolio-badge';
+            badge.textContent = row.marketValue.toLocaleString(undefined, {
+                maximumFractionDigits: 2,
+            });
+
+            root.append(value, badge);
+
+            return root;
+        },
+    },
+     flex: 1,
+},
+
+        {
+                    colId: 'quantity',
+                    field: 'quantity',
+                    header: 'Quantity',
+                    width: 120,
+                    textAlign: 'right',
+                    flex: 1,
+                },
+    ];
+}
+
+
+ private buildData() {
+    const seed = [
+        {
+            ticker: 'US10Y',
+            company: 'U.S. Treasury 10-Year Bond',
+            instrument: 'Bond',
+            pnl: -136.02,
+            roi: 177.28,
+            totalValue: -13602.03,
+            marketValue: 17727.93,
+            quantity: 1000,
+        },
+        {
+            ticker: 'CAD30Y',
+            company: 'Canada 30-Year Government Bond',
+            instrument: 'Bond',
+            pnl: 261.25,
+            roi: 0,
+            totalValue: 25080.29,
+            marketValue: 0,
+            quantity: 550,
+        },
+        {
+            ticker: 'MUB',
+            company: 'iShares National Muni Bond ETF',
+            instrument: 'ETF',
+            pnl: 12.47,
+            roi: 20.86,
+            totalValue: 1434.57,
+            marketValue: 2398.52,
+            quantity: 75,
+        },
+        {
+            ticker: 'BTC-USD',
+            company: 'Bitcoin',
+            instrument: 'Crypto',
+            pnl: -0.15,
+            roi: 0.08,
+            totalValue: -4613.8,
+            marketValue: 2384.89,
+            quantity: 200,
+        },
+        {
+            ticker: 'T',
+            company: 'AT&T Inc.',
+            instrument: 'Stock',
+            pnl: -142.3,
+            roi: 81.88,
+            totalValue: -2845.99,
+            marketValue: 1637.56,
+            quantity: 100,
+        },
+        {
+            ticker: 'FRN2027',
+            company: 'France Government Bond 2027',
+            instrument: 'Bond',
+            pnl: 131.84,
+            roi: 0,
+            totalValue: 13447.48,
+            marketValue: 0,
+            quantity: 400,
+        },
+        {
+            ticker: 'ADI',
+            company: 'Analog Devices Inc.',
+            instrument: 'Stock',
+            pnl: -6.8,
+            roi: 2.08,
+            totalValue: -1088.74,
+            marketValue: 332.59,
+            quantity: 30,
+        },
+        {
+            ticker: 'AIG',
+            company: 'American International Group',
+            instrument: 'Stock',
+            pnl: -13.68,
+            roi: 42.19,
+            totalValue: -711.39,
+            marketValue: 2193.77,
+            quantity: 80,
+        },
+        {
+            ticker: 'DAL',
+            company: 'Delta Air Lines Inc.',
+            instrument: 'Stock',
+            pnl: -21.58,
+            roi: 31.86,
+            totalValue: -863.17,
+            marketValue: 1274.47,
+            quantity: 70,
+        },
+        {
+            ticker: 'BP',
+            company: 'BP plc',
+            instrument: 'Stock',
+            pnl: 4.01,
+            roi: 10.92,
+            totalValue: 1221.87,
+            marketValue: 3329.25,
+            quantity: 75,
+        },
+        {
+            ticker: 'MA',
+            company: 'Mastercard Inc.',
+            instrument: 'Stock',
+            pnl: -0.58,
+            roi: 0.82,
+            totalValue: -201.45,
+            marketValue: 288.23,
+            quantity: 15,
+        },
+        {
+            ticker: 'VGT',
+            company: 'Vanguard Information Technology ETF',
+            instrument: 'ETF',
+            pnl: -0.82,
+            roi: 2.05,
+            totalValue: -304.66,
+            marketValue: 758.33,
+            quantity: 25,
+        },
+    ];
+
+    return Array.from({ length: 100 }, (_, index) => {
+        const item = seed[index % seed.length];
+
+        return {
+            __photon_id__: `${item.ticker}-${index}`,
+            ticker: `${item.ticker}${Math.floor(index / seed.length) || ''}`,
+            company: item.company,
+            instrument: item.instrument,
+            pnl: +(item.pnl + (Math.random() - 0.5) * 100).toFixed(2),
+            roi: +(item.roi + Math.random() * 25).toFixed(2),
+            totalValue: +(item.totalValue + (Math.random() - 0.5) * 5000).toFixed(2),
+            marketValue: Math.max(
+                0,
+                +(item.marketValue + Math.random() * 5000).toFixed(2)
+            ),
+            quantity: item.quantity + Math.floor(Math.random() * 500),
+            spark: randomSpark(),
+        };
+    });
+}
 }
 
 /** Rounds to `dp` decimals — keeps streamed values stable for the diff. */
@@ -932,4 +1324,17 @@ function renderDeltaBadge(value: number, text: string): HTMLElement {
     badge.appendChild(arrow);
     badge.appendChild(label);
     return badge;
+
+
+   
+}
+
+
+function randomSpark(): number[] {
+    let value = 100;
+
+    return Array.from({ length: 28 }, () => {
+        value += (Math.random() - 0.5) * 15;
+        return Math.max(10, Math.round(value));
+    });
 }

@@ -46,9 +46,14 @@ export const miscCss = `/* ─────────────────�
 .pg-overlay--error .pg-overlay__text { color: var(--pg-colors-text-primary, #0f172a); text-align: left; }
 
 /* ──────────────────── Drag ──────────────────── */
+/* Grab affordance for anything DragDropEngine.makeDraggable() has wired up.
+   Themed here rather than written as an inline style by the engine. */
+.pg-draggable { cursor: grab; }
+.pg-draggable.pg-dragging { cursor: grabbing; }
 .pg-dragging { opacity: 0.5; }
 .pg-drop-before { box-shadow: 0 -2px 0 0 var(--pg-colors-primary, #2563eb); }
 .pg-drop-after  { box-shadow: 0 2px 0 0 var(--pg-colors-primary, #2563eb); }
+.pg-drop-inside { box-shadow: inset 0 0 0 2px var(--pg-colors-primary, #2563eb); }
 .pg-drop-over   { background: var(--pg-colors-drag-over-highlight, rgba(37,99,235,0.06)) !important; }
 
 /* ──────────────────── Fullscreen ──────────────────── */

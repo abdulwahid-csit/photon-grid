@@ -18,7 +18,7 @@ import type {
     GridApi,
     GridOptions,
 } from 'photon-grid-core';
-import { GridEventType, getAllCountries } from 'photon-grid-core';
+import { GridEventType, GridResizeHandle, getAllCountries } from 'photon-grid-core';
 
 /**
  * One column per built-in cell renderer.
@@ -420,8 +420,11 @@ export class RendererShowcaseGridComponent implements OnInit {
             rowHeight: 46,
             mode: 'light',
             headerRowHeight: 42,
-            rowShading: true,
-            showSerialNumber: true,
+            resize: {enabled: true, handles: [GridResizeHandle.BottomRight, GridResizeHandle.BottomLeft]},
+            rowShading: false,
+            showSerialNumber: false,
+            rowMenu: {enabled: false},
+            suppressScrollOnNewData: false,
             // Read by the `actions` column's `visible` predicates as
             // `params.context.permissions` — the seam for what an action needs
             // but a row does not carry.
@@ -482,7 +485,7 @@ export class RendererShowcaseGridComponent implements OnInit {
             { field: 'name', header: 'Text', type: 'string', renderer: 'text', width: 170, pinned: 'left' },
 
             {
-                field: 'notes', header: 'Multiline', type: 'string', width: 220,
+                field: 'notes', header: 'Multiline', type: 'string', width: 220, rowDrag: true,
                 renderer: { name: 'multiline', options: { maxLines: 2 } },
             },
 

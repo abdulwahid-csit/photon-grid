@@ -18,6 +18,12 @@ import { quantumIcons } from './quantum-icons';
  * set of variants is declared in exactly one place per concern.
  */
 export const variantIconSets: Readonly<Record<ThemeVariant, IconSet>> = {
+  /**
+   * Empty on purpose. Classic is the default skin, and the default glyphs are
+   * `coreIcons` — every name falls straight through, which is exactly the
+   * "no icon opinion" this theme wants.
+   */
+  classic: {},
   ion: ionIcons,
   neon: neonIcons,
   photon: photonIcons,

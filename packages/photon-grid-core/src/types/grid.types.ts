@@ -249,9 +249,13 @@ export interface GridOptions {
    * Cosmetic skin layered on top of {@link GridOptions.mode}. Changes density,
    * border radii, typography, checkbox shape, motion and accent color while the
    * base surface/text colors continue to come from the active mode — so every
-   * variant works in both light and dark. Omit for the plain mode look.
+   * variant works in both light and dark.
+   *
+   * Defaults to `'classic'`, the skin Photon ships with: a grey chrome around
+   * white data, one hairline under the header, and colour reserved for state.
+   * Pass `'none'` for the bare base styling with no skin at all.
    */
-  variant?: ThemeVariant;
+  variant?: ThemeVariant | 'none';
 
   /**
    * @deprecated Use {@link GridOptions.mode} and {@link GridOptions.variant}
@@ -410,6 +414,26 @@ export interface GridOptions {
   enableRangeSelection?: boolean;
   enableClipboard?: boolean;
 
+  /**
+   * Whether clicking outside the grid clears the focused cell and any cell
+   * ranges. Defaults to `true`.
+   *
+   * "Outside" means outside the grid container *and* outside the menus, panels
+   * and overlays Photon portals to `<body>` on the grid's behalf — picking
+   * "Copy" from a cell context menu, choosing a value in a dropdown editor, or
+   * scrolling the column chooser all keep the selection they act on. A host that
+   * portals its own popup out of a custom cell renderer can opt it in the same
+   * way with the `data-pg-keep-focus` attribute.
+   *
+   * Row selection (checkboxes / the serial column) is untouched either way; only
+   * the cell focus ring and cell ranges are cleared.
+   *
+   * Set `false` when something outside the grid — an application toolbar, a
+   * detail form — acts on the current cell selection and must not lose it when
+   * the user clicks it.
+   */
+  clearCellSelectionOnClickOutside?: boolean;
+
   enableRowDrag?: boolean;
   enableColumnDrag?: boolean;
 
@@ -567,6 +591,27 @@ export interface GridOptions {
    * @see {@link SummaryConfig}
    */
   summary?: import('../summary/summary.types').SummaryConfig;
+
+  /**
+   * Container resizing — drag the grid's own edges and corners to resize the
+   * whole component.
+   *
+   * Sizes the container element the grid was constructed into, so everything
+   * inside follows automatically. Defaults to the bottom-right L of handles
+   * (like a native `<textarea>`); opt into the top/left edges explicitly, since
+   * those also shift the container's margin to keep the opposite edge fixed.
+   *
+   * The same size is settable imperatively — see `GridApi.setGridSize` and
+   * friends, which write through the same path so the two can never disagree.
+   *
+   * @example
+   * ```ts
+   * resize: { minWidth: 480, minHeight: 240, step: 8 }
+   * ```
+   *
+   * @see {@link GridResizeConfig}
+   */
+  resize?: import('./grid-resize.types').GridResizeConfig;
 
   enableStateManagement?: boolean;
   stateKey?: string;

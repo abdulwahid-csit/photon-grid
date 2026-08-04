@@ -268,13 +268,15 @@ export type ThemeMode = 'light' | 'dark';
  * surface and text colors continue to come from the active mode. This lets any
  * variant render correctly in both light and dark.
  *
- * `'none'` (the default) applies no skin: the grid uses the mode palette with
- * the base component styling.
+ * `'classic'` is the **default**: a grid that names no variant and no legacy
+ * `theme` gets it automatically, so it is the look Photon ships with. Pass
+ * `variant: 'none'` for the bare, unskinned base styling.
  */
-export type ThemeVariant = 'ion' | 'neon' | 'photon' | 'quantum';
+export type ThemeVariant = 'classic' | 'ion' | 'neon' | 'photon' | 'quantum';
 
 /** CSS class applied to the grid container for a given variant. */
 export const THEME_VARIANT_CLASS: Readonly<Record<ThemeVariant, string>> = {
+  classic: 'pg-classic-theme',
   ion: 'pg-ion-theme',
   neon: 'pg-neon-theme',
   photon: 'pg-photon-theme',
@@ -283,6 +285,15 @@ export const THEME_VARIANT_CLASS: Readonly<Record<ThemeVariant, string>> = {
 
 /** Row height used when neither the host nor a variant specifies one. */
 export const DEFAULT_ROW_HEIGHT = 48;
+
+/**
+ * The variant applied when a grid names none.
+ *
+ * A constant rather than a literal at the call site because two places depend
+ * on it — `GridCore.initialize` applies it, and `resolveVariantRowHeight` must
+ * agree about the density that comes with it.
+ */
+export const DEFAULT_THEME_VARIANT: ThemeVariant = 'classic';
 
 /**
  * Default body row height per variant, in pixels.
@@ -296,6 +307,12 @@ export const DEFAULT_ROW_HEIGHT = 48;
  * @see resolveVariantRowHeight
  */
 export const THEME_VARIANT_ROW_HEIGHT: Readonly<Record<ThemeVariant, number>> = {
+  /**
+   * The grid's own default, deliberately equal to {@link DEFAULT_ROW_HEIGHT}:
+   * classic became the default skin without changing the density any existing
+   * grid already renders at.
+   */
+  classic: 48,
   /** Crisp enterprise: compact but not cramped. */
   ion: 44,
   /** High-contrast glow: tight, terminal-like rhythm. */
@@ -310,14 +327,21 @@ export const THEME_VARIANT_ROW_HEIGHT: Readonly<Record<ThemeVariant, number>> = 
  * Resolves the effective body row height.
  *
  * @param rowHeight - Explicit `GridOptions.rowHeight`, if the host set one.
- * @param variant   - Active variant, if any.
- * @returns The host value when given, else the variant default, else {@link DEFAULT_ROW_HEIGHT}.
+ * @param variant   - Active variant. `undefined` resolves through
+ *                    {@link DEFAULT_THEME_VARIANT}, matching what `GridCore`
+ *                    actually applies to a grid that names none; `'none'` takes
+ *                    the base default, since an unskinned grid has no variant
+ *                    density to inherit.
+ * @returns The host value when given, else the variant default, else
+ *          {@link DEFAULT_ROW_HEIGHT}.
  */
 export function resolveVariantRowHeight(
   rowHeight: number | undefined,
-  variant: ThemeVariant | undefined,
+  variant: ThemeVariant | 'none' | undefined,
 ): number {
   if (typeof rowHeight === 'number') return rowHeight;
-  if (variant && variant in THEME_VARIANT_ROW_HEIGHT) return THEME_VARIANT_ROW_HEIGHT[variant];
+  if (variant === 'none') return DEFAULT_ROW_HEIGHT;
+  const effective = variant ?? DEFAULT_THEME_VARIANT;
+  if (effective in THEME_VARIANT_ROW_HEIGHT) return THEME_VARIANT_ROW_HEIGHT[effective];
   return DEFAULT_ROW_HEIGHT;
 }

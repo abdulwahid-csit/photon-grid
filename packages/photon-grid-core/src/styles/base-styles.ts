@@ -1,3 +1,4 @@
+import { themeClassicCss }  from './themes/theme-classic';
 import { themeIonCss }      from './themes/theme-ion';
 import { themeNeonCss }     from './themes/theme-neon';
 import { themePhotonCss }   from './themes/theme-photon';
@@ -44,6 +45,7 @@ import { themeManagerCss }      from './base/theme-manager.css';
 import { toastCss }             from './base/toast.css';
 import { pluginLayerCss }  from './base/plugin-layer.css';
 import { touchCss }             from './base/touch.css';
+import { gridResizeCss }        from './base/grid-resize.css';
 
 const STYLE_ID = 'photon-grid-base-styles';
 
@@ -92,6 +94,10 @@ const baseCss = [
   themeManagerCss,
   toastCss,
   touchCss,
+  // Late: the container resize handles are absolutely positioned above every
+  // panel and overlay the grid draws, so their rules should win any
+  // same-specificity tie against them.
+  gridResizeCss,
   // Last: plugin layers stack above everything the grid draws itself, so their
   // structural rules should win any same-specificity tie.
   pluginLayerCss,
@@ -101,7 +107,11 @@ const baseCss = [
 // (density, radii, typography, accent) that composes with either color mode;
 // the light/dark palettes themselves are injected as tokens by ThemeManager,
 // so no class-based dark skin is bundled here.
-const css = [baseCss, themeIonCss, themeNeonCss, themePhotonCss, themeQuantumCss].join('\n');
+//
+// Classic goes first: it is the default skin, so a grid that later switches to
+// another variant should find that variant's rules *after* it in source order —
+// same specificity, later wins, and neither has to out-specify the other.
+const css = [baseCss, themeClassicCss, themeIonCss, themeNeonCss, themePhotonCss, themeQuantumCss].join('\n');
 
 export function injectBaseStyles(): void {
   if (document.getElementById(STYLE_ID)) return;

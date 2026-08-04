@@ -4,7 +4,7 @@ import type { ColumnDef } from '../types/column.types';
 import type { GridStore } from '../core/grid-store';
 import type { EventBus } from '../event-bus/event-bus';
 import { GridEventType } from '../types/event.types';
-import { isCellInRanges, normalizeRange, type NormalizedRange } from './selection-range';
+import { isCellInRanges, isSingleCell, normalizeRange, type NormalizedRange } from './selection-range';
 import { ClipboardEngine } from '../engines/clipboard/clipboard-engine';
 import { UndoRedoEngine } from '../engines/undo-redo/undo-redo-engine';
 import type { CellChange } from '../engines/undo-redo/undo-redo-engine';
@@ -25,6 +25,7 @@ import type {
 import { buildRowMenuItems, resolvePredicate } from '../renderer/row-menu-builder';
 import { openConfirmDialog } from '../renderer/confirm-dialog';
 import { activeGridRegistry } from './active-grid-registry';
+import { isInsideGridUi, resolveGridRoot } from './focus-boundary';
 
 /**
  * Maps a built-in menu entry's `data-action` dispatch key to its public
@@ -171,6 +172,25 @@ export class CellSelectionEngine {
 
   private boundKeydown: (e: KeyboardEvent) => void;
   private boundHideCtx: (e: MouseEvent) => void;
+  private boundPointerDown: (e: PointerEvent) => void;
+
+  // ─── Focus boundary ───────────────────────────────────────────────────────
+
+  /** The element `attach` was given; the seed for {@link gridRootEl}. */
+  private attachedEl: HTMLElement | null = null;
+  /** Memoised grid root for outside-click tests. Invalidated on every `attach`. */
+  private resolvedGridRootEl: HTMLElement | null = null;
+
+  /**
+   * Whether clicking outside the grid drops the focused cell, from
+   * `GridOptions.clearCellSelectionOnClickOutside`.
+   *
+   * On by default: a focus ring left behind on a grid the user has clicked away
+   * from claims keyboard ownership it no longer has — the next Ctrl+C would copy
+   * from a grid nobody is looking at. Hosts that keep a toolbar outside the grid
+   * acting on the current selection turn it off.
+   */
+  private clearFocusOnClickOutside = true;
 
   // ─── Fill handle state ────────────────────────────────────────────────────
 
@@ -205,6 +225,25 @@ export class CellSelectionEngine {
   /** Whether the serial column drives row selection (enables row keyboard ops). */
   private serialRowSelectionEnabled = false;
 
+  /**
+   * Whether cells may be selected at all, from `GridOptions.enableCellSelection`.
+   *
+   * Defaults to `true`: the option was previously read nowhere, so every grid
+   * has always had selection on. Only an explicit `false` turns it off, which
+   * keeps grids that never set it behaving exactly as before.
+   */
+  private cellSelectionEnabled = true;
+
+  /**
+   * Whether a selection may span more than one cell, from
+   * `GridOptions.enableRangeSelection`. Same default and reasoning as
+   * {@link cellSelectionEnabled}.
+   *
+   * Independent of it: `enableCellSelection: true, enableRangeSelection: false`
+   * is the "single active cell, no ranges" mode.
+   */
+  private rangeSelectionEnabled = true;
+
   constructor(
     private store: GridStore,
     private eventBus: EventBus,
@@ -223,14 +262,22 @@ export class CellSelectionEngine {
     this.boundHideCtx = () => this.hideContextMenu();
     this.boundFillMouseMove = this.onFillMouseMove.bind(this);
     this.boundFillMouseUp = this.onFillMouseUp.bind(this);
+    this.boundPointerDown = this.onDocumentPointerDown.bind(this);
   }
 
   get isSelecting(): boolean { return this._isSelecting; }
 
   attach(containerEl: HTMLElement): void {
-    // containerEl kept for signature compat — no canvas attached
-    void containerEl;
+    // Seeds the focus boundary — the widened root is resolved lazily, because
+    // the theme scope attribute it prefers is written when the theme is applied
+    // and that need not have happened yet.
+    this.attachedEl = containerEl;
+    this.resolvedGridRootEl = null;
     document.addEventListener('keydown', this.boundKeydown);
+    // Capture phase: an outside click must be seen even when a host handler on
+    // the way up calls `stopPropagation`. Re-adding an identical listener is a
+    // no-op, so a second `attach` (a re-render) cannot double-subscribe.
+    document.addEventListener('pointerdown', this.boundPointerDown, true);
     this.buildContextMenu();
   }
 
@@ -246,6 +293,59 @@ export class CellSelectionEngine {
    */
   setSerialColumnSelection(enabled: boolean): void {
     this.serialRowSelectionEnabled = enabled;
+  }
+
+  /**
+   * Applies `GridOptions.enableCellSelection` / `enableRangeSelection`.
+   *
+   * Gating lives here rather than at each call site because selection is
+   * reachable from six of them — click, shift-click, ctrl-click, drag, keyboard
+   * navigation and the public API — and a check missing from any one of them is
+   * a way for a disabled feature to switch itself back on.
+   *
+   * Turning cell selection off clears whatever is currently selected, so the
+   * option can be flipped at runtime without leaving an orphaned highlight.
+   *
+   * @param options - `undefined` values leave that flag unchanged.
+   */
+  configureSelection(options: {
+    readonly cellSelection?: boolean;
+    readonly rangeSelection?: boolean;
+    readonly clearFocusOnClickOutside?: boolean;
+  }): void {
+    if (options.cellSelection !== undefined) this.cellSelectionEnabled = options.cellSelection;
+    if (options.rangeSelection !== undefined) this.rangeSelectionEnabled = options.rangeSelection;
+    if (options.clearFocusOnClickOutside !== undefined) {
+      this.clearFocusOnClickOutside = options.clearFocusOnClickOutside;
+    }
+
+    if (!this.cellSelectionEnabled) {
+      this.clearSelection();
+    } else if (!this.rangeSelectionEnabled) {
+      // Collapse any existing multi-cell selection down to its anchor rather
+      // than clearing outright — the active cell is still legitimate.
+      const ranges = this.store.get('cellRanges') as CellRange[];
+      if (ranges.length > 1 || (ranges[0] && !isSingleCell(ranges[0]))) {
+        const anchor = this.anchorCell;
+        if (anchor) this.startSelection(anchor.rowIndex, anchor.colIndex);
+        else this.clearSelection();
+      }
+    }
+  }
+
+  /** `true` when cells may be selected. @see {@link configureSelection} */
+  get isCellSelectionEnabled(): boolean {
+    return this.cellSelectionEnabled;
+  }
+
+  /** `true` when a selection may span more than one cell. @see {@link configureSelection} */
+  get isRangeSelectionEnabled(): boolean {
+    return this.cellSelectionEnabled && this.rangeSelectionEnabled;
+  }
+
+  /** `true` when clicking outside the grid drops the focused cell. @see {@link configureSelection} */
+  get isClearFocusOnClickOutsideEnabled(): boolean {
+    return this.clearFocusOnClickOutside;
   }
 
   /**
@@ -420,9 +520,12 @@ export class CellSelectionEngine {
 
   detach(): void {
     document.removeEventListener('keydown', this.boundKeydown);
+    document.removeEventListener('pointerdown', this.boundPointerDown, true);
     document.removeEventListener('pointermove', this.boundFillMouseMove);
     document.removeEventListener('pointerup', this.boundFillMouseUp);
     activeGridRegistry.release(this);
+    this.attachedEl = null;
+    this.resolvedGridRootEl = null;
     this.fillHandleParentCell?.classList.remove('pg-cell--has-fill-handle');
     this.fillHandleParentCell = null;
     this.fillHandleEl?.remove();
@@ -434,9 +537,51 @@ export class CellSelectionEngine {
     this.contextMenuEl = null;
   }
 
+  // ─── Focus boundary ───────────────────────────────────────────────────────
+
+  /**
+   * Drops the focused cell when the user clicks away from the grid.
+   *
+   * Runs on every pointerdown in the document, so it is written to bail on the
+   * cheap checks first: the feature flag, then "is there even a focus ring to
+   * clear", and only then the DOM walk in {@link isInsideGridUi}. A grid with no
+   * active cell — every grid on a page except at most one — costs two field
+   * reads per click.
+   *
+   * A fill drag is exempt: the pointer is down on the handle inside the grid and
+   * the pointer *up* may land anywhere, so the drag owns the selection until it
+   * finishes.
+   */
+  private onDocumentPointerDown(e: PointerEvent): void {
+    if (!this.clearFocusOnClickOutside) return;
+    if (this.isFillDragging) return;
+    if (this.store.get('activeCell') === null) return;
+
+    const root = this.gridRootEl;
+    if (!root || isInsideGridUi(e.target, root)) return;
+
+    // Also gives up this grid's claim on the page's keyboard shortcuts, so the
+    // registry is not left pointing at a grid with nothing selected.
+    this.clearSelection();
+    activeGridRegistry.release(this);
+  }
+
+  /** The grid's outermost element, resolved once per `attach` and cached. */
+  private get gridRootEl(): HTMLElement | null {
+    if (!this.attachedEl) return null;
+    if (!this.resolvedGridRootEl?.isConnected) {
+      this.resolvedGridRootEl = resolveGridRoot(this.attachedEl);
+    }
+    return this.resolvedGridRootEl;
+  }
+
   // ─── Selection API ────────────────────────────────────────────────────────
 
   startSelection(rowIndex: number, colIndex: number, extend = false): void {
+    if (!this.cellSelectionEnabled) return;
+    // An extend is a range operation, so it is refused when ranges are off —
+    // but the caller still gets the single-cell selection it asked to anchor.
+    if (extend && !this.rangeSelectionEnabled) extend = false;
     // Claims this grid as the page's active selection surface, deactivating
     // (clearing) whichever grid held that role before — see active-grid-registry.ts.
     activeGridRegistry.setActive(this);
@@ -454,6 +599,14 @@ export class CellSelectionEngine {
   }
 
   extendSelection(rowIndex: number, colIndex: number): void {
+    if (!this.cellSelectionEnabled) return;
+    // Ranges off: a shift-click or a drag collapses to selecting that one cell
+    // rather than doing nothing, which is what makes the mode feel like
+    // "single-cell selection" instead of "half the clicks are ignored".
+    if (!this.rangeSelectionEnabled) {
+      this.startSelection(rowIndex, colIndex);
+      return;
+    }
     if (!this.anchorCell) {
       this.startSelection(rowIndex, colIndex);
       return;
@@ -496,6 +649,13 @@ export class CellSelectionEngine {
    * @param colIndex - Column index of the clicked cell.
    */
   addRangeCell(rowIndex: number, colIndex: number): void {
+    if (!this.cellSelectionEnabled) return;
+    // Multi-range is the most range-y operation there is; with ranges off a
+    // Ctrl+Click behaves like a plain click.
+    if (!this.rangeSelectionEnabled) {
+      this.startSelection(rowIndex, colIndex);
+      return;
+    }
     activeGridRegistry.setActive(this);
     const existing = this.store.get('cellRanges') as CellRange[];
     const dupeIdx = existing.findIndex(
@@ -605,6 +765,14 @@ export class CellSelectionEngine {
    */
   private updateFillHandle(): void {
     if (this.isFillDragging) return;
+
+    // Dragging the handle is how a single cell becomes a range, so it has no
+    // place in a grid where ranges are off — and none at all where cells cannot
+    // be selected in the first place.
+    if (!this.cellSelectionEnabled || !this.rangeSelectionEnabled) {
+      this.hideFillHandle();
+      return;
+    }
 
     const ranges = this.store.get('cellRanges') as CellRange[];
     if (ranges.length !== 1) {

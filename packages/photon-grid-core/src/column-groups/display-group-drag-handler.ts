@@ -2,6 +2,10 @@ import type { DisplayGroupNode } from './display-group.types';
 import { createDiv } from '../renderer/dom-utils';
 import { adoptGridTheme } from '../renderer/overlay-theme';
 import { isTouchPointer, DRAG_THRESHOLD_MOUSE, DRAG_THRESHOLD_TOUCH, LONG_PRESS_MS } from '../core/pointer-utils';
+import { DragFrameScheduler } from '../drag-drop/drag-frame-scheduler';
+import { DragRectCache, NO_SLOT } from '../drag-drop/drag-rect-cache';
+import { DragStyleWriter } from '../drag-drop/drag-style-writer';
+import { DragGhost } from '../drag-drop/drag-ghost';
 
 /**
  * Fired by {@link DisplayGroupDragHandler} when the user drops a group at a
@@ -94,9 +98,14 @@ export class DisplayGroupDragHandler {
   private isDragging    = false;
   private dragGroupId:  string | null               = null;
   private sourcePanel:  'left' | null | 'right'     = null;
-  private ghostEl:      HTMLElement | null           = null;
+  /** Positions the ghost chip with a compositor-only transform. */
+  private readonly ghost = new DragGhost();
   private indicatorEl:  HTMLElement | null           = null;
-  private dragStyleEl:  HTMLStyleElement | null      = null;
+  /**
+   * Owns the injected transform stylesheet and skips the assignment when the
+   * generated rules are unchanged.
+   */
+  private readonly dragStyles = new DragStyleWriter('data-pg-group-drag');
   private capturedCells: CapturedCell[]              = [];
   private dragSourceIdx = -1;
   /** Last slot key seen in live-preview mode — `"<panel>:<insertBeforeColId|end>"`. */
@@ -104,6 +113,30 @@ export class DisplayGroupDragHandler {
   private startX = 0;
   private startY = 0;
   private removeMoveUp: (() => void) | null = null;
+
+  /**
+   * Leaf-cell geometry for the panel the cursor is over, captured on entry to
+   * that panel rather than re-measured per pointer event.
+   *
+   * {@link findInsertBeforeColId} previously ran a `querySelectorAll` and called
+   * `getBoundingClientRect()` on every leaf header cell on every move.
+   */
+  private readonly leafCells = new DragRectCache();
+  /** Column ids parallel to {@link leafCells}. */
+  private leafColIds: string[] = [];
+  /** Panel {@link leafCells} was captured from; `undefined` when never captured. */
+  private leafPanel: 'left' | null | 'right' | undefined = undefined;
+
+  /** Panel bounds, captured at drag start, for {@link detectPanelAtPoint}. */
+  private leftPanelRect:  DOMRect | null = null;
+  private rightPanelRect: DOMRect | null = null;
+
+  /**
+   * Coalesces `pointermove` into one frame of work — panel detection, slot
+   * resolution, live preview, and indicator placement now run once per painted
+   * frame against the newest sample rather than once per pointer event.
+   */
+  private readonly frames: DragFrameScheduler;
 
   /**
    * @param gridElGetter    - Returns the root `.pg-grid` element (may be null before mount).
@@ -120,7 +153,9 @@ export class DisplayGroupDragHandler {
     private readonly onGroupMoved: GroupMovedCallback,
     private readonly previewCallbacks?: GroupPreviewCallbacks,
     private readonly leavesFor?: (groupId: string) => readonly string[],
-  ) {}
+  ) {
+    this.frames = new DragFrameScheduler((x, y) => this.applyDragFrame(x, y));
+  }
 
   // ── Public ────────────────────────────────────────────────────────────────
 
@@ -139,6 +174,12 @@ export class DisplayGroupDragHandler {
    */
   onHeaderMouseDown(e: PointerEvent, node: DisplayGroupNode, el: HTMLElement): void {
     if (e.button !== 0) return;
+
+    // A press that arrives while a previous probe is still armed (a second
+    // finger, a synthetic event, a header rebuilt mid-gesture) would otherwise
+    // orphan that probe's listeners — `removeMoveUp` was simply overwritten.
+    this.removeMoveUp?.();
+    this.removeMoveUp = null;
 
     this.startX       = e.clientX;
     this.startY       = e.clientY;
@@ -180,14 +221,23 @@ export class DisplayGroupDragHandler {
         this.isDragging = true;
         this.activateDrag(ev, node);
       }
-      if (this.isDragging) this.onMouseMove(ev);
+      // Sampling only — the frame scheduler runs the real work once per paint.
+      if (this.isDragging) this.frames.sample(ev.clientX, ev.clientY);
     };
 
     const onUp = (ev: PointerEvent): void => {
       this.removeMoveUp?.();
       this.removeMoveUp = null;
       clearProbe();
-      if (this.isDragging) this.onMouseUp(ev);
+      if (this.isDragging) {
+        // Apply a sample still queued for the next frame so the drop resolves
+        // against the last position the pointer actually moved through. The
+        // pointerup's own coordinates are not injected as a new sample: in
+        // live-preview mode that would run one more `onPreviewMove` — a store
+        // mutation and header rebuild — at the instant the drop is committed.
+        this.frames.flushNow();
+        this.onMouseUp(ev);
+      }
       this.isDragging = false;
     };
 
@@ -246,20 +296,26 @@ export class DisplayGroupDragHandler {
     gridEl.classList.add('pg-grid--group-dragging');
 
     // Ghost chip — follows the cursor in both modes
-    this.ghostEl = createDiv('pg-col-drag-ghost');
-    this.ghostEl.textContent  = node.header;
-    this.ghostEl.style.left   = `${e.clientX + 12}px`;
-    this.ghostEl.style.top    = `${e.clientY - 14}px`;
+    const ghostEl = createDiv('pg-col-drag-ghost');
+    ghostEl.textContent = node.header;
     // Both of these are portaled to `document.body`, outside the container the
     // grid's token stylesheet is scoped to, so each has to adopt that scope or
     // it paints in light-mode fallbacks regardless of the grid's mode.
-    adoptGridTheme(this.ghostEl, gridEl);
-    document.body.appendChild(this.ghostEl);
+    adoptGridTheme(ghostEl, gridEl);
+    document.body.appendChild(ghostEl);
+    this.ghost.attach(ghostEl, 12, -14);
+    this.ghost.moveTo(e.clientX, e.clientY);
 
     // Drop indicator (vertical line) — used in both modes
     this.indicatorEl = createDiv('pg-group-drop-indicator');
     adoptGridTheme(this.indicatorEl, gridEl);
     document.body.appendChild(this.indicatorEl);
+
+    // Panel bounds, read once here rather than on every pointer event inside
+    // detectPanelAtPoint. Panels do not move during a group drag.
+    this.leftPanelRect  = gridEl.querySelector<HTMLElement>('.pg-panel--left')?.getBoundingClientRect()  ?? null;
+    this.rightPanelRect = gridEl.querySelector<HTMLElement>('.pg-panel--right')?.getBoundingClientRect() ?? null;
+    this.leafPanel = undefined;
 
     if (this.previewCallbacks) {
       // Live-rebuild mode: no CSS transforms needed — tell engine to snapshot
@@ -267,9 +323,7 @@ export class DisplayGroupDragHandler {
       this.previewCallbacks.onPreviewStart();
     } else {
       // CSS-transform mode: inject style element + capture cell rects
-      this.dragStyleEl = document.createElement('style');
-      this.dragStyleEl.setAttribute('data-pg-group-drag', '');
-      document.head.appendChild(this.dragStyleEl);
+      this.dragStyles.mount();
 
       this.capturePanelCells(gridEl, this.sourcePanel);
       this.dragSourceIdx = this.capturedCells.findIndex(
@@ -279,23 +333,28 @@ export class DisplayGroupDragHandler {
     }
   }
 
-  private onMouseMove(e: MouseEvent): void {
-    if (!this.ghostEl) return;
+  /**
+   * The display-group drag's per-frame workload.
+   *
+   * @param clientX - Newest cursor x.
+   * @param clientY - Newest cursor y.
+   */
+  private applyDragFrame(clientX: number, clientY: number): void {
+    if (!this.ghost.isAttached) return;
     this._didJustDrag = true;
 
     // Track ghost chip
-    this.ghostEl.style.left = `${e.clientX + 12}px`;
-    this.ghostEl.style.top  = `${e.clientY - 14}px`;
+    this.ghost.moveTo(clientX, clientY);
 
     const gridEl = this.gridElGetter();
     if (!gridEl) return;
 
-    const targetPanel = this.detectPanelAtPoint(e.clientX, e.clientY, gridEl);
+    const targetPanel = this.detectPanelAtPoint(clientX, clientY);
 
     if (this.previewCallbacks) {
       // ── Live-rebuild path ────────────────────────────────────────────────
       // Read insert position from the current (possibly just-rebuilt) DOM.
-      const insertBeforeColId = this.findInsertBeforeColId(e, targetPanel, gridEl);
+      const insertBeforeColId = this.findInsertBeforeColId(clientX, targetPanel, gridEl);
       const slotKey = `${targetPanel ?? 'c'}:${insertBeforeColId ?? 'end'}`;
 
       // Only trigger a store update + rebuild when the slot actually changes.
@@ -307,6 +366,9 @@ export class DisplayGroupDragHandler {
           targetPanel,
           insertBeforeColId,
         );
+        // The rebuild replaces every leaf cell, so the geometry just used to
+        // resolve this slot no longer describes the DOM.
+        this.leafPanel = undefined;
       }
 
       // Position indicator using the live DOM (reads rebuilt cells directly).
@@ -319,7 +381,7 @@ export class DisplayGroupDragHandler {
         this.dragSourceIdx = -1;
       }
 
-      const effectiveIdx = this.findEffectiveSlot(e.clientX);
+      const effectiveIdx = this.findEffectiveSlot(clientX);
       this.applyTransforms(effectiveIdx, gridEl);
       this.updateIndicator(effectiveIdx);
     }
@@ -343,8 +405,8 @@ export class DisplayGroupDragHandler {
       return;
     }
 
-    const targetPanel       = this.detectPanelAtPoint(e.clientX, e.clientY, gridEl);
-    const insertBeforeColId = this.findInsertBeforeColId(e, targetPanel, gridEl);
+    const targetPanel       = this.detectPanelAtPoint(e.clientX, e.clientY);
+    const insertBeforeColId = this.findInsertBeforeColId(e.clientX, targetPanel, gridEl);
     const srcPanel          = this.sourcePanel;
     const groupId           = this.dragGroupId;
 
@@ -361,33 +423,50 @@ export class DisplayGroupDragHandler {
 
   /**
    * Find the leaf column ID that the group should be inserted before.
-   * Inspects the leaf header row in the target panel, finding the first cell
-   * whose horizontal midpoint is to the right of the cursor.
    *
-   * @param e           - Current cursor position.
+   * Resolves against {@link leafCells}, captured on entry to the target panel
+   * and after each live-preview rebuild — the only two events that change leaf
+   * geometry during a drag. The previous implementation re-queried the panel and
+   * called `getBoundingClientRect()` on every leaf cell on every pointer event.
+   *
+   * @param clientX     - Cursor x position.
    * @param targetPanel - Panel the drop is over.
    * @param gridEl      - Root `.pg-grid` element.
    */
   private findInsertBeforeColId(
-    e:           MouseEvent,
+    clientX:     number,
     targetPanel: 'left' | null | 'right',
     gridEl:      HTMLElement,
   ): string | null {
-    const panelEl = this.getPanelEl(targetPanel, gridEl);
-    if (!panelEl) return null;
+    this.ensureLeafCells(targetPanel, gridEl);
+    if (!this.leafCells.isValid) return null;
 
-    const leafRow = panelEl.querySelector<HTMLElement>('.pg-header-row');
-    if (!leafRow) return null;
+    // Binary search for the first cell whose midpoint is right of the cursor.
+    const slot = this.leafCells.firstSlotPastMidpointX(clientX);
+    return slot < this.leafColIds.length ? (this.leafColIds[slot] ?? null) : null;
+  }
 
-    const cells = Array.from(leafRow.querySelectorAll<HTMLElement>('.pg-th[data-col-id]'));
-    for (const cell of cells) {
-      const rect = cell.getBoundingClientRect();
-      if (e.clientX < rect.left + rect.width / 2) {
-        return cell.getAttribute('data-col-id');
-      }
+  /**
+   * Captures the leaf header cells of `panel` unless they are already current.
+   *
+   * @param panel  - Panel to inspect.
+   * @param gridEl - Root `.pg-grid` element.
+   */
+  private ensureLeafCells(panel: 'left' | null | 'right', gridEl: HTMLElement): void {
+    if (this.leafPanel === panel && this.leafCells.isValid) return;
+    this.leafPanel = panel;
+
+    const panelEl = this.getPanelEl(panel, gridEl);
+    const leafRow = panelEl?.querySelector<HTMLElement>('.pg-header-row') ?? null;
+    if (!leafRow) {
+      this.leafCells.clear();
+      this.leafColIds = [];
+      return;
     }
 
-    return null;
+    const cells = Array.from(leafRow.querySelectorAll<HTMLElement>('.pg-th[data-col-id]'));
+    this.leafCells.capture(cells);
+    this.leafColIds = cells.map((el) => el.getAttribute('data-col-id') ?? '');
   }
 
   // ── Private: live transforms ──────────────────────────────────────────────
@@ -488,12 +567,12 @@ export class DisplayGroupDragHandler {
    * @param gridEl       - Root `.pg-grid` element (used to scope CSS selectors).
    */
   private applyTransforms(effectiveIdx: number, gridEl: HTMLElement): void {
-    if (!this.dragStyleEl || this.capturedCells.length === 0) return;
+    if (!this.dragStyles.isMounted || this.capturedCells.length === 0) return;
 
     const src = this.dragSourceIdx;
     // No visual shift needed when the drag returns to its original position.
     if (src === -1 || effectiveIdx === src || effectiveIdx === src + 1) {
-      this.dragStyleEl.textContent = '';
+      this.dragStyles.clear();
       return;
     }
 
@@ -518,12 +597,14 @@ export class DisplayGroupDragHandler {
       : targetCell.rect.left  - draggedCell.rect.left;
 
     // Dragged group header: snap instantly, elevate above neighbours.
-    let css = `${ds}[data-group-id="${dragGroupId}"] { --pg-drag-x: ${srcOffset}px; --pg-drag-transition: 0ms; z-index: 10; position: relative; }\n`;
+    const rules: string[] = [
+      `${ds}[data-group-id="${dragGroupId}"] { --pg-drag-x: ${srcOffset}px; --pg-drag-transition: 0ms; z-index: 10; position: relative; }`,
+    ];
 
     // Dragged group leaf columns (header + body cells): also snap instantly.
     if (this.leavesFor) {
       for (const colId of this.leavesFor(dragGroupId)) {
-        css += `${ds}[data-col-id="${colId}"] { --pg-drag-x: ${srcOffset}px; --pg-drag-transition: 0ms; }\n`;
+        rules.push(`${ds}[data-col-id="${colId}"] { --pg-drag-x: ${srcOffset}px; --pg-drag-transition: 0ms; }`);
       }
     }
 
@@ -539,19 +620,19 @@ export class DisplayGroupDragHandler {
         offset = draggedWidth;
       }
       if (offset === 0 || !cellId) continue;
-      css += cell.groupId
-        ? `${ds}[data-group-id="${cellId}"] { --pg-drag-x: ${offset}px; }\n`
-        : `${ds}[data-col-id="${cellId}"] { --pg-drag-x: ${offset}px; }\n`;
+      rules.push(cell.groupId
+        ? `${ds}[data-group-id="${cellId}"] { --pg-drag-x: ${offset}px; }`
+        : `${ds}[data-col-id="${cellId}"] { --pg-drag-x: ${offset}px; }`);
 
       // Leaf columns belonging to this displaced group (header + body cells).
       if (cell.groupId && this.leavesFor) {
         for (const colId of this.leavesFor(cell.groupId)) {
-          css += `${ds}[data-col-id="${colId}"] { --pg-drag-x: ${offset}px; }\n`;
+          rules.push(`${ds}[data-col-id="${colId}"] { --pg-drag-x: ${offset}px; }`);
         }
       }
     }
 
-    this.dragStyleEl.textContent = css;
+    this.dragStyles.write(`${rules.join('\n')}\n`);
   }
 
   /**
@@ -607,31 +688,25 @@ export class DisplayGroupDragHandler {
   ): void {
     if (!this.indicatorEl) return;
 
-    const panelEl = this.getPanelEl(panel, gridEl);
-    if (!panelEl) { this.indicatorEl.style.display = 'none'; return; }
-
-    const leafRow = panelEl.querySelector<HTMLElement>('.pg-header-row');
-    if (!leafRow) { this.indicatorEl.style.display = 'none'; return; }
+    this.ensureLeafCells(panel, gridEl);
+    if (!this.leafCells.isValid) { this.indicatorEl.style.display = 'none'; return; }
 
     let left: number;
     let top: number;
     let height: number;
 
     if (colId) {
-      const cell = leafRow.querySelector<HTMLElement>(`.pg-th[data-col-id="${colId}"]`);
-      if (!cell) { this.indicatorEl.style.display = 'none'; return; }
-      const rect = cell.getBoundingClientRect();
-      left   = rect.left;
-      top    = rect.top;
-      height = rect.height;
+      const slot = this.leafColIds.indexOf(colId);
+      if (slot === -1) { this.indicatorEl.style.display = 'none'; return; }
+      left   = this.leafCells.leftOf(slot);
+      top    = this.leafCells.topOf(slot);
+      height = this.leafCells.heightOf(slot);
     } else {
       // Append at end: right edge of the last leaf cell
-      const cells = Array.from(leafRow.querySelectorAll<HTMLElement>('.pg-th[data-col-id]'));
-      if (cells.length === 0) { this.indicatorEl.style.display = 'none'; return; }
-      const rect = cells[cells.length - 1].getBoundingClientRect();
-      left   = rect.right;
-      top    = rect.top;
-      height = rect.height;
+      const last = this.leafCells.length - 1;
+      left   = this.leafCells.rightOf(last);
+      top    = this.leafCells.topOf(last);
+      height = this.leafCells.heightOf(last);
     }
 
     this.indicatorEl.style.left    = `${left}px`;
@@ -648,15 +723,22 @@ export class DisplayGroupDragHandler {
     return null;
   }
 
-  private detectPanelAtPoint(x: number, y: number, gridEl: HTMLElement): 'left' | null | 'right' {
-    const check = (cls: string, pin: 'left' | 'right'): boolean => {
-      const el = gridEl.querySelector<HTMLElement>(cls);
-      if (!el) return false;
-      const r = el.getBoundingClientRect();
-      return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
-    };
-    if (check('.pg-panel--left',  'left'))  return 'left';
-    if (check('.pg-panel--right', 'right')) return 'right';
+  /**
+   * Resolves which pinned panel the point falls in, from bounds captured at drag
+   * start.
+   *
+   * Panels do not move while a group is being dragged, so re-querying and
+   * re-measuring them on every pointer event — two `querySelector` calls and two
+   * forced layouts — bought nothing.
+   *
+   * @param x - Client x coordinate.
+   * @param y - Client y coordinate.
+   */
+  private detectPanelAtPoint(x: number, y: number): 'left' | null | 'right' {
+    const inside = (r: DOMRect | null): boolean =>
+      !!r && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+    if (inside(this.leftPanelRect))  return 'left';
+    if (inside(this.rightPanelRect)) return 'right';
     return null;
   }
 
@@ -671,16 +753,19 @@ export class DisplayGroupDragHandler {
   }
 
   private cleanupDrag(): void {
-    if (this.dragStyleEl) {
-      this.dragStyleEl.textContent = '';
-      this.dragStyleEl.remove();
-      this.dragStyleEl = null;
-    }
-    this.ghostEl?.remove();
-    this.ghostEl = null;
+    // Discards any sample queued for the next frame — a torn-down drag must not
+    // apply one last move.
+    this.frames.reset();
+    this.dragStyles.dispose();
+    this.ghost.detach();
     this.indicatorEl?.remove();
     this.indicatorEl   = null;
     this.capturedCells = [];
+    this.leafCells.clear();
+    this.leafColIds    = [];
+    this.leafPanel     = undefined;
+    this.leftPanelRect  = null;
+    this.rightPanelRect = null;
     this.dragSourceIdx = -1;
     this.dragGroupId   = null;
     this.sourcePanel   = null;

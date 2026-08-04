@@ -25,7 +25,7 @@ export const filterCss = `/* ─────────────────
   color: var(--pg-colors-text-primary, var(--pg-text-primary, #222));
   top: 0;
   left: 0;
-  transform: translate(-9999px, -9999px);
+  transform: translate3d(var(--pg-ghost-x, -9999px), var(--pg-ghost-y, -9999px), 0);
 }
 .pg-drag-preview__avatar {
   width: var(--pg-drag-preview-avatar-size, 24px);

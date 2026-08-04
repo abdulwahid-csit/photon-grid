@@ -146,6 +146,13 @@ export const GridEventType = {
   /** The set of summary row *definitions* changed. @see SummaryRowsChangedEvent */
   SUMMARY_ROWS_CHANGED: 'summary:rowsChanged',
 
+  /** A container resize-handle drag began. @see GridResizeStartEvent */
+  GRID_RESIZE_START: 'grid:resizeStart',
+  /** The grid container's size changed, by drag or by API. @see GridResizedEvent */
+  GRID_RESIZED: 'grid:resized',
+  /** A container resize-handle drag finished. @see GridResizeEndEvent */
+  GRID_RESIZE_END: 'grid:resizeEnd',
+
   SERVER_REQUEST: 'server:request',
   SERVER_SUCCESS: 'server:success',
   SERVER_ERROR: 'server:error',
@@ -635,6 +642,9 @@ export type GridEventMap = {
   [GridEventType.TOOLBAR_SEARCH_CHANGED]: ToolbarSearchChangedEvent;
   [GridEventType.SUMMARY_CHANGED]: SummaryChangedEvent;
   [GridEventType.SUMMARY_ROWS_CHANGED]: SummaryRowsChangedEvent;
+  [GridEventType.GRID_RESIZE_START]: import('./grid-resize.types').GridResizeStartEvent;
+  [GridEventType.GRID_RESIZED]: import('./grid-resize.types').GridResizedEvent;
+  [GridEventType.GRID_RESIZE_END]: import('./grid-resize.types').GridResizeEndEvent;
   [GridEventType.SERVER_REQUEST]: ServerRequestEvent;
   [GridEventType.SERVER_SUCCESS]: ServerSuccessEvent;
   [GridEventType.SERVER_ERROR]: ServerErrorEvent;

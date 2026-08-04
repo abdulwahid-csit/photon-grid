@@ -218,9 +218,18 @@ export const columnGroupHeaderCss = `/* ─────────────�
   transition: transform var(--pg-drag-transition, 180ms cubic-bezier(0.25, 0.46, 0.45, 0.94));
 }
 
-/* Column drag ghost (floating preview chip that follows the cursor) */
+/* Column drag ghost (floating preview chip that follows the cursor).
+ *
+ * Positioned by transform rather than left/top: a translation is resolved on the
+ * compositor, while left/top dirty layout and paint on every write. The drag
+ * handlers publish the cursor position as --pg-ghost-x / --pg-ghost-y (see
+ * DragGhost) and this rule composes it with the chip's own vertical centring, so
+ * that offset survives.
+ */
 .pg-col-drag-ghost {
   position: fixed;
+  top: 0;
+  left: 0;
   pointer-events: none;
   z-index: 9999;
   height: var(--pg-drag-ghost-height, 28px);
@@ -240,7 +249,8 @@ export const columnGroupHeaderCss = `/* ─────────────�
   color: var(--pg-colors-header-text, #374151);
   white-space: nowrap;
   user-select: none;
-  transform: translateY(-50%);
+  transform: translate3d(var(--pg-ghost-x, -9999px), var(--pg-ghost-y, -9999px), 0) translateY(-50%);
+  will-change: transform;
   transition:
     border-color var(--pg-transitions-duration-fast, 100ms),
     box-shadow var(--pg-transitions-duration-fast, 100ms);

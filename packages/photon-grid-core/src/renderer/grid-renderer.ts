@@ -41,6 +41,7 @@ import { ScrollController } from './scroll-controller';
 import { SummaryRowRenderer, type SummaryBandRow } from '../summary/summary-row-renderer';
 import type { SummaryModel } from '../summary/summary-model';
 import { SummaryPosition } from '../summary/summary.types';
+import { GridResizeController } from './grid-resize-controller';
 import { MAX_ELEMENT_HEIGHT_PX } from './scroll-track';
 import { AutoScroller } from './auto-scroller';
 import { CellSelectionEngine } from '../cell-selection/cell-selection-engine';
@@ -82,6 +83,15 @@ const CHECKBOX_COL_WIDTH = 44;
 const SERIAL_COL_WIDTH = 52;
 const ROW_BUFFER = 5;
 const COL_BUFFER = 2;
+/**
+ * Off-screen column buffer used while a column or group drag is in progress.
+ *
+ * Wider than {@link COL_BUFFER} so drop slots just past the viewport edge stay
+ * hit-testable without an auto-scroll round trip, but bounded — the grabbed
+ * column itself is pinned into the range separately, so this does not need to
+ * cover the whole column set.
+ */
+const DRAG_COL_BUFFER = 8;
 const AUTO_GROUP_COL_WIDTH = 200;
 
 export class GridRenderer {
@@ -102,6 +112,14 @@ export class GridRenderer {
 
   private footerContainerEl: HTMLElement | null = null;
   private bodyWrapEl: HTMLElement | null = null;
+
+  /**
+   * Container resizing — owns the edge/corner handles and is the single place
+   * the container's width/height are written, including by the `GridApi` size
+   * methods. Always constructed; inert (no handles mounted) unless
+   * `GridOptions.resize` enables it.
+   */
+  private readonly gridResize: GridResizeController;
 
   // ── Summary Rows ──────────────────────────────────────────────────────────
   /**
@@ -236,6 +254,15 @@ export class GridRenderer {
    */
   private lastBodyOptions: BodyRendererOptions | null = null;
   /**
+   * The row window `[start, end)` the body DOM actually holds — recorded by the
+   * last frame that painted rows.
+   *
+   * Read back on frames that deliberately skip `renderRows` (a live column
+   * resize), so every row-geometry write still describes the window on screen
+   * rather than one only this frame's arithmetic knows about.
+   */
+  private lastPaintedWindow: { start: number; end: number } | null = null;
+  /**
    * The owning grid's public `GridApi`, once it exists.
    *
    * Late-bound: the API is constructed after the renderer, so this is `null`
@@ -331,6 +358,10 @@ export class GridRenderer {
     this.colStyles = new ColumnStyleManager();
     this.rowPositionSheet = new RowPositionSheet();
     this.scrollController = new ScrollController();
+    // Constructed unconditionally so the `GridApi` size methods always have
+    // something to write through — an absent `resize` option only means no
+    // handles are mounted, not that the grid cannot be sized programmatically.
+    this.gridResize = new GridResizeController(containerEl, eventBus, options.resize ?? { enabled: false });
     this.masterDetailEnabledAtConstruction = options.masterDetail?.enabled ?? false;
     this.treeDataEnabledAtConstruction = options.treeData?.enabled ?? false;
     if (this.masterDetailEnabledAtConstruction) {
@@ -1375,6 +1406,7 @@ export class GridRenderer {
     this.columnChooser?.destroy();
     this.bodyRenderer.destroy();
     this.destroySummaryBands();
+    this.gridResize.destroy();
     this.footerRenderer.destroy();
     this.overlayRenderer.destroy();
     this.detailRowRenderer?.destroy();
@@ -1614,6 +1646,12 @@ export class GridRenderer {
 
     // Mount overlay on body (spans all panels)
     this.overlayRenderer.mount(bodyWrapEl);
+
+    // Container resize handles. Mounted onto the wrapper (which is
+    // `position: relative`, so it is the containing block absolutely-positioned
+    // handles need) rather than the container itself, so they sit inside the
+    // grid's own border and follow its radius.
+    this.gridResize.mount(this.wrapperEl);
 
     // Mount the Master/Detail full-width layer as a sibling of the
     // left/center/right panels — see `DetailRowRenderer` for why detail rows
@@ -1969,6 +2007,14 @@ export class GridRenderer {
    */
   setSummaryModel(model: SummaryModel): void {
     this.summaryModel = model;
+  }
+
+  /**
+   * The container-resize controller, so `GridApi` can route its size methods
+   * through the same single write path the drag gesture uses.
+   */
+  get resizeController(): GridResizeController {
+    return this.gridResize;
   }
 
   /**
@@ -2419,16 +2465,39 @@ export class GridRenderer {
     }
     if (visColStart === centerCols.length) { visColStart = 0; visColEnd = 0; }
 
-    // During a column drag, expand the virtual column range to all center columns
-    // so the dragged column and every potential drop target remain in the DOM for
-    // both header and body.  The pg-grid--col-autoscrolling class added at drag
-    // start suppresses the 180 ms transition during this initial range expansion,
-    // preventing newly-added body cells from animating in from transform:0.
+    // A column drag must keep the grabbed column and the slots around it in the
+    // DOM, but it must not render the entire column set to do so.
+    //
+    // This previously expanded the buffer to `centerCols.length` — every centre
+    // column, header cell and body cell — for the whole gesture. Because a live
+    // cross-panel move writes `store.columns` mid-drag, each panel crossing then
+    // re-rendered that full set: the cost of a crossing grew with the width of
+    // the grid, which is what made cross-panel dragging unusable on wide grids.
+    //
+    // Instead the normal buffer is widened a little (drop targets just past the
+    // viewport edge stay live) and the grabbed column is pinned into the range
+    // explicitly below — the same technique `RowDragRenderer` relies on to keep
+    // a dragged row painted once auto-scroll carries it out of the window.
     const isDraggingCol = this.headerRenderer.isDraggingCol;
     const isDraggingGroup = this.displayGroupEngine?.isDraggingGroup ?? false;
-    const colBuf = (isDraggingCol || isDraggingGroup) ? centerCols.length : COL_BUFFER;
-    const colStart = Math.max(0, visColStart - colBuf);
-    const colEnd   = Math.min(centerCols.length, visColEnd + colBuf);
+    const isColDrag = isDraggingCol || isDraggingGroup;
+    const colBuf = isColDrag ? DRAG_COL_BUFFER : COL_BUFFER;
+    let colStart = Math.max(0, visColStart - colBuf);
+    let colEnd   = Math.min(centerCols.length, visColEnd + colBuf);
+
+    // Pin the grabbed column into the rendered range. Auto-scroll can carry its
+    // real position outside the viewport while the pointer holds it; without
+    // this the cell would be evicted and the drag would lose its subject.
+    if (isColDrag) {
+      const dragColId = this.headerRenderer.draggingColumnId;
+      if (dragColId) {
+        const dragIdx = centerCols.findIndex((c) => c.colId === dragColId);
+        if (dragIdx !== -1) {
+          if (dragIdx < colStart) colStart = dragIdx;
+          if (dragIdx >= colEnd)  colEnd   = dragIdx + 1;
+        }
+      }
+    }
 
     // Spacer widths represent off-screen columns
     const leftSpacerW  = this.colStyles.getTotalWidth(centerCols.slice(0, colStart).map((c) => c.colId));
@@ -2540,6 +2609,33 @@ export class GridRenderer {
     if (stickyBlockHeight !== this._lastStickyBlockHeight) {
       this._lastStickyBlockHeight = stickyBlockHeight;
       w.style.setProperty('--pg-sticky-block-height', `${stickyBlockHeight}px`);
+    }
+
+    // ── Window pinning during a column resize ───────────────────────────────
+    // A live column-width drag deliberately skips `renderRows` (see the branch
+    // further down), so the body DOM still holds the rows the previous frame
+    // painted. Everything below — the row origin, the position stylesheet, the
+    // detail sync, the auto-height measurement — describes "the window", and if
+    // that window were recomputed here it would describe one the DOM does not
+    // have.
+    //
+    // `RowPositionSheet` makes the mismatch visible immediately: it replaces the
+    // whole stylesheet, so a row still in the DOM but no longer in the window
+    // loses its `top` and `height` rules outright. `.pg-row` is absolutely
+    // positioned with neither declared anywhere else, so such a row collapses to
+    // content height at the panel's static origin — a short, half-height strip
+    // sitting under the header.
+    //
+    // The window genuinely moves between two frames of one resize gesture: a
+    // sort widens it by a viewport (`animExtra`) so the FLIP animation has rows
+    // to move, and the first resize frame after that animation ends recomputes
+    // it back down. Nothing about a column-width drag can legitimately change
+    // which rows should be on screen — there is no vertical scroll and no data
+    // change — so the painted window is reused for the gesture's duration, and
+    // the release repaints normally.
+    if (this.headerRenderer.isResizingColumn && this.lastPaintedWindow) {
+      start = Math.min(this.lastPaintedWindow.start, rows.length);
+      end = Math.min(this.lastPaintedWindow.end, rows.length);
     }
 
     // Row window for this frame. While a row drag is in progress the dragged
@@ -2663,6 +2759,9 @@ export class GridRenderer {
         treeData: treeDataOptions,
       };
       this.bodyRenderer.renderRows(renderedRows, leftCols, visibleCenterCols, rightCols, this.lastBodyOptions);
+      // Recorded only here, where rows were actually painted — that is what
+      // makes it a description of the DOM rather than of the last arithmetic.
+      this.lastPaintedWindow = { start, end };
     }
 
     if (this.detailRowRenderer) {

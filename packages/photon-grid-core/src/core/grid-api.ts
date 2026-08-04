@@ -16,6 +16,7 @@ import type {
   SummaryRowDef,
   SummaryRowSnapshot,
 } from '../summary/summary.types';
+import type { GridResizeConfig, GridSize } from '../types/grid-resize.types';
 import type {
   GridImportSink,
   ImportOptions,
@@ -1583,6 +1584,94 @@ export class GridApi {
     // / `selected`) is settled only once the displayed rows have been rebuilt,
     // so computing earlier would total the previous pipeline's output.
     if (this.ctx.options.summary?.autoRefresh !== false) this.computeSummaries();
+  }
+
+  // ──────────────────── Container size ────────────────────
+
+  /**
+   * Sets the grid container's width.
+   *
+   * Writes through the same controller the resize handles use, so a
+   * programmatic size and a dragged one cannot disagree, and both emit
+   * `GRID_RESIZED`. The change propagates to the columns automatically: the
+   * scroll controller observes the body panels and re-resolves `flex` widths on
+   * the next frame.
+   *
+   * @param width - A pixel number, any CSS length (`'60%'`, `'40rem'`,
+   *                `'calc(100% - 2rem)'`), or `null` to drop the override and
+   *                return to the stylesheet's width.
+   */
+  setGridWidth(width: number | string | null): void {
+    this.ctx.renderer.resizeController.setSize({ width });
+  }
+
+  /**
+   * Sets the grid container's height.
+   *
+   * @param height - A pixel number, any CSS length, or `null` to drop the override.
+   */
+  setGridHeight(height: number | string | null): void {
+    this.ctx.renderer.resizeController.setSize({ height });
+  }
+
+  /**
+   * Sets both dimensions in a single write.
+   *
+   * Preferred over calling {@link setGridWidth} then {@link setGridHeight}:
+   * those are two style mutations and two `GRID_RESIZED` events, this is one of
+   * each — which matters when a listener persists the size or re-lays out
+   * around the grid.
+   *
+   * @param size - Omitted properties are left unchanged; `null` clears that override.
+   */
+  setGridSize(size: { width?: number | string | null; height?: number | string | null }): void {
+    this.ctx.renderer.resizeController.setSize(size);
+  }
+
+  /**
+   * @returns The container's current outer size in CSS pixels, measured from
+   *          the DOM — so it reflects percentage and `calc()` widths, not just
+   *          explicitly set ones.
+   */
+  getGridSize(): GridSize {
+    return this.ctx.renderer.resizeController.getSize();
+  }
+
+  /**
+   * Drops both size overrides, returning the grid to whatever size its
+   * stylesheet and surrounding layout give it.
+   *
+   * Also clears the margin compensation a top/left handle drag applied, so a
+   * reset really does restore the original box rather than leaving the grid
+   * offset by however far it was dragged.
+   */
+  resetGridSize(): void {
+    this.ctx.renderer.resizeController.reset();
+  }
+
+  /**
+   * Turns handle dragging on or off at runtime, keeping the rest of the resize
+   * configuration intact.
+   *
+   * @param enabled - `false` removes the handles; `true` restores them.
+   */
+  setGridResizeEnabled(enabled: boolean): void {
+    this.ctx.renderer.resizeController.setEnabled(enabled);
+  }
+
+  /**
+   * Merges a patch into the active resize configuration — which handles are
+   * shown, the min/max bounds, the snap step — and rebuilds the handles.
+   *
+   * @param config - Merged over the current configuration.
+   */
+  updateGridResizeConfig(config: GridResizeConfig): void {
+    this.ctx.renderer.resizeController.updateConfig(config);
+  }
+
+  /** `true` while the user is dragging a container resize handle. */
+  isGridResizing(): boolean {
+    return this.ctx.renderer.resizeController.isResizing;
   }
 
   // ──────────────────── Summary Rows ────────────────────

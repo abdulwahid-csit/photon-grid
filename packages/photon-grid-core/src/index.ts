@@ -65,6 +65,24 @@ export type {
   SummaryValueFn,
 } from './summary';
 
+// ── Container resizing ───────────────────────────────────────────────────────
+// Drag the grid's own edges/corners, or drive the same size through the
+// `GridApi` size methods. See `GridOptions.resize`.
+export { GridResizeController } from './renderer/grid-resize-controller';
+export {
+  GridResizeHandle,
+  GridResizeSource,
+  DEFAULT_GRID_RESIZE_HANDLES,
+} from './types/grid-resize.types';
+export type {
+  GridResizeConfig,
+  GridResizeEndEvent,
+  GridResizeStartEvent,
+  GridResizedEvent,
+  GridSize,
+  GridSizeApi,
+} from './types/grid-resize.types';
+
 // ── Import Engine ────────────────────────────────────────────────────────────
 export { ImportEngine } from './engines/import/import-engine';
 export {
@@ -189,9 +207,17 @@ export type { CellChange, UndoRedoAction, UndoRedoActionType } from './engines/u
 export { DragDropEngine } from './drag-drop/drag-drop-engine';
 export { DragPreview } from './drag-drop/drag-preview';
 export { DragAutoscroll } from './drag-drop/drag-autoscroll';
+// Reusable drag primitives — frame coalescing, cached geometry, change-guarded
+// style writes, and transform-based chip positioning. Shared by every drag path
+// in the grid and exported so integrations can build on the same foundations.
+export { DragFrameScheduler } from './drag-drop/drag-frame-scheduler';
+export { DragRectCache, NO_SLOT } from './drag-drop/drag-rect-cache';
+export { DragStyleWriter } from './drag-drop/drag-style-writer';
+export { DragGhost, GHOST_X_VAR, GHOST_Y_VAR } from './drag-drop/drag-ghost';
 
 export { CellSelectionEngine } from './cell-selection/cell-selection-engine';
 export { SelectionRenderer } from './cell-selection/selection-renderer';
+export { KEEP_FOCUS_ATTR, isInsideGridUi, resolveGridRoot } from './cell-selection/focus-boundary';
 
 export { ThemeManager } from './theme/theme-manager';
 export { CssVarInjector } from './theme/css-var-injector';
@@ -661,6 +687,9 @@ export type {
 export type { ChartConfig } from './chart/chart-engine';
 export type { ChartData, ChartDataset, ChartTransformOptions } from './chart/chart-data-transformer';
 export type { SparklineType, SparklineConfig, SparklinePoint, OHLCPoint } from './chart/sparkline/sparkline.types';
-export type { DragItem, DragType, DropTarget as DropTargetConfig, DragSession } from './drag-drop/drag-drop-engine';
+export type { DragItem, DragType, DropTarget as DropTargetConfig, DragSession, DropPosition } from './drag-drop/drag-drop-engine';
+export type { DragPreviewOptions } from './drag-drop/drag-preview';
+export type { DragFrameCallback } from './drag-drop/drag-frame-scheduler';
+export type { DragRectLike } from './drag-drop/drag-rect-cache';
 export type { EditSession } from './engines/editing/cell-editor-engine';
 export type { SummaryRow } from './engines/summary/summary-engine';

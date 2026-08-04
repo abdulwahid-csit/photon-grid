@@ -320,14 +320,44 @@ export class ScrollController {
 
   private syncCSSVars(): void {
     if (!this.gridEl) return;
-    this.gridEl.style.setProperty('--pg-scroll-x', `-${this.scrollLeft}px`);
-    this.gridEl.style.setProperty('--pg-scroll-y', `-${this.scrollTop}px`);
+    // ── Device-pixel snapping ────────────────────────────────────────────────
+    // Scroll offsets are fractional in normal use: precision-touchpad wheel
+    // deltas arrive with decimals, the momentum integrator produces them, and
+    // `fromTrackY` returns them whenever a dataset tall enough to need a scaled
+    // track is in play. Published raw, they translate the panels onto a
+    // fractional offset, and the compositor then resamples everything inside —
+    // text is re-rasterised against a half-pixel grid and 1px borders straddle
+    // two device pixels. That is the "everything goes slightly blurry while
+    // scrolling" artefact, and it lands on exactly the elements a grid is made
+    // of.
+    //
+    // Snapping to the *device* grid rather than the CSS grid is what makes this
+    // work at fractional zoom: at 125% (the Windows default) a whole CSS pixel
+    // is 1.25 device pixels, so rounding to integers still leaves text on a
+    // quarter-pixel. Rounding to `1 / dpr` puts every published offset on a real
+    // device pixel at any zoom level.
+    //
+    // Only the *paint* is snapped. `scrollTop`/`scrollLeft` keep their exact
+    // values, so fractional deltas still accumulate normally and no scroll
+    // motion is lost — the view simply lands on a whole device pixel, which is
+    // what native scrolling does too.
+    const dpr = window.devicePixelRatio || 1;
+    const snap = (v: number): number => Math.round(v * dpr) / dpr;
+
+    const scrollX = snap(this.scrollLeft);
+    const scrollY = snap(this.scrollTop);
+
+    this.gridEl.style.setProperty('--pg-scroll-x', `-${scrollX}px`);
+    this.gridEl.style.setProperty('--pg-scroll-y', `-${scrollY}px`);
     // Published for JS that positions rows in the same rebased space (see
-    // RowDragRenderer.updateRowTops).
+    // RowDragRenderer.updateRowTops). Not snapped: it is a row coordinate, not
+    // a paint offset, and it is already integral.
     this.gridEl.style.setProperty('--pg-row-origin-y', `${this.rowOriginY}px`);
     // The panels' vertical translate. Subtracted here, in doubles, rather than
     // left to a CSS calc() of the two full-magnitude terms — see setRowOrigin.
-    this.gridEl.style.setProperty('--pg-row-offset-y', `${this.rowOriginY - this.scrollTop}px`);
+    // Derived from the same snapped `scrollY` as `--pg-scroll-y` so the two can
+    // never disagree by a fraction and shear the panels against each other.
+    this.gridEl.style.setProperty('--pg-row-offset-y', `${this.rowOriginY - scrollY}px`);
   }
 
   // ── Content ⇄ track mapping ────────────────────────────────────────────────

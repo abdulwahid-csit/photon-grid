@@ -44,6 +44,21 @@ export function rangesEqual(a: CellRange, b: CellRange): boolean {
   );
 }
 
+/**
+ * `true` when a range covers exactly one cell.
+ *
+ * Used to tell a plain "active cell" apart from a real multi-cell range — the
+ * distinction `enableRangeSelection: false` turns on.
+ *
+ * @param range - The range to test. Need not be normalized.
+ */
+export function isSingleCell(range: CellRange): boolean {
+  return (
+    range.startRowIndex === range.endRowIndex &&
+    range.startColIndex === range.endColIndex
+  );
+}
+
 export function mergeRanges(ranges: CellRange[]): CellRange {
   if (ranges.length === 0) {
     return { startRowIndex: 0, endRowIndex: 0, startColIndex: 0, endColIndex: 0 };

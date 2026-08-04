@@ -74,7 +74,7 @@ import { DragDropEngine } from '../drag-drop/drag-drop-engine';
 import { CellSelectionEngine } from '../cell-selection/cell-selection-engine';
 import { ThemeManager } from '../theme/theme-manager';
 import { PluginHost } from '../plugins/plugin-host';
-import { resolveVariantRowHeight } from '../types/theme.types';
+import { DEFAULT_THEME_VARIANT, resolveVariantRowHeight } from '../types/theme.types';
 import { IconRegistry } from '../icons/icon-registry';
 import { IconRenderer } from '../icons/icon-renderer';
 import { IconThemeController } from '../icons/icon-theme-controller';
@@ -437,16 +437,24 @@ export class GridCore {
     const ctx = this.ctx;
 
     // Theming resolves along two axes: `mode` (light/dark) drives the color
-    // palette via token injection, `variant` (ion/neon/â€¦) layers a
+    // palette via token injection, `variant` (classic/ion/neon/…) layers a
     // cosmetic skin as a container class. The deprecated `theme` option is
     // normalized onto these axes only when neither is set explicitly.
+    //
+    // A grid that names neither gets `classic`, the default skin — which is why
+    // the plain `applyMode` branch below applies it too. `variant: 'none'` is
+    // the way to ask for the unskinned base styling; it is a real value here,
+    // not the absence of one.
     if (options.mode || options.variant) {
       ctx.themeManager.applyMode(options.mode ?? 'light', ctx.containerEl);
-      if (options.variant) ctx.themeManager.applyVariant(options.variant, ctx.containerEl);
+      ctx.themeManager.applyVariant(options.variant ?? DEFAULT_THEME_VARIANT, ctx.containerEl);
     } else if (options.theme) {
+      // A legacy named theme carries its own complete look; layering the
+      // default skin over it would re-pitch colours the host explicitly chose.
       ctx.themeManager.applyTheme(options.theme, ctx.containerEl);
     } else {
       ctx.themeManager.applyMode('light', ctx.containerEl);
+      ctx.themeManager.applyVariant(DEFAULT_THEME_VARIANT, ctx.containerEl);
     }
 
     if (options.selection) {
@@ -455,6 +463,18 @@ export class GridCore {
         !!options.selection.serialColumnSelection && options.selection.mode !== 'none',
       );
     }
+
+    // Cell / range selection. Deliberately outside the `options.selection`
+    // block above — these are top-level `GridOptions` flags and must apply even
+    // when no `selection` object is supplied. `!== false` keeps both on by
+    // default: they were read nowhere before, so every existing grid has had
+    // selection enabled regardless of what it passed, and defaulting them off
+    // would silently disable the feature for everyone.
+    ctx.cellSelectionEngine.configureSelection({
+      cellSelection: options.enableCellSelection !== false,
+      rangeSelection: options.enableRangeSelection !== false,
+      clearFocusOnClickOutside: options.clearCellSelectionOnClickOutside !== false,
+    });
 
     if (options.editing) {
       ctx.cellEditorEngine.configure(options.editing);

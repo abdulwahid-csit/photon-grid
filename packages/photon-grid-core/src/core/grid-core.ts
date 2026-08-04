@@ -2,7 +2,7 @@
 import type { GridContext } from './grid-context';
 import type { RowNode } from '../types/row.types';
 import type { ColumnDef, ColumnDropdownOption } from '../types/column.types';
-import type { AvatarGroupRendererOptions } from '../types/built-in-renderer.types';
+import type { AvatarGroupRendererOptions, LongTextRendererOptions } from '../types/built-in-renderer.types';
 import type { CellClickedEvent } from '../types/event.types';
 import type { EditorRendererParams } from '../types/renderer.types';
 import { injectBaseStyles } from '../styles/base-styles';
@@ -17,6 +17,36 @@ import {
   destroyAvatarGroupOverlay,
   openAvatarGroupOverlay,
 } from '../renderer/built-in/avatar-group-overlay';
+import {
+  LONG_TEXT_TEXT_CLASS,
+  LONG_TEXT_TOGGLE_ATTR,
+  LONG_TEXT_VALUE_CLASS,
+} from '../renderer/built-in/long-text';
+import {
+  closeLongTextOverlay,
+  destroyLongTextOverlay,
+  isLongTextOverlayOpenFor,
+  openLongTextOverlay,
+} from '../renderer/built-in/long-text-overlay';
+import type { ActionsRendererOptions, CellActionController } from '../types/cell-action.types';
+import {
+  CELL_ACTION_ATTR,
+  CELL_ACTION_MENU_ATTR,
+} from '../renderer/built-in/actions/actions';
+import {
+  createActionParams,
+  findAction,
+  resolveAction,
+  resolveActions,
+  splitActions,
+} from '../renderer/built-in/actions/action-resolver';
+import { runCellAction, setActionBusy } from '../renderer/built-in/actions/action-executor';
+import {
+  closeActionsMenu,
+  destroyActionsMenu,
+  isActionsMenuOpenFor,
+  openActionsMenu,
+} from '../renderer/built-in/actions/actions-menu';
 import { CustomDropdownEditor } from '../engines/editing/custom-dropdown-editor';
 import { EventBus } from '../event-bus/event-bus';
 import { GridStore } from './grid-store';
@@ -30,6 +60,10 @@ import { AggregationEngine } from '../engines/aggregation/aggregation-engine';
 import { RowSelectionEngine } from '../engines/selection/row-selection-engine';
 import { CellEditorEngine } from '../engines/editing/cell-editor-engine';
 import { SummaryEngine } from '../engines/summary/summary-engine';
+import { SummaryAggregationEngine } from '../summary/aggregation-engine';
+import { SummaryModel } from '../summary/summary-model';
+import { SummaryService } from '../summary/summary-service';
+import { SummaryScope } from '../summary/summary.types';
 import { ExportEngine } from '../engines/export/export-engine';
 import { ImportEngine } from '../engines/import/import-engine';
 import { ImportSourceType } from '../types/import.types';
@@ -151,6 +185,40 @@ export class GridCore {
     const rowSelectionEngine = new RowSelectionEngine(store, eventBus);
     const cellEditorEngine = new CellEditorEngine(store, eventBus);
     const summaryEngine = new SummaryEngine();
+
+    // ── Summary Rows ────────────────────────────────────────────────────────
+    // Always constructed (an absent `summary` option yields an empty model,
+    // which every consumer short-circuits on) so nothing downstream needs a
+    // null check. The service's data port is an object literal rather than a
+    // class: it is pure delegation onto the context, and keeping it here is what
+    // lets `src/summary/` stay free of any grid-internal import.
+    const summaryAggregationEngine = new SummaryAggregationEngine();
+    summaryAggregationEngine.registerAll(options.summary?.aggregations);
+    // `{ rows: [] }` rather than `{}` when the option is absent: an empty `rows`
+    // array is an *explicit* empty summary, whereas an omitted one opts into
+    // deriving a total row from `ColumnDef.showSummary`. A grid that has always
+    // set `showSummary` (which did nothing before this feature existed) must not
+    // sprout a summary band merely by upgrading — opting in is `summary: {}`.
+    const summaryModel = new SummaryModel(options.summary ?? { rows: [] }, options.rowHeight);
+    const summaryService = new SummaryService(summaryModel, summaryAggregationEngine, {
+      getAllRows: () => store.get('allRows'),
+      // `applyFilters` returns its input array unchanged when no filter is
+      // active, so the common case costs one predicate call, not a copy.
+      getFilteredRows: () =>
+        filterEngine.applyFilters(store.get('allRows'), columnModel.getAllColumns()),
+      getVisibleRows: () => store.get('visibleRows'),
+      getSelectedRows: () => rowSelectionEngine.getSelectedRows(store.get('allRows')),
+      getColumns: () => columnModel.getAllColumns(),
+      getApi: () => this.api,
+      getFormatOptions: () => ({
+        locale: options.locale,
+        dateFormat: options.dateFormat,
+        timeZone: options.timeZone,
+        currencySymbol: options.currencySymbol,
+        currencyFormat: options.currencyFormat,
+      }),
+    });
+
     const exportEngine = new ExportEngine(eventBus);
     const clipboardEngine = new ClipboardEngine();
     // Import Engine mirrors ExportEngine (its inverse). It reads the clipboard
@@ -305,6 +373,9 @@ export class GridCore {
       rowSelectionEngine,
       cellEditorEngine,
       summaryEngine,
+      summaryModel,
+      summaryService,
+      summaryAggregationEngine,
       exportEngine,
       importEngine,
       toastService,
@@ -443,6 +514,12 @@ export class GridCore {
     const themeManagerEnabled =
       options.themeManager === true || (typeof options.themeManager === 'object' && options.themeManager.enabled);
     ctx.renderer.setThemeManager(() => this.api.photonAI, !!themeManagerEnabled, () => ctx.toastService);
+
+    // Summary Rows: hand the renderer the definition/value store before mount so
+    // the very first paint can already reserve the bands' height. The model is
+    // handed over unconditionally — it is empty for grids that define no summary
+    // rows, and the render loop short-circuits on that.
+    ctx.renderer.setSummaryModel(ctx.summaryModel);
 
     ctx.renderer.mount();
     ctx.renderer.setParentApiForDetail(this.api);
@@ -591,7 +668,46 @@ export class GridCore {
     options.onReady?.(this.api);
   }
 
+  /**
+   * Subscribes the Summary Rows feature to the changes that can move its values
+   * but do **not** run the row pipeline.
+   *
+   * The pipeline path is already covered — `GridApi.applyPipeline` recomputes
+   * summaries after every refresh, which catches data, filter, sort, group and
+   * pagination changes. Two things bypass it:
+   *
+   * - **Cell edits**, which patch cells in place rather than rebuilding rows.
+   * - **Selection changes**, which never touch the displayed row set at all.
+   *
+   * Selection is subscribed only when a summary row actually scopes to it, so
+   * the overwhelmingly common case (no `Selected` scope) pays nothing per click.
+   * The check is deferred into the handler because `setSummaryRows` can
+   * introduce such a row long after wiring.
+   */
+  private wireSummary(ctx: GridContext): void {
+    const autoRefresh = ctx.options.summary?.autoRefresh !== false;
+    if (!autoRefresh) return;
+
+    ctx.eventBus.on(GridEventType.CELL_VALUE_CHANGED, () => {
+      if (!ctx.summaryModel.isEmpty()) this.api.refreshSummary();
+    });
+
+    const onSelectionChanged = (): void => {
+      const usesSelection = ctx.summaryModel
+        .getRows()
+        .some((row) => row.scope === SummaryScope.Selected);
+      if (usesSelection) this.api.refreshSummary();
+    };
+
+    ctx.eventBus.on(GridEventType.ROW_SELECTED, onSelectionChanged);
+    ctx.eventBus.on(GridEventType.ROW_DESELECTED, onSelectionChanged);
+    ctx.eventBus.on(GridEventType.ALL_ROWS_SELECTED, onSelectionChanged);
+    ctx.eventBus.on(GridEventType.ALL_ROWS_DESELECTED, onSelectionChanged);
+  }
+
   private wireEventHandlers(ctx: GridContext): void {
+    this.wireSummary(ctx);
+
     // Bridge typed chart events to the GridOptions callbacks (mirrors onReady).
     const o = ctx.options;
     if (o.onChartCreated) ctx.eventBus.on(GridEventType.CHART_CREATED, (p) => o.onChartCreated!(p as import('../types/event.types').ChartCreatedEvent));
@@ -1004,7 +1120,9 @@ export class GridCore {
 
     this.wireBooleanCellToggle(ctx);
     this.wireCellButtons(ctx);
+    this.wireCellActions(ctx);
     this.wireAvatarGroups(ctx);
+    this.wireLongText(ctx);
 
     // Enter key on a focused cell â†’ start editing instead of navigating down.
     // Returns true to absorb the event; false to let the selection engine navigate.
@@ -1069,7 +1187,11 @@ export class GridCore {
   private wireAvatarGroups(ctx: GridContext): void {
     ctx.containerEl.addEventListener('click', (e: MouseEvent) => {
       const target = e.target;
-      if (!(target instanceof HTMLElement)) return;
+      // `Element`, not `HTMLElement`: these controls hold an icon, and an
+      // `<svg>` (or a `<path>` inside it) is an SVGElement — which would fail an
+      // HTMLElement test and silently swallow every press that landed on the
+      // glyph rather than the padding around it. `closest` is on Element.
+      if (!(target instanceof Element)) return;
       const trigger = target.closest<HTMLElement>(`[${AVATAR_GROUP_MORE_ATTR}]`);
       if (!trigger || (trigger as HTMLButtonElement).disabled) return;
 
@@ -1118,10 +1240,297 @@ export class GridCore {
     });
   }
 
+  /**
+   * Wires the expand control a `longText` cell draws.
+   *
+   * One delegated listener on the grid root, like the cell button and the
+   * avatar group's counter — a viewport can hold a long-text cell in every
+   * visible row.
+   *
+   * The text is read out of the cell's own DOM rather than re-resolved from the
+   * row. The renderer already wrote the untruncated value there (the truncation
+   * is CSS), so re-deriving it here would mean re-running the column's
+   * `valueFormatter` for a second, quietly divergent copy of the same string.
+   */
+  private wireLongText(ctx: GridContext): void {
+    // `pointerdown`, not `click`. A click only fires when press and release land
+    // on the *same* element, and this control sits in a cell the grid may
+    // re-render, re-position or recycle in between — so a click-driven toggle
+    // fails intermittently and for reasons the user cannot see. On pointerdown
+    // the hit test has just succeeded, which is the only moment the element is
+    // guaranteed to be the one under the cursor. The fill handle and cell
+    // selection are wired the same way, for the same reason.
+    ctx.containerEl.addEventListener('pointerdown', (e: PointerEvent) => {
+      if (e.button !== 0) return;
+      const target = e.target;
+      // `Element`, not `HTMLElement`: these controls hold an icon, and an
+      // `<svg>` (or a `<path>` inside it) is an SVGElement — which would fail an
+      // HTMLElement test and silently swallow every press that landed on the
+      // glyph rather than the padding around it. `closest` is on Element.
+      if (!(target instanceof Element)) return;
+      const trigger = target.closest<HTMLElement>(`[${LONG_TEXT_TOGGLE_ATTR}]`);
+      if (!trigger || (trigger as HTMLButtonElement).disabled) return;
+
+      // Master/Detail nests a whole GridCore inside this one's DOM, so this
+      // listener also sees a nested grid's toggles.
+      const ownerWrapper = trigger.closest<HTMLElement>('[data-photon-grid-id]');
+      if (!ownerWrapper || ownerWrapper.parentElement !== ctx.containerEl) return;
+
+      const cellEl = trigger.closest<HTMLElement>('[data-col-id]');
+      const rowEl = trigger.closest<HTMLElement>('[data-node-id]');
+      const colId = cellEl?.getAttribute('data-col-id');
+      const nodeId = rowEl?.getAttribute('data-node-id');
+      if (!colId || !nodeId) return;
+
+      const colDef = ctx.columnModel.getColumn(colId);
+      const row = this.api.getRowNode(nodeId);
+      if (!colDef || !row) return;
+
+      // Pressing the toggle is a deliberate action, not a request to select the
+      // cell around it, focus it, or start a text selection.
+      e.preventDefault();
+      e.stopPropagation();
+
+      // Toggle: a second press on the same control closes the panel it opened.
+      // The overlay's own document-level dismissal ignores presses on the active
+      // trigger precisely so this stays the one place that decides.
+      if (isLongTextOverlayOpenFor(trigger)) {
+        closeLongTextOverlay();
+        return;
+      }
+
+      const text =
+        trigger
+          .closest<HTMLElement>(`.${LONG_TEXT_VALUE_CLASS}`)
+          ?.querySelector<HTMLElement>(`.${LONG_TEXT_TEXT_CLASS}`)?.textContent ?? '';
+      if (text === '') return;
+
+      const options = (resolveDisplayRenderer(colDef).options ?? {}) as LongTextRendererOptions;
+
+      openLongTextOverlay({
+        trigger,
+        // The cell, so the panel lines up with the text it came from rather
+        // than with the 16px button in its corner.
+        anchor: cellEl ?? trigger,
+        text,
+        options,
+      });
+
+      ctx.eventBus.emit(GridEventType.CELL_TEXT_EXPANDED, {
+        text,
+        action: trigger.getAttribute(LONG_TEXT_TOGGLE_ATTR) ?? '',
+        row,
+        colDef,
+        rowIndex: row.rowIndex,
+        event: e,
+      });
+    });
+  }
+
+  /**
+   * Wires the controls an `actions` cell draws.
+   *
+   * One delegated listener on the grid root, like the cell button and the
+   * avatar group's counter — a viewport can hold an actions cell in every
+   * visible row, and every cell rebuild would otherwise have to re-attach a
+   * handler per action.
+   *
+   * ### Why the declaration is re-resolved on every click
+   * The cell carries only an action's `id`. The definition is looked up again
+   * here and every predicate re-run against *current* row data, so a button
+   * that became invisible or disabled between paint and click cannot be
+   * invoked. A callback parked on the element would also be retained for as
+   * long as that element lives, which in a recycled viewport is unbounded.
+   *
+   * Overflowed actions are resolved the same way when the menu opens, so the
+   * two entry points cannot disagree about what a row offers.
+   */
+  private wireCellActions(ctx: GridContext): void {
+    ctx.containerEl.addEventListener('click', (e: MouseEvent) => {
+      const target = e.target;
+      // `Element`, not `HTMLElement`: these controls hold an icon, and an
+      // `<svg>` (or a `<path>` inside it) is an SVGElement — which would fail an
+      // HTMLElement test and silently swallow every press that landed on the
+      // glyph rather than the padding around it. `closest` is on Element.
+      if (!(target instanceof Element)) return;
+
+      const trigger = target.closest<HTMLElement>(
+        `[${CELL_ACTION_ATTR}], [${CELL_ACTION_MENU_ATTR}]`,
+      );
+      if (!trigger || (trigger as HTMLButtonElement).disabled) return;
+
+      // Master/Detail nests a whole GridCore inside this one's DOM, so this
+      // listener also sees a nested grid's action cells.
+      const ownerWrapper = trigger.closest<HTMLElement>('[data-photon-grid-id]');
+      if (!ownerWrapper || ownerWrapper.parentElement !== ctx.containerEl) return;
+
+      const cellEl = trigger.closest<HTMLElement>('[data-col-id]');
+      const rowEl = trigger.closest<HTMLElement>('[data-node-id]');
+      const colId = cellEl?.getAttribute('data-col-id');
+      const nodeId = rowEl?.getAttribute('data-node-id');
+      if (!colId || !nodeId) return;
+
+      const colDef = ctx.columnModel.getColumn(colId);
+      const row = this.api.getRowNode(nodeId);
+      if (!colDef || !row) return;
+
+      // Pressing an action is a deliberate command, not a request to select the
+      // cell around it or open its editor.
+      e.stopPropagation();
+
+      const options = (resolveDisplayRenderer(colDef).options ?? {}) as ActionsRendererOptions;
+
+      if (trigger.hasAttribute(CELL_ACTION_MENU_ATTR)) {
+        this.openCellActionMenu(ctx, trigger, row, colDef, options, e);
+        return;
+      }
+
+      const id = trigger.getAttribute(CELL_ACTION_ATTR);
+      if (id) void this.invokeCellAction(ctx, id, row, colDef, options, trigger, e, 'button');
+    });
+  }
+
+  /**
+   * Opens (or closes) the overflow menu for one actions cell.
+   *
+   * The actions are resolved at click time rather than being built with the
+   * cell: a row offering twelve commands renders the DOM of one offering two,
+   * and the menu reflects the row as it is *now* rather than as it was when the
+   * cell was last painted.
+   */
+  private openCellActionMenu(
+    ctx: GridContext,
+    trigger: HTMLElement,
+    row: RowNode,
+    colDef: ColumnDef,
+    options: ActionsRendererOptions,
+    event: MouseEvent,
+  ): void {
+    // Toggle: a second click on the same trigger closes the menu it opened.
+    if (isActionsMenuOpenFor(trigger)) {
+      closeActionsMenu();
+      return;
+    }
+
+    const source = {
+      row: row.data,
+      node: row,
+      rowIndex: row.rowIndex,
+      value: getCellValue(row.data, colDef, this.api),
+      colDef,
+      api: this.api,
+      event,
+    };
+
+    const { overflow } = splitActions(resolveActions(source, options), options);
+    if (overflow.length === 0) return;
+
+    openActionsMenu({
+      trigger,
+      items: overflow,
+      options,
+      icons: ctx.iconRenderer,
+      onSelect: (item, itemEl, selectEvent) => {
+        if (!item.action.keepOpen) closeActionsMenu({ restoreFocus: false });
+        void this.invokeCellAction(
+          ctx,
+          item.id,
+          row,
+          colDef,
+          options,
+          itemEl,
+          selectEvent,
+          'menu',
+        );
+      },
+    });
+  }
+
+  /**
+   * Confirms and runs one action, then reports the outcome.
+   *
+   * `CELL_ACTION_CLICKED` fires after any confirmation is accepted and before
+   * the action's own `onClick`, so a column can be driven entirely from the
+   * event bus. A dismissed confirmation emits nothing — a "no" is not a
+   * command.
+   */
+  private async invokeCellAction(
+    ctx: GridContext,
+    id: string,
+    row: RowNode,
+    colDef: ColumnDef,
+    options: ActionsRendererOptions,
+    trigger: HTMLElement,
+    event: MouseEvent,
+    source: 'button' | 'menu',
+  ): Promise<void> {
+    const action = findAction(options, id);
+    if (!action) return;
+
+    const value = getCellValue(row.data, colDef, this.api);
+    const paramsSource = {
+      row: row.data,
+      node: row,
+      rowIndex: row.rowIndex,
+      value,
+      colDef,
+      api: this.api,
+      event,
+    };
+
+    // Re-resolved against current data: a control drawn before the row changed
+    // must not be able to invoke something the row no longer offers.
+    const resolved = resolveAction(action, paramsSource, options);
+    if (!resolved || resolved.disabled) return;
+
+    const controller: CellActionController = {
+      close: () => closeActionsMenu(),
+      refresh: () => this.api.refreshCells({ rowNodes: [row] }),
+      setLoading: (loading: boolean) => setActionBusy(trigger, loading),
+    };
+
+    const group = options.group ?? '';
+
+    await runCellAction({
+      action,
+      params: createActionParams({ ...paramsSource, controller }, action),
+      confirmHandler: options.confirmHandler,
+      trigger,
+      onRun: () => {
+        ctx.eventBus.emit(GridEventType.CELL_ACTION_CLICKED, {
+          actionId: action.id,
+          action,
+          group,
+          source,
+          row,
+          colDef,
+          value,
+          rowIndex: row.rowIndex,
+          event,
+        });
+      },
+      onError: (error) => {
+        ctx.eventBus.emit(GridEventType.CELL_ACTION_ERROR, {
+          actionId: action.id,
+          action,
+          group,
+          error,
+          row,
+          colDef,
+          rowIndex: row.rowIndex,
+        });
+      },
+    });
+  }
+
   private wireCellButtons(ctx: GridContext): void {
     ctx.containerEl.addEventListener('click', (e: MouseEvent) => {
       const target = e.target;
-      if (!(target instanceof HTMLElement)) return;
+      // `Element`, not `HTMLElement`: these controls hold an icon, and an
+      // `<svg>` (or a `<path>` inside it) is an SVGElement — which would fail an
+      // HTMLElement test and silently swallow every press that landed on the
+      // glyph rather than the padding around it. `closest` is on Element.
+      if (!(target instanceof Element)) return;
       const button = target.closest<HTMLButtonElement>(`button[${CELL_BUTTON_ATTR}]`);
       if (!button || button.disabled) return;
 
@@ -1163,7 +1572,7 @@ export class GridCore {
       colDef: ColumnDef;
       cellEl: HTMLElement;
     } | null => {
-      if (!(target instanceof HTMLElement)) return null;
+      if (!(target instanceof Element)) return null;
       const box = target.closest<HTMLInputElement>('input[data-bool-cell]');
       if (!box) return null;
 
@@ -1271,8 +1680,11 @@ export class GridCore {
 
   destroy(): void {
     // The avatar roster lives on `document.body`, outside everything the
-    // renderer owns, so it would survive the grid that opened it.
+    // renderer owns, so it would survive the grid that opened it. Same for the
+    // long-text panel.
     destroyAvatarGroupOverlay();
+    destroyLongTextOverlay();
+    destroyActionsMenu();
 
     // Plugins go first, and it has to be first. `api.destroy()` below calls
     // `eventBus.clear()` -- which drops every subscription with no per-subscriber

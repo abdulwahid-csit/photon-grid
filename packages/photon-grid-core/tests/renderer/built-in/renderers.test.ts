@@ -50,8 +50,8 @@ function render(
 const ALL = cellRenderers.names();
 
 describe('built-in renderers — the whole set', () => {
-  it('registers all 29 documented names', () => {
-    expect(ALL).toHaveLength(29);
+  it('registers all 33 documented names', () => {
+    expect(ALL).toHaveLength(33);
   });
 
   it.each(ALL)('%s survives a null value without throwing or leaving a hole', (name) => {
@@ -229,7 +229,7 @@ describe('patch hooks', () => {
   it('are declared by exactly the renderers whose element holds state', () => {
     const withPatch = ALL.filter((n) => typeof cellRenderers.get(n)?.patch === 'function');
     expect(withPatch.sort()).toEqual(
-      ['button', 'checkbox', 'progress', 'rating', 'sparkline', 'switch'].sort(),
+      ['button', 'checkbox', 'longText', 'profile', 'progress', 'rating', 'sparkline', 'switch'].sort(),
     );
   });
 

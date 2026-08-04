@@ -127,6 +127,10 @@ const RAW_HTML: ResolvedDisplayRenderer = Object.freeze({
  * works today changes. Steps 2 and 3 are new surface no existing column can
  * have.
  *
+ * Whichever built-in is chosen — named or inferred — is configured from
+ * `colDef.rendererParams`, layered under a spec's own `options`; see
+ * {@link optionsFor}.
+ *
  * A column with **both** an explicit built-in and a `valueFormatter` is not a
  * conflict: the renderer owns the presentation, and text-producing renderers
  * derive their string through `formatCellValue`, which already lets
@@ -145,7 +149,7 @@ export function resolveDisplayRenderer(colDef: ColumnDef): ResolvedDisplayRender
   const renderer = colDef.renderer;
 
   if (typeof renderer === 'string') {
-    return fromBuiltIn(renderer, NO_OPTIONS) ?? inferred(colDef);
+    return fromBuiltIn(renderer, optionsFor(colDef)) ?? inferred(colDef);
   }
 
   if (typeof renderer === 'function') {
@@ -154,7 +158,7 @@ export function resolveDisplayRenderer(colDef: ColumnDef): ResolvedDisplayRender
 
   if (isBuiltInSpec(renderer)) {
     return (
-      fromBuiltIn(renderer.name, renderer.options ?? NO_OPTIONS) ?? inferred(colDef)
+      fromBuiltIn(renderer.name, optionsFor(colDef, renderer.options)) ?? inferred(colDef)
     );
   }
 
@@ -168,6 +172,23 @@ export function resolveDisplayRenderer(colDef: ColumnDef): ResolvedDisplayRender
   if (colDef.valueFormatter) return PLAIN_TEXT;
 
   return inferred(colDef);
+}
+
+/**
+ * The options a column's built-in renderer receives.
+ *
+ * `ColumnDef.rendererParams` is the flat form and a spec's `options` the nested
+ * one; a column that sets both gets them merged with `options` winning key by
+ * key, so neither is silently discarded.
+ *
+ * Allocation-free unless both are present — the merge is the rare case, and
+ * this runs once per cell build.
+ */
+function optionsFor(colDef: ColumnDef, specOptions?: BaseRendererOptions): BaseRendererOptions {
+  const params = colDef.rendererParams as BaseRendererOptions | undefined;
+  if (!params) return specOptions ?? NO_OPTIONS;
+  if (!specOptions) return params;
+  return { ...params, ...specOptions };
 }
 
 /** Looks a built-in up by name, or `undefined` when nothing is registered under it. */
@@ -189,5 +210,5 @@ function fromBuiltIn(
  */
 function inferred(colDef: ColumnDef): ResolvedDisplayRenderer {
   const name = DEFAULT_RENDERER_BY_TYPE[colDef.type];
-  return (name && fromBuiltIn(name, NO_OPTIONS)) ?? PLAIN_TEXT;
+  return (name && fromBuiltIn(name, optionsFor(colDef))) ?? PLAIN_TEXT;
 }

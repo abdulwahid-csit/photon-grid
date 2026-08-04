@@ -39,6 +39,13 @@
        renderer — the path most real columns take. -->
   <app-renderer-showcase-grid></app-renderer-showcase-grid>
 
+  <!-- Summary Rows: four aggregate rows over one grid, each with its own scope
+       (visible page / selection / filtered) and anchoring. Three are docked at
+       the bottom; the "This page" row is `sticky: false`, so it sits at the end
+       of the scrollable content and scrolls away with the rows. The buttons
+       drive setSummaryRows / updateSummaryRow / removeSummaryRow at runtime. -->
+  <app-summary-grid></app-summary-grid>
+
   <!-- Customer Orders: every column drawn by a custom cell renderer, with a
        theme picker in its top-right corner. Because the renderers are composed
        from Photon theme tokens rather than literal colours, switching between

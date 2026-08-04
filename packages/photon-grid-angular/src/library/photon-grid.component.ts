@@ -37,6 +37,8 @@ import type {
     ThemeChangedEvent,
     ToolbarTabChangedEvent,
     ToolbarSearchChangedEvent,
+    SummaryChangedEvent,
+    SummaryRowsChangedEvent,
     ServerRequestEvent,
     ServerSuccessEvent,
     ServerErrorEvent,
@@ -234,6 +236,12 @@ export class PhotonGridComponent implements AfterViewInit, OnChanges, OnDestroy 
     /** The toolbar's global search query changed (debounced). */
     @Output() readonly toolbarSearchChanged = new EventEmitter<ToolbarSearchChangedEvent>();
 
+    /** Summary row values were recomputed (automatically, or via `api.refreshSummary()`). */
+    @Output() readonly summaryChanged = new EventEmitter<SummaryChangedEvent>();
+
+    /** The set of summary row *definitions* changed (`setSummaryRows` / `updateSummaryRow` / `removeSummaryRow`). */
+    @Output() readonly summaryRowsChanged = new EventEmitter<SummaryRowsChangedEvent>();
+
     /** Server-Side Row Model: a fetch is about to be issued (or served from cache). */
     @Output() readonly serverRequest = new EventEmitter<ServerRequestEvent>();
 
@@ -377,6 +385,8 @@ export class PhotonGridComponent implements AfterViewInit, OnChanges, OnDestroy 
         this.subscribe(api, GridEventType.EXPORT_COMPLETE, this.exportComplete);
         this.subscribe(api, GridEventType.TOOLBAR_TAB_CHANGED, this.toolbarTabChanged);
         this.subscribe(api, GridEventType.TOOLBAR_SEARCH_CHANGED, this.toolbarSearchChanged);
+        this.subscribe(api, GridEventType.SUMMARY_CHANGED, this.summaryChanged);
+        this.subscribe(api, GridEventType.SUMMARY_ROWS_CHANGED, this.summaryRowsChanged);
         this.subscribe(api, GridEventType.SERVER_REQUEST, this.serverRequest);
         this.subscribe(api, GridEventType.SERVER_SUCCESS, this.serverSuccess);
         this.subscribe(api, GridEventType.SERVER_ERROR, this.serverError);

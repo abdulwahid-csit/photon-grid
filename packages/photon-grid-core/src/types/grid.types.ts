@@ -215,6 +215,26 @@ export interface GridOptions {
   data?: Record<string, unknown>[];
 
   /**
+   * Application state shared with everything the grid calls back into.
+   *
+   * The seam for what a callback needs but the row does not carry —
+   * permissions, feature flags, the current user, a service handle. Reached as
+   * `params.context` in an `actions` column, and through `GridApi.getContext()`
+   * anywhere else:
+   *
+   * ```ts
+   * const grid = createGrid(el, { columns, context: { permissions } });
+   * // …
+   * visible: (params) => params.context.permissions.includes('DELETE')
+   * ```
+   *
+   * Held by reference and never copied, so mutating it is visible immediately;
+   * replace it wholesale with `GridApi.setContext()` when the change should be
+   * atomic. The grid never writes to it.
+   */
+  context?: Record<string, unknown>;
+
+  /**
    * Base color mode — drives the entire color palette (light or dark).
    * Defaults to `'light'`. This is the primary theming axis.
    *
@@ -521,6 +541,32 @@ export interface GridOptions {
    * @see {@link ToastServiceConfigInput}
    */
   toast?: ToastServiceConfigInput;
+
+  /**
+   * Summary Rows — one or more aggregate rows docked above and/or below the
+   * grid body.
+   *
+   * Each row aggregates a configurable scope (all / filtered / visible /
+   * selected rows) with built-in or custom functions, and each of its cells can
+   * override value, aggregation, formatting, rendering, styling, span and
+   * tooltip independently. Rows recompute automatically as data, filters,
+   * sorting, pagination and selection change unless
+   * {@link SummaryConfig.autoRefresh} is turned off.
+   *
+   * With no `rows` supplied, a single total row is derived from any columns
+   * declaring `ColumnDef.showSummary`.
+   *
+   * @example
+   * ```ts
+   * summary: {
+   *   position: SummaryPosition.Bottom,
+   *   rows: [{ label: 'Total', cells: { amount: { aggregate: SummaryAggregation.Sum } } }],
+   * }
+   * ```
+   *
+   * @see {@link SummaryConfig}
+   */
+  summary?: import('../summary/summary.types').SummaryConfig;
 
   enableStateManagement?: boolean;
   stateKey?: string;

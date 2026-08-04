@@ -16,6 +16,7 @@ import { ColumnMenu } from './column-menu';
 import { GroupContextMenu } from './group-context-menu';
 import { ColumnStyleManager } from './column-style-manager';
 import { createDiv, toggleClass } from './dom-utils';
+import { adoptGridTheme } from './overlay-theme';
 import { resolveColumnRenderer } from './renderer-resolver';
 import {
   isTouchPointer,
@@ -1280,8 +1281,13 @@ export class HeaderRenderer {
     const row = createDiv('pg-filter-row');
     row.setAttribute('role', 'row');
     if (isLeft) {
-      if (options.showCheckboxes) row.appendChild(createDiv('pg-filter-cell pg-filter-cell--checkbox'));
+      // Serial BEFORE checkbox, matching `buildHeaderRow` above and
+      // `BodyRenderer`'s left-panel gutters. These were reversed here, and
+      // because the two gutters are different widths (52px vs 44px) the filter
+      // row's placeholders did not line up with the header cells above them or
+      // the data cells below — every column in the left panel sat 8px out.
       if (options.showSerialNumber) row.appendChild(createDiv('pg-filter-cell pg-filter-cell--serial'));
+      if (options.showCheckboxes) row.appendChild(createDiv('pg-filter-cell pg-filter-cell--checkbox'));
     }
     for (const col of columns) row.appendChild(this.buildFilterCell(col));
     return row;
@@ -1386,6 +1392,10 @@ export class HeaderRenderer {
     ghostLabel.textContent = col.header;
     ghost.appendChild(ghostLabel);
     ghost.appendChild(mkIcon('pg-col-drag-ghost__icon--arrow-right', 'chevronRight'));
+    // The ghost lives on `document.body`, outside the container the grid's token
+    // stylesheet is scoped to, so without this every `var(--pg-…, fallback)` on
+    // it collapses to its light-mode fallback — a white chip over a dark grid.
+    adoptGridTheme(ghost, panelRowEl);
     document.body.appendChild(ghost);
     this.ghostEl = ghost;
 

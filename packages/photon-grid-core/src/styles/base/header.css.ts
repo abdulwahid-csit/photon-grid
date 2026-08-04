@@ -153,31 +153,39 @@ export const headerCss = `/* ─────────────────
 .pg-th__menu-btn--always { display: flex; }
 .pg-th__menu-btn:hover { opacity: 1; background: var(--pg-colors-background-alt, #f1f5f9); }
 .pg-th__menu-btn--active { opacity: 1; background: var(--pg-colors-border, #e2e8f0); }
+/* The element is the grab zone; the line is drawn by ::after.
+   Keeping the two separate is what lets the target be comfortable to hit
+   without the divider looking heavier — a 2px element means a 2px target, and
+   a 2px target is a pixel-hunt with a mouse. Both widths are tokens, and the
+   offset is derived from the grab width so the painted line stays centred on
+   the column boundary at any size. */
 .pg-th__resize-handle {
- position: absolute;
-    right: -1px;
-    top: 0;
-    width: 6px;
-    height: 50%;
-    top: 25%;
-    cursor: ew-resize;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--pg-colors-resize-handle-color, #d9d9db);
-    background: transparent;
-    transition: background var(--pg-transitions-duration-fast, 100ms);
-    z-index: 5;
-    font-size: 10px;
-    user-select: none;
-    background: #d6d6d6;
-    width: 2px;
+  position: absolute;
+  top: 25%;
+  height: 50%;
+  width: var(--pg-sizing-resize-grab-width, 9px);
+  right: calc(var(--pg-sizing-resize-grab-width, 9px) / -2);
+  background: transparent;
+  cursor: ew-resize;
+  z-index: 5;
+  user-select: none;
+  transition: background var(--pg-transitions-duration-fast, 100ms);
+}
+.pg-th__resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: var(--pg-sizing-resize-line-width, 2px);
+  transform: translateX(-50%);
+  background: var(--pg-colors-resize-handle-color, #d6d6d6);
 }
 /* Right-pinned columns anchor their right edge to the grid border, so the
    resize handle lives on the inner (left) edge — the edge free to move. */
 .pg-th--pinned-right .pg-th__resize-handle {
   right: auto;
-  left: -1px;
+  left: calc(var(--pg-sizing-resize-grab-width, 9px) / -2);
 }
 .pg-th__resize-handle:hover,
 .pg-th.pg-resizing .pg-th__resize-handle,

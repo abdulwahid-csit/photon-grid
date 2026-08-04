@@ -4,6 +4,7 @@ import type { IconRenderer } from '../icons/icon-renderer';
 import type { RowNode } from '../types/row.types';
 import { GridEventType } from '../types/event.types';
 import { createDiv } from './dom-utils';
+import { adoptGridTheme } from './overlay-theme';
 import { computeRowDragPreview, previewTopFor } from './row-drag-preview';
 
 const SCROLL_ZONE = 64;    // px from body edge to engage auto-scroll
@@ -185,6 +186,9 @@ export class RowDragRenderer {
     ghost.appendChild(labelSpan);
     ghost.style.left = `${e.clientX}px`;
     ghost.style.top = `${e.clientY}px`;
+    // Portaled to `document.body`, so it must be pointed back at the owning
+    // grid's token scope or it paints in light-mode fallbacks. See adoptGridTheme.
+    if (this.gridEl) adoptGridTheme(ghost, this.gridEl);
     document.body.appendChild(ghost);
     this.ghostEl = ghost;
 

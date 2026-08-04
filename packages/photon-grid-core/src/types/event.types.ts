@@ -1,4 +1,5 @@
 import type { ColumnDef, ColumnState } from './column.types';
+import type { GridAction } from './cell-action.types';
 import type {
   ColumnGroupHeaderCollapsedEvent,
   ColumnGroupHeaderExpandedEvent,
@@ -60,6 +61,12 @@ export const GridEventType = {
   CELL_BUTTON_CLICKED: 'cell:buttonClicked',
   /** A member row in an `avatarGroup` roster was activated. @see AvatarGroupMemberClickedEvent */
   AVATAR_GROUP_MEMBER_CLICKED: 'cell:avatarGroupMemberClicked',
+  /** A `longText` cell's expand control opened its panel. @see CellTextExpandedEvent */
+  CELL_TEXT_EXPANDED: 'cell:textExpanded',
+  /** An `actions` cell's command was activated and confirmed. @see CellActionClickedEvent */
+  CELL_ACTION_CLICKED: 'cell:actionClicked',
+  /** An `actions` cell's `onClick` threw or rejected. @see CellActionErrorEvent */
+  CELL_ACTION_ERROR: 'cell:actionError',
 
   COLUMN_RESIZED: 'column:resized',
   COLUMN_MOVED: 'column:moved',
@@ -133,6 +140,11 @@ export const GridEventType = {
 
   TOOLBAR_TAB_CHANGED: 'toolbar:tabChanged',
   TOOLBAR_SEARCH_CHANGED: 'toolbar:searchChanged',
+
+  /** Summary row values were recomputed. @see SummaryChangedEvent */
+  SUMMARY_CHANGED: 'summary:changed',
+  /** The set of summary row *definitions* changed. @see SummaryRowsChangedEvent */
+  SUMMARY_ROWS_CHANGED: 'summary:rowsChanged',
 
   SERVER_REQUEST: 'server:request',
   SERVER_SUCCESS: 'server:success',
@@ -286,6 +298,24 @@ export interface AvatarGroupMemberClickedEvent {
   event: MouseEvent;
 }
 
+/**
+ * Emitted when a `longText` cell's expand control opens its panel.
+ *
+ * The grid does nothing with it beyond reporting it — the hook for logging that
+ * a value was actually read, or for lazily fetching a fuller version of it.
+ * Closing emits nothing: a dismissal is not a decision.
+ */
+export interface CellTextExpandedEvent {
+  /** The untruncated text the panel is showing. */
+  text: string;
+  /** The `action` declared in the renderer's options, or `''`. */
+  action: string;
+  row: RowNode;
+  colDef: ColumnDef;
+  rowIndex: number;
+  event: MouseEvent;
+}
+
 export interface CellButtonClickedEvent {  /**
    * The `action` declared in the renderer's options, or `''`.
    *
@@ -298,6 +328,54 @@ export interface CellButtonClickedEvent {  /**
   value: unknown;
   rowIndex: number;
   event: MouseEvent;
+}
+
+/**
+ * Emitted when an `actions` cell's command is activated.
+ *
+ * Fired *after* any declared confirmation is accepted and immediately before
+ * the action's own `onClick` runs, so a column can be handled entirely through
+ * the event bus — `onClick` is optional precisely because of this. An action
+ * the user dismissed at the confirmation emits nothing: a "no" is not a
+ * command.
+ */
+export interface CellActionClickedEvent {
+  /** `GridAction.id` of the activated command. */
+  actionId: string;
+  /** The declaration itself, for a handler that needs more than the id. */
+  action: GridAction;
+  /**
+   * The `group` declared in the renderer's options, or `''`.
+   *
+   * Lets one handler serve several action columns without comparing `colDef`.
+   */
+  group: string;
+  /** Where it was invoked from — a cell button, or a row in the overflow menu. */
+  source: 'button' | 'menu';
+  row: RowNode;
+  colDef: ColumnDef;
+  /** The cell's own value, post `valueGetter`. */
+  value: unknown;
+  rowIndex: number;
+  event: MouseEvent;
+}
+
+/**
+ * Emitted when an `actions` command's `onClick` throws or rejects.
+ *
+ * The grid surfaces the failure rather than swallowing it — an action that
+ * silently does nothing is indistinguishable from one that worked, which is the
+ * worst possible outcome for a Delete button.
+ */
+export interface CellActionErrorEvent {
+  actionId: string;
+  action: GridAction;
+  group: string;
+  /** Whatever was thrown or rejected with. */
+  error: unknown;
+  row: RowNode;
+  colDef: ColumnDef;
+  rowIndex: number;
 }
 export interface ColumnResizedEvent {
   colDef: ColumnDef;
@@ -400,6 +478,36 @@ export interface ToolbarSearchChangedEvent {
 }
 
 /**
+ * Payload of `SUMMARY_CHANGED` — fired after summary row values are recomputed,
+ * whether automatically or via `GridApi.refreshSummary()`.
+ *
+ * Emitted once per refresh, after the new values are stored and before the
+ * bands repaint, so a listener reading `GridApi.getSummary()` sees the values
+ * that are about to appear on screen.
+ */
+export interface SummaryChangedEvent {
+  /** The freshly computed snapshots, in row declaration order. */
+  readonly summaries: readonly import('../summary/summary.types').SummaryRowSnapshot[];
+}
+
+/**
+ * Payload of `SUMMARY_ROWS_CHANGED` — fired when the summary row *definitions*
+ * change through `setSummaryRows` / `updateSummaryRow` / `removeSummaryRow`.
+ *
+ * Distinct from `SUMMARY_CHANGED`, which reports new *values* for an unchanged
+ * set of rows. A definition change emits both: this one first, then
+ * `SUMMARY_CHANGED` once the new definitions have been computed.
+ */
+export interface SummaryRowsChangedEvent {
+  /** What changed the definitions. */
+  readonly action: 'set' | 'update' | 'remove';
+  /** The affected row's id, or `null` for a wholesale `set`. */
+  readonly rowId: string | null;
+  /** Number of summary rows now defined. */
+  readonly rowCount: number;
+}
+
+/**
  * Payload of `SERVER_REQUEST` — fired when the Server-Side Row Model is about to
  * fetch a slice (before the datasource's `getRows` is invoked).
  */
@@ -484,6 +592,9 @@ export type GridEventMap = {
   [GridEventType.CELL_SELECTION_CHANGED]: CellSelectionChangedEvent;
   [GridEventType.CELL_BUTTON_CLICKED]: CellButtonClickedEvent;
   [GridEventType.AVATAR_GROUP_MEMBER_CLICKED]: AvatarGroupMemberClickedEvent;
+  [GridEventType.CELL_TEXT_EXPANDED]: CellTextExpandedEvent;
+  [GridEventType.CELL_ACTION_CLICKED]: CellActionClickedEvent;
+  [GridEventType.CELL_ACTION_ERROR]: CellActionErrorEvent;
   [GridEventType.COLUMN_RESIZED]: ColumnResizedEvent;
   [GridEventType.COLUMN_MOVED]: ColumnMovedEvent;
   [GridEventType.COLUMN_SORTED]: ColumnSortedEvent;
@@ -522,6 +633,8 @@ export type GridEventMap = {
   [GridEventType.CHART_DESTROYED]: ChartDestroyedEvent;
   [GridEventType.TOOLBAR_TAB_CHANGED]: ToolbarTabChangedEvent;
   [GridEventType.TOOLBAR_SEARCH_CHANGED]: ToolbarSearchChangedEvent;
+  [GridEventType.SUMMARY_CHANGED]: SummaryChangedEvent;
+  [GridEventType.SUMMARY_ROWS_CHANGED]: SummaryRowsChangedEvent;
   [GridEventType.SERVER_REQUEST]: ServerRequestEvent;
   [GridEventType.SERVER_SUCCESS]: ServerSuccessEvent;
   [GridEventType.SERVER_ERROR]: ServerErrorEvent;

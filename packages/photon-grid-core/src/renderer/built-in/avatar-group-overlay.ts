@@ -3,6 +3,7 @@ import type {
   AvatarGroupRendererOptions,
 } from '../../types/built-in-renderer.types';
 import { createDiv } from '../dom-utils';
+import { adoptGridTheme } from '../overlay-theme';
 import { placeOverlay } from '../overlay-position';
 import { colorForText, initialsOf } from './shared';
 
@@ -44,6 +45,14 @@ const ESTIMATED_CHROME = 16;
 
 let panelEl: HTMLElement | null = null;
 let listEl: HTMLElement | null = null;
+/**
+ * The optional heading above the roster.
+ *
+ * Built once with the panel and reused, rather than created per open: it lives
+ * outside `listEl`, so the `while (list.firstChild)` clear in `open` never saw
+ * it and every open used to prepend another copy.
+ */
+let titleEl: HTMLElement | null = null;
 let activeTrigger: HTMLElement | null = null;
 let activeRequest: AvatarGroupOverlayRequest | null = null;
 
@@ -58,6 +67,8 @@ function ensurePanel(): HTMLElement {
   // Escape has somewhere sensible to return from.
   panel.tabIndex = -1;
 
+  const title = createDiv('pg-avatar-overlay__title');
+
   const list = createDiv('pg-avatar-overlay__list');
   list.setAttribute('role', 'list');
   panel.appendChild(list);
@@ -65,6 +76,9 @@ function ensurePanel(): HTMLElement {
   document.body.appendChild(panel);
   panelEl = panel;
   listEl = list;
+  // Detached until an open supplies a title — attaching it empty would leave the
+  // heading's padding as a stray gap above the first member.
+  titleEl = title;
   return panel;
 }
 
@@ -142,14 +156,23 @@ export function openAvatarGroupOverlay(request: AvatarGroupOverlayRequest): void
 
   closeAvatarGroupOverlay({ restoreFocus: false });
 
+  // The panel sits on `document.body`, outside the container the owning grid's
+  // token stylesheet is scoped to — without this it renders in light-mode
+  // fallbacks regardless of the grid's actual mode.
+  adoptGridTheme(panel, request.trigger);
+
   while (list.firstChild) list.removeChild(list.firstChild);
 
+  // One reused heading, attached only while a title exists. Creating one per
+  // open and inserting it before `list` meant it escaped the clear above, so
+  // the panel accumulated a heading every time it was reopened.
+  const title = titleEl!;
   if (request.options.overlayTitle) {
-    const heading = createDiv('pg-avatar-overlay__title');
-    heading.textContent = request.options.overlayTitle;
-    panel.insertBefore(heading, list);
+    title.textContent = request.options.overlayTitle;
+    if (title.parentNode !== panel) panel.insertBefore(title, list);
     panel.setAttribute('aria-label', request.options.overlayTitle);
   } else {
+    title.remove();
     panel.setAttribute('aria-label', 'Members');
   }
 
@@ -198,6 +221,7 @@ export function destroyAvatarGroupOverlay(): void {
   panelEl?.remove();
   panelEl = null;
   listEl = null;
+  titleEl = null;
 }
 
 // ─── Dismissal ───────────────────────────────────────────────────────────────
@@ -219,14 +243,21 @@ function onDocumentKeyDown(e: KeyboardEvent): void {
 }
 
 /**
- * Any scroll detaches the panel from its anchor, so the panel goes.
+ * Any scroll that moves the panel away from its anchor dismisses it.
  *
  * Capture phase, because the grid's own scroll container does not bubble its
  * scroll events to the document. Closing rather than repositioning is
  * deliberate: a panel that chases a scrolling row is harder to read than one
  * that gets out of the way.
+ *
+ * The panel's *own* overflow scrolling is exempt. `.pg-avatar-overlay` is itself
+ * the scroll container (`overflow-y: auto` against `--pg-overlay-max-height`),
+ * so a roster long enough to scroll fired this listener and dismissed itself the
+ * moment the user tried to reach the members at the bottom.
  */
-function onScroll(): void {
+function onScroll(e: Event): void {
+  const target = e.target;
+  if (target instanceof Node && panelEl?.contains(target)) return;
   closeAvatarGroupOverlay({ restoreFocus: false });
 }
 

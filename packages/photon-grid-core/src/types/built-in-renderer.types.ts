@@ -1,5 +1,6 @@
 import type { ColumnDef } from './column.types';
 import type { RendererOutput } from './renderer.types';
+import type { ActionsRendererOptions } from './cell-action.types';
 import type { IconRenderer } from '../icons/icon-renderer';
 
 /**
@@ -19,6 +20,7 @@ import type { IconRenderer } from '../icons/icon-renderer';
 export type BuiltInRenderer =
   | 'text'
   | 'multiline'
+  | 'longText'
   | 'number'
   | 'currency'
   | 'percentage'
@@ -33,6 +35,7 @@ export type BuiltInRenderer =
   | 'image'
   | 'avatar'
   | 'avatarGroup'
+  | 'profile'
   | 'country'
   | 'checkbox'
   | 'switch'
@@ -46,6 +49,7 @@ export type BuiltInRenderer =
   | 'list'
   | 'json'
   | 'button'
+  | 'actions'
   | 'html';
 
 // ─── Per-renderer options ────────────────────────────────────────────────────
@@ -71,6 +75,97 @@ export interface TextRendererOptions extends BaseRendererOptions {
 export interface MultilineRendererOptions extends BaseRendererOptions {
   /** Clamp to this many visual lines (`-webkit-line-clamp`). Unlimited when omitted. */
   readonly maxLines?: number;
+}
+
+/** When the `longText` renderer's expand affordance is visible. */
+export type LongTextToggleVisibility =
+  /** Only while the pointer is over the cell, or the panel it opened is showing. */
+  | 'hover'
+  /** Permanently. Right for a touch deployment, where there is no hover. */
+  | 'always';
+
+/**
+ * Options for the `longText` renderer — a truncated cell with an expand control
+ * that opens the untruncated value in a panel.
+ *
+ * The column that holds a support ticket's body, a shipping note or an audit
+ * comment: too long for any sensible column width, but the full text still has
+ * to be reachable without widening the column, editing the cell, or leaving the
+ * grid.
+ *
+ * ```ts
+ * {
+ *   field: 'description',
+ *   header: 'Description',
+ *   renderer: {
+ *     name: 'longText',
+ *     options: { maxLines: 2, minLength: 60, overlayTitle: 'Description' },
+ *   },
+ * }
+ * ```
+ */
+export interface LongTextRendererOptions extends BaseRendererOptions {
+  /**
+   * Visual lines shown in the cell before truncation.
+   *
+   * `1` (the default) truncates with an ellipsis on a single line. Anything
+   * higher clamps to that many lines — pair it with a taller `rowHeight`, or
+   * `rowHeightMode: 'auto'`, or the extra lines have nowhere to go.
+   *
+   * @default 1
+   */
+  readonly maxLines?: number;
+  /** @default 'hover' */
+  readonly toggle?: LongTextToggleVisibility;
+  /**
+   * Skip the toggle for values shorter than this many characters.
+   *
+   * A cheap stand-in for "only when the text is actually cut off", which cannot
+   * be known without measuring the laid-out cell — a forced reflow per cell per
+   * render, which is not a cost a grid scrolling millions of rows can pay.
+   * Character count is a heuristic; it is also free. Tune it to the column's
+   * width rather than leaving every short value wearing an affordance it does
+   * not need.
+   *
+   * @default 0 — every non-empty value gets a toggle
+   */
+  readonly minLength?: number;
+  /** Icon-registry name for the toggle. @default 'expandText' */
+  readonly icon?: string;
+  /** Toggle icon size, in px. @default 12 */
+  readonly iconSize?: number;
+  /** Accessible name for the toggle. @default 'Show full text' */
+  readonly toggleLabel?: string;
+  /** Heading shown above the text in the panel. Omitted when unset. */
+  readonly overlayTitle?: string;
+  /**
+   * Panel width, in px.
+   *
+   * Defaults to the cell's own width, clamped to a readable range — a panel
+   * narrower than the cell it came from looks like a mistake, and one spanning
+   * the viewport is a worse reading experience than the cell was.
+   */
+  readonly overlayWidth?: number;
+  /**
+   * Draw the toggle at all. `false` leaves a plain truncated cell, which is the
+   * right call for a column whose text is long but not worth reading in full.
+   * @default true
+   */
+  readonly expandable?: boolean;
+  /**
+   * Mirror the full text into the cell's `title`, for a native tooltip.
+   *
+   * Off by default: the panel already serves that purpose, and a browser
+   * tooltip covering the row on the way to the toggle fights it.
+   *
+   * @default false
+   */
+  readonly tooltip?: boolean;
+  /**
+   * Identifier carried on the emitted `CELL_TEXT_EXPANDED` event, so one
+   * handler can serve several long-text columns.
+   */
+  readonly action?: string;
 }
 
 /** Options shared by the numeric renderers (`number`, `currency`, `percentage`). */
@@ -216,6 +311,155 @@ export interface AvatarGroupRendererOptions extends BaseRendererOptions {
   readonly expandable?: boolean;
   /** Heading shown above the roster. Omitted when unset. */
   readonly overlayTitle?: string;
+}
+
+// ─── Profile ─────────────────────────────────────────────────────────────────
+
+/** Silhouette of a profile avatar. */
+export type ProfileAvatarShape = 'circle' | 'rounded' | 'square';
+
+/**
+ * What a profile avatar falls back to when the row has no usable image.
+ *
+ * - `'initials'` (default) — coloured initials, the state most rows in a real
+ *   user table are in.
+ * - `'icon'` — a glyph from the icon registry, named by
+ *   {@link ProfileAvatarOptions.icon}. Degrades to initials when no icon
+ *   renderer or name is available, rather than leaving a hole.
+ * - `'none'` — no avatar element at all; the cell becomes text-only.
+ */
+export type ProfileAvatarFallback = 'initials' | 'icon' | 'none';
+
+/**
+ * How the two text lines of a profile are arranged.
+ *
+ * - `'stacked'` (default) — title above subtitle. Needs roughly 40px of row
+ *   height to breathe.
+ * - `'inline'` — title and subtitle on one line, separated by
+ *   {@link ProfileRendererOptions.separator}. The choice for a dense grid whose
+ *   `rowHeight` is at the default.
+ */
+export type ProfileLayout = 'stacked' | 'inline';
+
+/**
+ * Where one piece of a profile is read from.
+ *
+ * Both members are optional and {@link value} wins. A part that declares
+ * neither falls back to the column's own cell value — which is what makes
+ * `renderer: 'profile'` useful with no configuration at all.
+ */
+export interface ProfileSource {
+  /**
+   * Row field holding this part, dot-notation supported
+   * (`'manager.avatarUrl'`).
+   *
+   * Read straight off the row rather than through the column's value pipeline,
+   * because a profile is assembled from *sibling* fields the column itself does
+   * not point at.
+   */
+  readonly field?: string;
+  /**
+   * Resolver, for a part that has to be composed rather than read — a full name
+   * from `firstName`/`lastName`, a signed avatar URL, a department looked up by
+   * id.
+   *
+   * Runs once per rendered cell, so keep it allocation-light and free of I/O.
+   *
+   * @param row   - The row's data object.
+   * @param value - The column's own cell value, post `valueGetter`.
+   */
+  readonly value?: (row: Record<string, unknown>, value: unknown) => unknown;
+}
+
+/** Avatar half of the `profile` renderer. */
+export interface ProfileAvatarOptions extends ProfileSource {
+  /** @default 'circle' */
+  readonly shape?: ProfileAvatarShape;
+  /**
+   * Diameter in px. Applied as a CSS custom property on the profile root, so a
+   * theme can still restyle everything built on top of it.
+   * @default 32
+   */
+  readonly size?: number;
+  /** How an image fills its box. @default 'cover' */
+  readonly fit?: 'cover' | 'contain' | 'fill' | 'none';
+  /**
+   * Builds the image's `alt`.
+   *
+   * Defaults to empty — the title line names the person immediately after, and
+   * announcing it twice is noise for a screen reader, not detail.
+   */
+  readonly alt?: (row: Record<string, unknown>, value: unknown) => string;
+  /** @default 'initials' */
+  readonly fallback?: ProfileAvatarFallback;
+  /** Icon-registry name used when {@link fallback} is `'icon'`. */
+  readonly icon?: string;
+  /**
+   * Overrides the initials. Defaults to those derived from the title line, so
+   * the same person is the same two letters everywhere.
+   */
+  readonly initials?: (row: Record<string, unknown>, value: unknown) => string;
+  /**
+   * Background of the initials fallback. Defaults to a colour derived from the
+   * name, which keeps a person the same colour on every screen without anything
+   * being stored.
+   */
+  readonly color?: string | ((row: Record<string, unknown>, value: unknown) => string | undefined);
+}
+
+/** One text line of the `profile` renderer. */
+export interface ProfileTextOptions extends ProfileSource {
+  /** Formats the resolved value. Defaults to `String(value)`. */
+  readonly format?: (value: unknown, row: Record<string, unknown>) => string;
+  /** Truncate to this many characters, appending an ellipsis. */
+  readonly maxLength?: number;
+  /**
+   * Mirror the full text into a `title`, so a line clipped by the column width
+   * is still readable on hover.
+   * @default true
+   */
+  readonly tooltip?: boolean;
+  /** Extra class on this line's element. */
+  readonly cssClass?: string;
+}
+
+/**
+ * Options for the `profile` renderer — an avatar beside a title and an optional
+ * subtitle, the "who is this row about" cell.
+ *
+ * Each part names its own source, so one column presents fields the column does
+ * not itself point at:
+ *
+ * ```ts
+ * {
+ *   field: 'employee',
+ *   header: 'Employee',
+ *   renderer: 'profile',
+ *   rendererParams: {
+ *     avatar: { field: 'avatar', shape: 'circle', size: 36 },
+ *     title: { field: 'name' },
+ *     subtitle: { field: 'department' },
+ *   },
+ * }
+ * ```
+ */
+export interface ProfileRendererOptions extends BaseRendererOptions {
+  /** Avatar configuration. Defaults are applied when omitted. */
+  readonly avatar?: ProfileAvatarOptions;
+  /** Primary line. Defaults to the column's own formatted value. */
+  readonly title?: ProfileTextOptions;
+  /** Secondary line. Omitted from the DOM entirely when it resolves to nothing. */
+  readonly subtitle?: ProfileTextOptions;
+  /**
+   * Draw the avatar at all. Set `false` for a text-only profile — a column that
+   * repeats a person already pictured elsewhere in the row.
+   * @default true
+   */
+  readonly showAvatar?: boolean;
+  /** @default 'stacked' */
+  readonly layout?: ProfileLayout;
+  /** Separator between the lines when {@link layout} is `'inline'`. @default '·' */
+  readonly separator?: string;
 }
 
 /**
@@ -388,6 +632,7 @@ export type SparklineRendererOptions = BaseRendererOptions;
 export interface BuiltInRendererOptionsMap {
   text: TextRendererOptions;
   multiline: MultilineRendererOptions;
+  longText: LongTextRendererOptions;
   number: NumericRendererOptions;
   currency: CurrencyRendererOptions;
   percentage: PercentageRendererOptions;
@@ -402,6 +647,7 @@ export interface BuiltInRendererOptionsMap {
   image: ImageRendererOptions;
   avatar: AvatarRendererOptions;
   avatarGroup: AvatarGroupRendererOptions;
+  profile: ProfileRendererOptions;
   country: CountryRendererOptions;
   checkbox: CheckboxRendererOptions;
   switch: CheckboxRendererOptions;
@@ -415,6 +661,7 @@ export interface BuiltInRendererOptionsMap {
   list: ListRendererOptions;
   json: JsonRendererOptions;
   button: ButtonRendererOptions;
+  actions: ActionsRendererOptions;
   html: HtmlRendererOptions;
 }
 

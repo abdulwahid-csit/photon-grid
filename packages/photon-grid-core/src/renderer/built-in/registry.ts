@@ -2,6 +2,7 @@ import type {
   BuiltInRendererDefinition,
 } from '../../types/built-in-renderer.types';
 import { avatarGroupRenderer } from './avatar-group';
+import { actionsRenderer } from './actions/actions';
 import { booleanRenderer, checkboxRenderer, switchRenderer } from './boolean';
 import { countryRenderer } from './country/country';
 import { iconRenderer, progressRenderer, ratingRenderer } from './indicator';
@@ -10,6 +11,8 @@ import { avatarRenderer, imageRenderer } from './media';
 import { buttonRenderer, htmlRenderer, jsonRenderer, sparklineRenderer } from './misc';
 import { currencyRenderer, numberRenderer, percentageRenderer } from './numeric';
 import { badgeRenderer, chipRenderer, listRenderer, tagRenderer } from './pill';
+import { longTextRenderer } from './long-text';
+import { profileRenderer } from './profile';
 import { dateRenderer, datetimeRenderer, durationRenderer, timeRenderer } from './temporal';
 import { multilineRenderer, textRenderer } from './text';
 
@@ -33,7 +36,7 @@ import { multilineRenderer, textRenderer } from './text';
  * registry never references it. Be aware, though, that {@link cellRenderers} —
  * the instance the grid itself renders through — *is* constructed eagerly with
  * the full set, and `renderer-resolver.ts` imports it. Any bundle containing
- * the grid therefore contains all 29 today. The seam is real for a custom
+ * the grid therefore contains all 33 today. The seam is real for a custom
  * embedding; it is not a saving the default build gets for free.
  *
  * Follows the shape of `IconRegistry` and `AutoFillDetectorRegistry`; method
@@ -106,6 +109,7 @@ export function createDefaultRenderers(): BuiltInRendererDefinition[] {
   return [
     textRenderer,
     multilineRenderer,
+    longTextRenderer,
     numberRenderer,
     currencyRenderer,
     percentageRenderer,
@@ -122,6 +126,7 @@ export function createDefaultRenderers(): BuiltInRendererDefinition[] {
     imageRenderer,
     avatarRenderer,
     avatarGroupRenderer,
+    profileRenderer,
     countryRenderer,
     badgeRenderer,
     chipRenderer,
@@ -133,6 +138,7 @@ export function createDefaultRenderers(): BuiltInRendererDefinition[] {
     sparklineRenderer,
     jsonRenderer,
     buttonRenderer,
+    actionsRenderer,
     htmlRenderer,
   ] as BuiltInRendererDefinition[];
 }

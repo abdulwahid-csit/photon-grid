@@ -1,5 +1,6 @@
 import type { DisplayGroupNode } from './display-group.types';
 import { createDiv } from '../renderer/dom-utils';
+import { adoptGridTheme } from '../renderer/overlay-theme';
 import { isTouchPointer, DRAG_THRESHOLD_MOUSE, DRAG_THRESHOLD_TOUCH, LONG_PRESS_MS } from '../core/pointer-utils';
 
 /**
@@ -249,10 +250,15 @@ export class DisplayGroupDragHandler {
     this.ghostEl.textContent  = node.header;
     this.ghostEl.style.left   = `${e.clientX + 12}px`;
     this.ghostEl.style.top    = `${e.clientY - 14}px`;
+    // Both of these are portaled to `document.body`, outside the container the
+    // grid's token stylesheet is scoped to, so each has to adopt that scope or
+    // it paints in light-mode fallbacks regardless of the grid's mode.
+    adoptGridTheme(this.ghostEl, gridEl);
     document.body.appendChild(this.ghostEl);
 
     // Drop indicator (vertical line) — used in both modes
     this.indicatorEl = createDiv('pg-group-drop-indicator');
+    adoptGridTheme(this.indicatorEl, gridEl);
     document.body.appendChild(this.indicatorEl);
 
     if (this.previewCallbacks) {

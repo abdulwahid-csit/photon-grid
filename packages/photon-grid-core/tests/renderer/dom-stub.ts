@@ -64,6 +64,18 @@ class StubClassList {
     for (const n of value.split(/\s+/)) if (n) this.set.add(n);
   }
 
+  /**
+   * Iterates the class names, as `DOMTokenList` does.
+   *
+   * Needed because production code walks `classList` directly (`for (const c of
+   * el.classList)`, `[...el.classList]`) to find classes by shape rather than
+   * by exact name — a variant skin, say. Without this the stub throws where the
+   * real DOM would not.
+   */
+  [Symbol.iterator](): IterableIterator<string> {
+    return this.set.values();
+  }
+
   values(): ReadonlySet<string> {
     return this.set;
   }
@@ -119,8 +131,7 @@ export class StubElement {
   type = '';
   disabled = false;
 
-  /**
-   * Natural content height, in px. Settable by tests so measurement-driven
+  /** Natural content height, in px. Settable by tests so measurement-driven
    * code (detail auto-height) has something deterministic to read — the real
    * value comes from layout, which no stub can compute.
    */
@@ -128,6 +139,17 @@ export class StubElement {
 
   /** Rendered box height, in px. Companion to {@link scrollHeight}; see the note there. */
   offsetHeight = 0;
+
+  /**
+   * `false` once the element has been taken out of the tree it was in.
+   *
+   * The real property means "this node's root is the document", which a stub
+   * with no document tree cannot answer. What the code under test actually asks
+   * is "is this element still mounted, or has a repaint recycled it" — so
+   * detachment is what is modelled: `true` until `remove()`/`removeChild`, and
+   * `true` again once re-appended.
+   */
+  isConnected = true;
 
   constructor(tagName: string) {
     this.tagName = tagName;
@@ -207,6 +229,7 @@ export class StubElement {
     }
     child.parent?.removeChild(child);
     child.parent = this;
+    child.isConnected = true;
     this.children.push(child);
     return child;
   }
@@ -221,6 +244,7 @@ export class StubElement {
   insertBefore(child: StubElement, ref: StubElement | null): StubElement {
     child.parent?.removeChild(child);
     child.parent = this;
+    child.isConnected = true;
     const i = ref ? this.children.indexOf(ref) : -1;
     if (i === -1) this.children.push(child);
     else this.children.splice(i, 0, child);
@@ -231,12 +255,14 @@ export class StubElement {
     const i = this.children.indexOf(child);
     if (i !== -1) this.children.splice(i, 1);
     child.parent = null;
+    child.isConnected = false;
     return child;
   }
 
   /** Detaches this element from its parent, if it has one. */
   remove(): void {
     this.parent?.removeChild(this);
+    this.isConnected = false;
   }
 
   /** Only `height` is meaningful — it mirrors {@link offsetHeight}, which tests set directly. */

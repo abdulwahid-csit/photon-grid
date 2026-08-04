@@ -11,7 +11,7 @@ import type { ColumnDef } from 'photon-grid-angular';
 import type { GridApi, GridOptions, ThemeMode, ThemeVariant } from 'photon-grid-core';
 // Subpath import: the scheduler lives behind its own entry point so a grid that
 // never uses it pulls in none of this code and none of its stylesheet.
-import { SchedulerPlugin } from 'photon-grid-core/plugins/scheduler';
+// import { SchedulerPlugin } from 'photon-grid-core/plugins/scheduler';
 
 import { buildEmployees, buildEvents } from './scheduler-demo.data';
 import type { SchedulerEvent, SchedulerResource } from './scheduler-demo.types';
@@ -45,7 +45,7 @@ type SchedulerView = 'day' | 'week' | 'month';
     // under `sd-` / `sd__`.
     encapsulation: ViewEncapsulation.None,
     template: `
-        <header class="sd__header">
+        <!-- <header class="sd__header">
             <div class="sd__intro">
                 <h2 class="sd__title">Employee Scheduler</h2>
                 <p class="sd__subtitle">
@@ -108,7 +108,7 @@ type SchedulerView = 'day' | 'week' | 'month';
                 [options]="options"
                 (gridReady)="onGridReady($event)"
             ></photon-grid-angular>
-        </section>
+        </section> -->
     `,
     styles: [`
         .sd__header {
@@ -193,233 +193,233 @@ type SchedulerView = 'day' | 'week' | 'month';
         }
     `],
 })
-export class SchedulerDemoComponent implements OnInit {
-    readonly viewOptions: ReadonlyArray<{ value: SchedulerView; label: string }> = [
-        { value: 'day', label: 'Day' },
-        { value: 'week', label: 'Week' },
-        { value: 'month', label: 'Month' },
-    ];
+export class SchedulerDemoComponent {
+    // readonly viewOptions: ReadonlyArray<{ value: SchedulerView; label: string }> = [
+    //     { value: 'day', label: 'Day' },
+    //     { value: 'week', label: 'Week' },
+    //     { value: 'month', label: 'Month' },
+    // ];
 
-    readonly variants: readonly ThemeVariant[] = ['ion', 'neon', 'photon', 'quantum'];
+    // readonly variants: readonly ThemeVariant[] = ['ion', 'neon', 'photon', 'quantum'];
 
-    view: SchedulerView = 'month';
-    variant: ThemeVariant = 'ion';
-    mode: ThemeMode = 'light';
+    // view: SchedulerView = 'month';
+    // variant: ThemeVariant = 'ion';
+    // mode: ThemeMode = 'light';
 
-    employees: SchedulerResource[] = [];
-    events: SchedulerEvent[] = [];
-    columns: ColumnDef[] = [];
+    // employees: SchedulerResource[] = [];
+    // events: SchedulerEvent[] = [];
+    // columns: ColumnDef[] = [];
 
-    selectedCount = 0;
-    lastAction = 'drag a bar to move it, or drag its edge to resize';
-    monthLabel = '';
+    // selectedCount = 0;
+    // lastAction = 'drag a bar to move it, or drag its edge to resize';
+    // monthLabel = '';
 
-    /**
-     * Grid options.
-     *
-     * `rowHeight` is set explicitly here — unlike the Customer Orders demo,
-     * where the variant default is the point — because a scheduler row has to be
-     * tall enough for two or three stacked lanes to stay legible.
-     *
-     * Assigned in `ngOnInit` rather than as a field initialiser because the
-     * plugin instance has to be constructed with the generated data first.
-     */
-    options: Partial<GridOptions> = {};
+    // /**
+    //  * Grid options.
+    //  *
+    //  * `rowHeight` is set explicitly here — unlike the Customer Orders demo,
+    //  * where the variant default is the point — because a scheduler row has to be
+    //  * tall enough for two or three stacked lanes to stay legible.
+    //  *
+    //  * Assigned in `ngOnInit` rather than as a field initialiser because the
+    //  * plugin instance has to be constructed with the generated data first.
+    //  */
+    // options: Partial<GridOptions> = {};
 
-    private api: GridApi | null = null;
-    /** The registered plugin, so the view switcher can drive its API. */
-    private scheduler: SchedulerPlugin | null = null;
+    // private api: GridApi | null = null;
+    // /** The registered plugin, so the view switcher can drive its API. */
+    // private scheduler: SchedulerPlugin | null = null;
 
-    ngOnInit(): void {
-        const monthStart = new Date();
-        monthStart.setDate(1);
-        monthStart.setHours(0, 0, 0, 0);
+    // ngOnInit(): void {
+    //     const monthStart = new Date();
+    //     monthStart.setDate(1);
+    //     monthStart.setHours(0, 0, 0, 0);
 
-        this.employees = buildEmployees(100);
-        this.events = buildEvents(this.employees, monthStart);
-        this.columns = this.buildColumns();
+    //     this.employees = buildEmployees(100);
+    //     this.events = buildEvents(this.employees, monthStart);
+    //     this.columns = this.buildColumns();
 
-        this.monthLabel = new Intl.DateTimeFormat('en-US', {
-            month: 'long',
-            year: 'numeric',
-        }).format(monthStart);
+    //     this.monthLabel = new Intl.DateTimeFormat('en-US', {
+    //         month: 'long',
+    //         year: 'numeric',
+    //     }).format(monthStart);
 
-        const monthEnd = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 1);
+    //     const monthEnd = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 1);
 
-        this.scheduler = new SchedulerPlugin({
-            resources: this.employees,
-            events: this.events,
-            view: 'month',
-            range: { start: monthStart.getTime(), end: monthEnd.getTime() },
-            // A slot narrower than its own label communicates nothing, so the
-            // timeline trades total span for legibility and scrolls instead.
-            slotWidth: 200,
-            minSlotWidth: 200,
-            // An 8-hour shift inside a 200px day slot is 66px wide, which cannot
-            // hold its own label. Short events render at this floor and overlap
-            // instead; lane stacking still separates them vertically.
-            minEventWidth: 200,
-            // Selection state lives in the plugin; the demo mirrors the count
-            // into its own field so the stats strip can show it.
-            onSelectionChanged: (selected) => {
-                this.selectedCount = selected.length;
-                this.lastAction = selected.length
-                    ? `selected ${selected.length} event(s)`
-                    : 'cleared selection';
-            },
-            onAfterMove: (intent) => {
-                this.lastAction = `moved ${String(intent.event.title)} to `
-                    + new Date(intent.toStart).toLocaleDateString();
-            },
-            onAfterResize: (intent) => {
-                const hours = Math.round((intent.toEnd - intent.toStart) / 3_600_000);
-                this.lastAction = `resized ${String(intent.event.title)} to ${hours}h`;
-            },
-        });
+    //     this.scheduler = new SchedulerPlugin({
+    //         resources: this.employees,
+    //         events: this.events,
+    //         view: 'month',
+    //         range: { start: monthStart.getTime(), end: monthEnd.getTime() },
+    //         // A slot narrower than its own label communicates nothing, so the
+    //         // timeline trades total span for legibility and scrolls instead.
+    //         slotWidth: 200,
+    //         minSlotWidth: 200,
+    //         // An 8-hour shift inside a 200px day slot is 66px wide, which cannot
+    //         // hold its own label. Short events render at this floor and overlap
+    //         // instead; lane stacking still separates them vertically.
+    //         minEventWidth: 200,
+    //         // Selection state lives in the plugin; the demo mirrors the count
+    //         // into its own field so the stats strip can show it.
+    //         onSelectionChanged: (selected) => {
+    //             this.selectedCount = selected.length;
+    //             this.lastAction = selected.length
+    //                 ? `selected ${selected.length} event(s)`
+    //                 : 'cleared selection';
+    //         },
+    //         onAfterMove: (intent) => {
+    //             this.lastAction = `moved ${String(intent.event.title)} to `
+    //                 + new Date(intent.toStart).toLocaleDateString();
+    //         },
+    //         onAfterResize: (intent) => {
+    //             const hours = Math.round((intent.toEnd - intent.toStart) / 3_600_000);
+    //             this.lastAction = `resized ${String(intent.event.title)} to ${hours}h`;
+    //         },
+    //     });
 
-        this.options = {
-            mode: this.mode,
-            variant: this.variant,
-            rowHeight: 48,
-            headerRowHeight: 64,
-            showSerialNumber: false,
-            showVerticalBorders: false,
-            rowShading: false,
-            selection: { mode: 'multiple' },
-            pagination: { enabled: false },
-            // This is the whole registration. Omit it and the grid behaves
-            // exactly as it did before the plugin existed.
-            plugins: [this.scheduler],
-        };
-    }
+    //     this.options = {
+    //         mode: this.mode,
+    //         variant: this.variant,
+    //         rowHeight: 48,
+    //         headerRowHeight: 64,
+    //         showSerialNumber: false,
+    //         showVerticalBorders: false,
+    //         rowShading: false,
+    //         selection: { mode: 'multiple' },
+    //         pagination: { enabled: false },
+    //         // This is the whole registration. Omit it and the grid behaves
+    //         // exactly as it did before the plugin existed.
+    //         plugins: [this.scheduler],
+    //     };
+    // }
 
-    onGridReady(api: GridApi): void {
-        this.api = api;
-    }
+    // onGridReady(api: GridApi): void {
+    //     this.api = api;
+    // }
 
-    /**
-     * Switches timeline granularity.
-     *
-     * Goes through the plugin's API rather than rebuilding the grid: `setView`
-     * swaps the timeline and repaints, so scroll position, sort, selection and
-     * column widths all survive.
-     */
-    setView(view: SchedulerView): void {
-        if (this.view === view || !this.scheduler) return;
-        this.view = view;
+    // /**
+    //  * Switches timeline granularity.
+    //  *
+    //  * Goes through the plugin's API rather than rebuilding the grid: `setView`
+    //  * swaps the timeline and repaints, so scroll position, sort, selection and
+    //  * column widths all survive.
+    //  */
+    // setView(view: SchedulerView): void {
+    //     if (this.view === view || !this.scheduler) return;
+    //     this.view = view;
 
-        // Day and week views need a narrower window than a whole month, or a
-        // day view would render 720 hourly slots.
-        const now = new Date();
-        const range = view === 'month'
-            ? monthRangeOf(now)
-            : view === 'week'
-                ? weekRangeOf(now)
-                : dayRangeOf(now);
+    //     // Day and week views need a narrower window than a whole month, or a
+    //     // day view would render 720 hourly slots.
+    //     const now = new Date();
+    //     const range = view === 'month'
+    //         ? monthRangeOf(now)
+    //         : view === 'week'
+    //             ? weekRangeOf(now)
+    //             : dayRangeOf(now);
 
-        const api = this.scheduler.getApi();
-        api.setRange(range);
-        api.setView(view);
+    //     const api = this.scheduler.getApi();
+    //     api.setRange(range);
+    //     api.setView(view);
 
-        this.lastAction = `switched to ${view} view`;
-    }
+    //     this.lastAction = `switched to ${view} view`;
+    // }
 
-    onVariantChange(event: Event): void {
-        this.variant = (event.target as HTMLSelectElement).value as ThemeVariant;
-        this.api?.setVariant(this.variant);
-    }
+    // onVariantChange(event: Event): void {
+    //     this.variant = (event.target as HTMLSelectElement).value as ThemeVariant;
+    //     this.api?.setVariant(this.variant);
+    // }
 
-    /**
-     * Flips the colour mode without touching the variant.
-     *
-     * The two theming axes are independent, and the scheduler's own CSS resolves
-     * `--pg-*` tokens rather than literals — so the timeline, the bars and the
-     * grid all follow this in one step, with no re-render.
-     */
-    toggleMode(): void {
-        this.mode = this.mode === 'dark' ? 'light' : 'dark';
-        this.api?.setMode(this.mode);
-    }
+    // /**
+    //  * Flips the colour mode without touching the variant.
+    //  *
+    //  * The two theming axes are independent, and the scheduler's own CSS resolves
+    //  * `--pg-*` tokens rather than literals — so the timeline, the bars and the
+    //  * grid all follow this in one step, with no re-render.
+    //  */
+    // toggleMode(): void {
+    //     this.mode = this.mode === 'dark' ? 'light' : 'dark';
+    //     this.api?.setMode(this.mode);
+    // }
 
-    clearSelection(): void {
-        this.scheduler?.getApi().clearSelection();
-        this.selectedCount = 0;
-        this.lastAction = 'cleared selection';
-    }
+    // clearSelection(): void {
+    //     this.scheduler?.getApi().clearSelection();
+    //     this.selectedCount = 0;
+    //     this.lastAction = 'cleared selection';
+    // }
 
-    // -- Columns ---------------------------------------------------------------
+    // // -- Columns ---------------------------------------------------------------
 
-    /**
-     * Resource columns, pinned left.
-     *
-     * These are the grid's, not the plugin's — which is exactly why they come
-     * with resize, reorder, sort and filter already working.
-     */
-    private buildColumns(): ColumnDef[] {
-        return [
-            {
-                colId: 'name',
-                field: 'name',
-                header: 'Employee',
-                type: 'string',
-                width: 220,
-                pinned: 'left',
-                sortable: true,
-                filterable: true,
-                renderer: {
-                    display: ({ value, row }) => {
-                        const name = String(value ?? '');
+    // /**
+    //  * Resource columns, pinned left.
+    //  *
+    //  * These are the grid's, not the plugin's — which is exactly why they come
+    //  * with resize, reorder, sort and filter already working.
+    //  */
+    // private buildColumns(): ColumnDef[] {
+    //     return [
+    //         {
+    //             colId: 'name',
+    //             field: 'name',
+    //             header: 'Employee',
+    //             type: 'string',
+    //             width: 220,
+    //             pinned: 'left',
+    //             sortable: true,
+    //             filterable: true,
+    //             renderer: {
+    //                 display: ({ value, row }) => {
+    //                     const name = String(value ?? '');
 
-                        const root = document.createElement('div');
-                        root.className = 'sd-emp';
+    //                     const root = document.createElement('div');
+    //                     root.className = 'sd-emp';
 
-                        const avatar = document.createElement('span');
-                        avatar.className = 'sd-emp__avatar';
-                        avatar.textContent = String(row['initials'] ?? '');
-                        // Only the hue travels with the data; the stylesheet
-                        // decides saturation, lightness and contrast.
-                        avatar.style.setProperty('--sd-hue', String(hue(name)));
+    //                     const avatar = document.createElement('span');
+    //                     avatar.className = 'sd-emp__avatar';
+    //                     avatar.textContent = String(row['initials'] ?? '');
+    //                     // Only the hue travels with the data; the stylesheet
+    //                     // decides saturation, lightness and contrast.
+    //                     avatar.style.setProperty('--sd-hue', String(hue(name)));
 
-                        const text = document.createElement('span');
-                        text.className = 'sd-emp__text';
+    //                     const text = document.createElement('span');
+    //                     text.className = 'sd-emp__text';
 
-                        const nameEl = document.createElement('span');
-                        nameEl.className = 'sd-emp__name';
-                        nameEl.textContent = name;
+    //                     const nameEl = document.createElement('span');
+    //                     nameEl.className = 'sd-emp__name';
+    //                     nameEl.textContent = name;
 
-                        const roleEl = document.createElement('span');
-                        roleEl.className = 'sd-emp__role';
-                        roleEl.textContent = `${String(row['role'] ?? '')} - ${String(row['site'] ?? '')}`;
+    //                     const roleEl = document.createElement('span');
+    //                     roleEl.className = 'sd-emp__role';
+    //                     roleEl.textContent = `${String(row['role'] ?? '')} - ${String(row['site'] ?? '')}`;
 
-                        text.append(nameEl, roleEl);
-                        root.append(avatar, text);
-                        return root;
-                    },
-                },
-            },
-            {
-                colId: 'team',
-                field: 'team',
-                header: 'Team',
-                type: 'string',
-                width: 130,
-                pinned: 'left',
-                sortable: true,
-                filterable: true,
-                groupable: true,
-            },
-            {
-                colId: 'capacity',
-                field: 'capacity',
-                header: 'Hrs/wk',
-                type: 'number',
-                width: 90,
-                pinned: 'left',
-                textAlign: 'right',
-                sortable: true,
-            },
-        ];
-    }
+    //                     text.append(nameEl, roleEl);
+    //                     root.append(avatar, text);
+    //                     return root;
+    //                 },
+    //             },
+    //         },
+    //         {
+    //             colId: 'team',
+    //             field: 'team',
+    //             header: 'Team',
+    //             type: 'string',
+    //             width: 130,
+    //             pinned: 'left',
+    //             sortable: true,
+    //             filterable: true,
+    //             groupable: true,
+    //         },
+    //         {
+    //             colId: 'capacity',
+    //             field: 'capacity',
+    //             header: 'Hrs/wk',
+    //             type: 'number',
+    //             width: 90,
+    //             pinned: 'left',
+    //             textAlign: 'right',
+    //             sortable: true,
+    //         },
+    //     ];
+    // }
 }
 
 /**

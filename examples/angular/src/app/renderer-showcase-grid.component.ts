@@ -10,7 +10,10 @@ import { CommonModule } from '@angular/common';
 import { PhotonGridComponent } from 'photon-grid-angular';
 import type { ColumnDef } from 'photon-grid-angular';
 import type {
+    AvatarGroupMemberClickedEvent,
+    CellActionClickedEvent,
     CellButtonClickedEvent,
+    CellTextExpandedEvent,
     CellValueChangedEvent,
     GridApi,
     GridOptions,
@@ -57,6 +60,20 @@ enum Trend {
 }
 
 /**
+ * One reviewer, used by the `avatarGroup` column.
+ *
+ * The renderer reads loosely-shaped items — a bare name, a URL, or an object —
+ * so the demo uses the object form and points `nameKey` / `imageKey` /
+ * `detailKey` at these fields, which is the shape a joined roster arrives in.
+ */
+interface Reviewer {
+    readonly name: string;
+    /** Absent on purpose for some members, so the initials fallback shows. */
+    readonly image?: string;
+    readonly role: string;
+}
+
+/**
  * One row. Each field is here to feed exactly one renderer.
  *
  * A `type` alias rather than an `interface` on purpose: the grid's `dataSet`
@@ -67,6 +84,7 @@ type ShowcaseRow = {
     readonly __photon_id__: string;
     readonly name: string;             // text
     readonly notes: string;            // multiline
+    readonly description: string;      // longText
     readonly quantity: number;         // number      (inferred)
     readonly price: number;            // currency    (inferred)
     readonly margin: number;           // percentage
@@ -79,7 +97,10 @@ type ShowcaseRow = {
     readonly email: string;            // email
     readonly phone: string;            // phone
     readonly thumbnail: string;        // image
-    readonly owner: string;            // avatar
+    readonly owner: string;            // avatar, and the profile's title
+    readonly reviewers: readonly Reviewer[]; // avatarGroup
+    readonly ownerAvatar: string;      // profile (image half)
+    readonly ownerTeam: string;        // profile (subtitle)
     readonly country: string;          // country
     active: boolean;                   // checkbox (editable)
     notify: boolean;                   // switch   (editable)
@@ -93,6 +114,8 @@ type ShowcaseRow = {
     readonly tags: string[];           // list
     readonly meta: Record<string, unknown>; // json
     readonly action: string;           // button
+    /** Archive state the `actions` column's mutually exclusive pair branches on. */
+    isDeleted: boolean;
     readonly note: string;             // html
 };
 
@@ -125,6 +148,71 @@ const OWNERS = [
     'Amara Okafor', 'Tom Lindqvist', 'Priya Raman', 'Diego Ferreira',
     'Wei Zhang', 'Sofia Marchetti', 'Noah Bergman', 'Leila Haddad',
 ];
+
+/**
+ * A circular inline portrait, for the `avatarGroup` members that have an image.
+ *
+ * Inline for the same reason as {@link thumbnailFor}: the demo must render the
+ * same offline as online.
+ */
+function portraitFor(hue: number): string {
+    const svg =
+        `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48">` +
+        `<rect width="48" height="48" fill="hsl(${hue} 55% 88%)"/>` +
+        `<circle cx="24" cy="19" r="8" fill="hsl(${hue} 45% 42%)"/>` +
+        `<path d="M6 48c0-9.9 8.1-16 18-16s18 6.1 18 16z" fill="hsl(${hue} 45% 42%)"/>` +
+        `</svg>`;
+    return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
+const REVIEWER_ROLES = [
+    'Engineering', 'Logistics', 'Finance', 'Quality', 'Procurement', 'Design',
+];
+
+/** Sentences the `longText` column's copy is assembled from. */
+const DESCRIPTION_CLAUSES = [
+    'ships in recyclable moulded pulp with a tamper-evident seal',
+    'certified for continuous operation between 5 °C and 40 °C',
+    'firmware is field-updatable over USB-C without a service visit',
+    'covered by the extended 36-month replacement warranty',
+    'stocked across the Rotterdam and Singapore distribution centres',
+    'requires a signature on delivery for orders above ten units',
+    'replaces the discontinued Mark II variant, with the same mounting pattern',
+    'bundled cable is 2 m; a 5 m variant is available as a separate line',
+];
+
+/**
+ * Builds one product description for the `longText` column.
+ *
+ * Deliberately variable in length: below the column's `minLength` some rows get
+ * no expand toggle at all, which is the behaviour that option exists for and is
+ * worth being able to see next to rows that do.
+ */
+function describeProduct(
+    name: string,
+    owner: string,
+    index: number,
+    random: () => number,
+): string {
+    const clauses: string[] = [];
+    const count = 1 + Math.floor(random() * 4);
+    for (let c = 0; c < count; c++) {
+        clauses.push(DESCRIPTION_CLAUSES[(index + c * 3) % DESCRIPTION_CLAUSES.length]);
+    }
+    return `The ${name} — ${clauses.join('; ')}. Line owner: ${owner}.`;
+}
+
+/**
+ * The pool the `avatarGroup` column draws its members from.
+ *
+ * Every third member deliberately has no `image`: a real roster is a mix, and
+ * a pool of uniform portraits would hide the initials fallback entirely.
+ */
+const REVIEWERS: readonly Reviewer[] = OWNERS.map((name, i) => ({
+    name,
+    image: i % 3 === 0 ? undefined : portraitFor((i * 47) % 360),
+    role: REVIEWER_ROLES[i % REVIEWER_ROLES.length],
+}));
 
 /**
  * Country values for the `country` column.
@@ -187,6 +275,7 @@ function buildRows(count: number): ShowcaseRow[] {
             __photon_id__: `showcase-${i}`,
             name,
             notes: `${name}\nSKU ${1000 + i} · lot ${String.fromCharCode(65 + (i % 6))}\nHandled by ${owner}`,
+            description: describeProduct(name, owner, i, random),
             quantity: 1 + Math.floor(random() * 240),
             price: Math.round((25 + random() * 1800) * 100) / 100,
             margin: Math.round(random() * 640) / 10,
@@ -200,7 +289,17 @@ function buildRows(count: number): ShowcaseRow[] {
             phone: `+1 (555) ${String(100 + (i % 900)).padStart(3, '0')}-${String(1000 + i * 7).slice(-4)}`,
             thumbnail: thumbnailFor((i * 37) % 360),
             owner,
+            // 1–7 members, so some cells stay under the `maxVisible` limit and
+            // some collapse into a `+N` counter — both states on one screen.
+            reviewers: Array.from(
+                { length: 1 + Math.floor(random() * 7) },
+                (_unused, r) => REVIEWERS[(i + r * 3) % REVIEWERS.length],
+            ),
             country: pick(countries),
+            // Every third owner has no portrait, so the `profile` column shows
+            // both of its avatar states side by side.
+            ownerAvatar: i % 3 === 0 ? '' : portraitFor((i * 53) % 360),
+            ownerTeam: REVIEWER_ROLES[i % REVIEWER_ROLES.length],
             active: random() > 0.35,
             notify: random() > 0.5,
             status: pick(STATUSES),
@@ -213,6 +312,9 @@ function buildRows(count: number): ShowcaseRow[] {
             tags: TAG_POOL.filter(() => random() > 0.65).slice(0, 4),
             meta: { lot: String.fromCharCode(65 + (i % 6)), rev: 1 + (i % 4) },
             action: 'Track',
+            // Every fifth row starts archived, so the `actions` column shows
+            // both halves of its Archive/Unarchive pair on one screen.
+            isDeleted: i % 5 === 4,
             note: random() > 0.5 ? '<em>Signature</em> required' : '<strong>Leave</strong> at door',
         } satisfies ShowcaseRow;
     });
@@ -304,7 +406,7 @@ export class RendererShowcaseGridComponent implements OnInit {
     columns: ColumnDef[] = [];
     options: Partial<GridOptions> = {};
 
-    lastEvent = 'toggle a checkbox, flip a switch, or press a Track button';
+    lastEvent = 'toggle a checkbox, press Track, or expand a long description';
 
     private api: GridApi | null = null;
 
@@ -316,9 +418,14 @@ export class RendererShowcaseGridComponent implements OnInit {
         this.options = {
             columns: [],
             rowHeight: 46,
+            mode: 'light',
             headerRowHeight: 42,
             rowShading: true,
             showSerialNumber: true,
+            // Read by the `actions` column's `visible` predicates as
+            // `params.context.permissions` — the seam for what an action needs
+            // but a row does not carry.
+            context: { permissions: ['DELETE'] },
             // Every toggle column is editable, so the checkbox and switch
             // columns are live rather than a picture of a control.
             editing: { mode: 'cell' },
@@ -339,6 +446,28 @@ export class RendererShowcaseGridComponent implements OnInit {
             this.lastEvent = `${e.colDef.header} = ${String(e.newValue)} (${String(e.row.data['name'])})`;
             this.cdr.markForCheck();
         });
+
+        // The roster overlay reports the member that was picked, with the
+        // original source item attached — the grid itself does nothing with it.
+        api.on(GridEventType.AVATAR_GROUP_MEMBER_CLICKED, (e: AvatarGroupMemberClickedEvent) => {
+            this.lastEvent = `${e.member.name}${e.member.detail ? ` · ${e.member.detail}` : ''} → ${String(e.row.data['name'])}`;
+            this.cdr.markForCheck();
+        });
+
+        // Opening a long-text panel is reported and nothing more — the hook for
+        // logging that a value was actually read. Closing emits nothing.
+        api.on(GridEventType.CELL_TEXT_EXPANDED, (e: CellTextExpandedEvent) => {
+            this.lastEvent = `${e.action} → ${e.text.length} chars (${String(e.row.data['name'])})`;
+            this.cdr.markForCheck();
+        });
+
+        // Every action reports itself here as well as running its own `onClick`,
+        // so a column can be driven entirely from the event bus. A command the
+        // user dismissed at its confirmation emits nothing.
+        api.on(GridEventType.CELL_ACTION_CLICKED, (e: CellActionClickedEvent) => {
+            this.lastEvent = `${e.actionId} (${e.source}) → ${String(e.row.data['name'])}`;
+            this.cdr.markForCheck();
+        });
     }
 
     /**
@@ -355,6 +484,23 @@ export class RendererShowcaseGridComponent implements OnInit {
             {
                 field: 'notes', header: 'Multiline', type: 'string', width: 220,
                 renderer: { name: 'multiline', options: { maxLines: 2 } },
+            },
+
+            {
+                field: 'description', header: 'Long Text', type: 'string', width: 240,
+                // One line: the whole value stays in the cell — the truncation
+                // is CSS — so the panel the toggle opens shows exactly this
+                // string, untruncated. `minLength` keeps the affordance off the
+                // values short enough to read in place; measuring real overflow
+                // would cost a forced reflow per cell, per render.
+                renderer: {
+                    name: 'longText',
+                    options: {
+                        minLength: 90,
+                        overlayTitle: 'Description',
+                        action: 'read-description',
+                    },
+                },
             },
 
             // No `renderer` — `type: 'number'` infers `number`.
@@ -392,6 +538,40 @@ export class RendererShowcaseGridComponent implements OnInit {
             // No image data at all — the avatar falls back to coloured initials,
             // which is the state most rows in a real user table are in.
             { field: 'owner', header: 'Avatar', type: 'string', renderer: 'avatar', width: 90, sortable: false },
+
+            {
+                field: 'reviewers', header: 'Avatar Group', type: 'array', width: 150, sortable: false,
+                // Members past `maxVisible` are never drawn in the cell: the
+                // `+N` counter opens a roster overlay that resolves them at
+                // click time, so a cell holding twenty costs the same DOM as
+                // one holding three. Clicking a roster row emits
+                // `AVATAR_GROUP_MEMBER_CLICKED` and nothing else.
+                renderer: {
+                    name: 'avatarGroup',
+                    options: {
+                        maxVisible: 3,
+                        size: 'sm',
+                        nameKey: 'name',
+                        imageKey: 'image',
+                        detailKey: 'role',
+                        overlayTitle: 'Reviewers',
+                    },
+                },
+            },
+
+            // One column assembled from three sibling fields the column itself
+            // does not point at: the picture, the name and the team. `field`
+            // still names something real so sorting and filtering have a value
+            // to work with.
+            {
+                field: 'owner', header: 'Profile', type: 'string', width: 210,
+                renderer: 'profile',
+                rendererParams: {
+                    avatar: { field: 'ownerAvatar', shape: 'circle', size: 36 },
+                    title: { field: 'owner' },
+                    // subtitle: { field: 'ownerTeam' },
+                },
+            },
 
             {
                 field: 'country', header: 'Country', type: 'string', width: 180,
@@ -490,6 +670,68 @@ export class RendererShowcaseGridComponent implements OnInit {
             // `html` writes the value with innerHTML and does not sanitise, so
             // it is only ever pointed at markup the application controls.
             { field: 'note', header: 'HTML', type: 'string', renderer: 'html', width: 190, sortable: false },
+
+            // Row-scoped commands. Three definitions serve sixty rows: Archive
+            // and Unarchive are mutually exclusive on `isDeleted`, and Delete
+            // appears only where the grid's `context` grants the permission.
+            // Each handler mutates the row and calls `params.actions.refresh()`,
+            // which is what flips the pair on the row that was just archived.
+            {
+                field: 'isDeleted', header: 'Actions', width: 210, sortable: false,
+                renderer: {
+                    name: 'actions',
+                    options: {
+                        layout: 'buttons',
+                        group: 'shipment',
+                        actions: [
+                            {
+                                id: 'archive',
+                                label: 'Archive',
+                                icon: { name: 'ban', position: 'prefix' },
+                                variant: 'warning',
+                                visible: (params) => !params.row['isDeleted'],
+                                onClick: (params) => {
+                                    (params.row as ShowcaseRow).isDeleted = true;
+                                    params.actions.refresh();
+                                },
+                            },
+                            {
+                                id: 'unarchive',
+                                label: 'Unarchive',
+                                icon: { name: 'refresh', position: 'prefix' },
+                                variant: 'success',
+                                visible: (params) => params.row['isDeleted'] === true,
+                                onClick: (params) => {
+                                    (params.row as ShowcaseRow).isDeleted = false;
+                                    params.actions.refresh();
+                                },
+                            },
+                            {
+                                id: 'delete',
+                                label: 'Delete',
+                                icon: { name: 'trash' },
+                                variant: 'danger',
+                                // `context` is `{}` when the host set none, so
+                                // the permission list is read defensively — a
+                                // predicate that throws drops its action.
+                                visible: (params) =>
+                                    ((params.context['permissions'] as string[] | undefined) ?? [])
+                                        .includes('DELETE'),
+                                // The dialog is the grid's own, themed and
+                                // focus-trapped; dismissing it skips `onClick`
+                                // entirely.
+                                confirm: {
+                                    title: 'Delete item?',
+                                    message: 'This action cannot be undone',
+                                },
+                                onClick: (params) => {
+                                    (params.api as GridApi).removeRows([params.node!.nodeId]);
+                                },
+                            },
+                        ],
+                    },
+                },
+            },
         ];
     }
 }

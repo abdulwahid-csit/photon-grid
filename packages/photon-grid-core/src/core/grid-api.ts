@@ -10,7 +10,12 @@ import type {
   RefreshCellsParams,
   FlashCellsParams,
 } from '../types/grid.types';
-import type { GridEventType } from '../types/event.types';
+import { GridEventType } from '../types/event.types';
+import type {
+  SummaryAggregateFn,
+  SummaryRowDef,
+  SummaryRowSnapshot,
+} from '../summary/summary.types';
 import type {
   GridImportSink,
   ImportOptions,
@@ -48,6 +53,16 @@ export class GridApi {
   /** Handle for the pending `requestAnimationFrame` flush, or `null` when none is scheduled. */
   private _txnFlushHandle: number | null = null;
 
+  /**
+   * Whether the previous summary computation produced any rows.
+   *
+   * Lets {@link computeSummaries} stay silent for the vast majority of grids
+   * (which define no summary rows) while still emitting the one final
+   * `SUMMARY_CHANGED` that reports the transition to empty when the last row is
+   * removed.
+   */
+  private _hadSummaries = false;
+
   constructor(private ctx: GridContext) {
     // Wire the filter panel so the renderer can read/write filter state and
     // trigger the sort/filter pipeline after each user interaction.
@@ -64,6 +79,39 @@ export class GridApi {
   setColumnGroupModel(model: ColumnGroupModel): void {
     this._columnGroupModel = model;
     this._groupStateManager = new ColumnGroupStateManager(this.ctx.columnModel, model);
+  }
+
+  // ──────────────────── Context ────────────────────
+
+  /**
+   * The application state shared with the grid, from `GridOptions.context`.
+   *
+   * Read by everything the grid calls back into — an `actions` column's
+   * predicates reach it as `params.context` — so it is the seam for what a
+   * callback needs but a row does not carry: permissions, feature flags, the
+   * current user.
+   *
+   * Returns the live object, not a copy; never `undefined`, so a caller can
+   * read through it without a guard.
+   */
+  getContext(): Record<string, unknown> {
+    return (this.ctx.options.context ??= {});
+  }
+
+  /**
+   * Replaces the shared context wholesale.
+   *
+   * Use when the change should be atomic — a permission set arriving after
+   * login, say. Mutating the object from {@link getContext} works too and is
+   * visible immediately; this exists so a caller does not have to mutate to be
+   * seen.
+   *
+   * Callbacks read the context when they run, so already-rendered cells pick
+   * the new value up on their next paint. Follow with
+   * `refreshCells({ force: true })` when the change must be visible now.
+   */
+  setContext(context: Record<string, unknown>): void {
+    this.ctx.options.context = context;
   }
 
   // ──────────────────── Data ────────────────────
@@ -1530,6 +1578,144 @@ export class GridApi {
     // server = datasource fetch). See RowModelStrategy / ClientRowModel /
     // ServerRowModel.
     this.ctx.rowModelStrategy.buildDisplayedRows();
+
+    // Summaries last: every scope they can read (`all` / `filtered` / `visible`
+    // / `selected`) is settled only once the displayed rows have been rebuilt,
+    // so computing earlier would total the previous pipeline's output.
+    if (this.ctx.options.summary?.autoRefresh !== false) this.computeSummaries();
+  }
+
+  // ──────────────────── Summary Rows ────────────────────
+
+  /**
+   * Recomputes every summary row immediately and repaints the bands.
+   *
+   * Only needed when `GridOptions.summary.autoRefresh` is `false`, or after
+   * mutating row data in place through a path the grid cannot observe (a direct
+   * write to a `RowNode.data` object, say). Every ordinary change — data,
+   * filters, sorting, grouping, pagination, cell edits, selection — already
+   * refreshes summaries on its own.
+   */
+  refreshSummary(): void {
+    this.computeSummaries();
+    this.ctx.renderer.scheduleRender();
+  }
+
+  /**
+   * Returns the most recently computed summary rows.
+   *
+   * Values are read from the last refresh rather than recomputed, so this is a
+   * cheap read that can safely be called from a render loop. Call
+   * {@link refreshSummary} first if you need to force a recompute.
+   *
+   * @param rowId - Restrict the result to one row's snapshot.
+   * @returns All snapshots in declaration order, or the single matching one
+   *          (`null` when no row has that id).
+   */
+  getSummary(): readonly SummaryRowSnapshot[];
+  getSummary(rowId: string): SummaryRowSnapshot | null;
+  getSummary(rowId?: string): readonly SummaryRowSnapshot[] | SummaryRowSnapshot | null {
+    return rowId === undefined
+      ? this.ctx.summaryModel.getSnapshots()
+      : this.ctx.summaryModel.getSnapshot(rowId);
+  }
+
+  /**
+   * Replaces the entire set of summary row definitions, recomputes, and
+   * repaints.
+   *
+   * Takes permanent ownership of the definitions: a grid that was deriving its
+   * summary from `ColumnDef.showSummary` stops doing so, so a later column
+   * change can never overwrite what was set here.
+   *
+   * @param rows - The new definitions. Pass `[]` to remove every summary row.
+   */
+  setSummaryRows(rows: readonly SummaryRowDef[]): void {
+    this.ctx.summaryModel.setRows(rows);
+    this.emitSummaryRowsChanged('set', null);
+    this.refreshSummary();
+  }
+
+  /**
+   * Shallow-merges a patch into one summary row definition, recomputes, and
+   * repaints.
+   *
+   * `cells` merges one level deep, so patching a single column's cell leaves
+   * every other column's definition intact. The row's `id` is never changed by a
+   * patch.
+   *
+   * @param rowId - Id of the row to patch.
+   * @param patch - Properties to overwrite.
+   * @returns `true` when a row with that id existed and was updated.
+   */
+  updateSummaryRow(rowId: string, patch: Partial<SummaryRowDef>): boolean {
+    if (!this.ctx.summaryModel.updateRow(rowId, patch)) return false;
+    this.emitSummaryRowsChanged('update', rowId);
+    this.refreshSummary();
+    return true;
+  }
+
+  /**
+   * Removes one summary row definition, recomputes, and repaints.
+   *
+   * @param rowId - Id of the row to remove.
+   * @returns `true` when a row with that id existed and was removed.
+   */
+  removeSummaryRow(rowId: string): boolean {
+    if (!this.ctx.summaryModel.removeRow(rowId)) return false;
+    this.emitSummaryRowsChanged('remove', rowId);
+    this.refreshSummary();
+    return true;
+  }
+
+  /**
+   * Registers a named summary aggregation at runtime, resolvable from any
+   * cell's `aggregate` / `defaultAggregate` by that name.
+   *
+   * The counterpart to `GridOptions.summary.aggregations` for functions that are
+   * not known at construction time. Does **not** recompute on its own — call
+   * {@link refreshSummary}, or register before the rows that use it.
+   *
+   * @param name - Name to register under. Shadows a built-in of the same name.
+   * @param fn   - The reducer. Must be pure.
+   */
+  registerSummaryAggregation(name: string, fn: SummaryAggregateFn): void {
+    this.ctx.summaryAggregationEngine.register(name, fn);
+  }
+
+  /**
+   * Recomputes summaries and announces the result.
+   *
+   * `SUMMARY_CHANGED` is emitted only when there is (or was) something to
+   * report, so a grid with no summary rows — the vast majority — never emits it
+   * despite this running on every single pipeline pass. `_hadSummaries` is what
+   * makes the *last* refresh after the rows are removed still fire, so a
+   * listener sees the transition to empty.
+   */
+  private computeSummaries(): void {
+    if (this.ctx.options.summary?.enabled === false) {
+      if (this._hadSummaries) {
+        this._hadSummaries = false;
+        this.ctx.summaryModel.setSnapshots([]);
+        this.ctx.eventBus.emit(GridEventType.SUMMARY_CHANGED, { summaries: [] });
+      }
+      return;
+    }
+
+    const summaries = this.ctx.summaryService.compute();
+    if (summaries.length === 0 && !this._hadSummaries) return;
+
+    this._hadSummaries = summaries.length > 0;
+    this.ctx.eventBus.emit(GridEventType.SUMMARY_CHANGED, { summaries });
+  }
+
+  /** Announces a change to the summary row *definitions* (not their values). */
+  private emitSummaryRowsChanged(action: 'set' | 'update' | 'remove', rowId: string | null): void {
+    this.ctx.eventBus.emit(GridEventType.SUMMARY_ROWS_CHANGED, {
+      action,
+      rowId,
+      rowCount: this.ctx.summaryModel.getRows().length,
+    });
   }
 
 

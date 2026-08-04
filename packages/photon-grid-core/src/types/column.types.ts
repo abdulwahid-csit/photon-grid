@@ -1,7 +1,7 @@
 import type { SparklineConfig } from '../chart/sparkline/sparkline.types';
 import type { ColumnGroupResizeStrategy } from '../column-groups/column-group.types';
 import type { ColumnRenderer, ColumnRendererMap, DisplayRendererParams } from './renderer.types';
-import type { BuiltInRenderer } from './built-in-renderer.types';
+import type { AnyBuiltInRendererOptions, BuiltInRenderer } from './built-in-renderer.types';
 import type { ValueGetterFn, ValueSetterFn, ValueFormatterFn } from './value.types';
 
 export type ColumnPinPosition = 'left' | 'right' | null;
@@ -329,11 +329,41 @@ export interface ColumnDef {
    * The last form is the original API and is unchanged: any slot left unset
    * falls back to Photon Grid's built-in rendering for that concern.
    *
+   * A built-in selected by name is configured through
+   * {@link ColumnDef.rendererParams}.
+   *
    * @see {@link ColumnRenderer}
    * @see {@link ColumnRendererMap}
    * @see {@link BuiltInRenderer}
    */
   renderer?: ColumnRenderer;
+
+  /**
+   * Options for whichever built-in renderer this column uses.
+   *
+   * The flat alternative to the `{ name, options }` spec, and the form to reach
+   * for when the renderer is named as a string — or not named at all, since
+   * these apply just as well to the renderer inferred from
+   * {@link ColumnDef.type}:
+   *
+   * ```ts
+   * { field: 'employee', renderer: 'profile', rendererParams: {
+   *     avatar: { field: 'avatar', shape: 'circle', size: 36 },
+   *     title: { field: 'name' },
+   *     subtitle: { field: 'department' },
+   * } }
+   * ```
+   *
+   * Ignored by a column whose `renderer` is a function or a slot map — those
+   * render through the author's own code, which takes its configuration from
+   * the closure it was written in.
+   *
+   * When a column declares both this and a `{ name, options }` spec, `options`
+   * wins key by key; nothing is silently dropped.
+   *
+   * @see {@link BuiltInRendererOptionsMap} for the options each renderer takes.
+   */
+  rendererParams?: AnyBuiltInRendererOptions;
 
   dropdownOptions?: ColumnDropdownOption[];
   enumOptions?: string[];

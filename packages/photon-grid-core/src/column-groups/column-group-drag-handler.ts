@@ -8,6 +8,7 @@ import type { IColumnGroupNode } from './column-group.types';
 import { ColumnGroupNodeType } from './column-group.types';
 import { GridEventType } from '../types/event.types';
 import { createDiv } from '../renderer/dom-utils';
+import { adoptGridTheme } from '../renderer/overlay-theme';
 import { isTouchPointer, DRAG_THRESHOLD_MOUSE, DRAG_THRESHOLD_TOUCH, LONG_PRESS_MS } from '../core/pointer-utils';
 
 /**
@@ -239,6 +240,9 @@ export class ColumnGroupDragHandler {
     ghost.appendChild(label);
     ghost.style.left  = `${clientX + 14}px`;
     ghost.style.top   = `${clientY}px`;
+    // Portaled to `document.body` — adopt the grid's token scope so the chip
+    // follows the active mode instead of falling back to light-mode literals.
+    adoptGridTheme(ghost, gridEl);
     document.body.appendChild(ghost);
     this.ghostEl = ghost;
 

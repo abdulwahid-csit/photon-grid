@@ -38,6 +38,9 @@ import {
 } from './column-layout-diff';
 import { RowPositionSheet } from './row-position-sheet';
 import { ScrollController } from './scroll-controller';
+import { SummaryRowRenderer, type SummaryBandRow } from '../summary/summary-row-renderer';
+import type { SummaryModel } from '../summary/summary-model';
+import { SummaryPosition } from '../summary/summary.types';
 import { MAX_ELEMENT_HEIGHT_PX } from './scroll-track';
 import { AutoScroller } from './auto-scroller';
 import { CellSelectionEngine } from '../cell-selection/cell-selection-engine';
@@ -99,6 +102,35 @@ export class GridRenderer {
 
   private footerContainerEl: HTMLElement | null = null;
   private bodyWrapEl: HTMLElement | null = null;
+
+  // ── Summary Rows ──────────────────────────────────────────────────────────
+  /**
+   * Definition + value store for summary rows. `null` until `setSummaryModel`,
+   * and left `null` for grids that never define any, so the whole feature costs
+   * one null check per frame when unused.
+   */
+  private summaryModel: SummaryModel | null = null;
+  /**
+   * The four possible bands, keyed `${position}:${sticky}`. Created lazily on
+   * first use — a grid with only a bottom total allocates one, not four.
+   */
+  private readonly summaryBands = new Map<string, SummaryRowRenderer>();
+  /** Flex column the sticky bands are inserted into (between header and body / body and h-scrollbar). */
+  private summaryHostEl: HTMLElement | null = null;
+  /** Absolutely-positioned layer inside the body that hosts the non-sticky (in-content) bands. */
+  private summaryLayerEl: HTMLElement | null = null;
+  /**
+   * Scroll height reserved by the non-sticky bands, split by edge.
+   *
+   * Non-sticky bands occupy real scroll space rather than overlaying rows: the
+   * top band's height shifts every data row down, and both extend the total
+   * scrollable height. Cached because `performRender` needs them *before* the
+   * row window is sliced, which is earlier than the bands themselves render.
+   */
+  private summaryInlineTopH = 0;
+  private summaryInlineBottomH = 0;
+  /** Previous reserved total, so a summary height change re-runs the scroll sizing that is otherwise keyed off the rows array. */
+  private _lastSummaryReservedH = -1;
 
   // Sticky-row overlay layers — one per panel, siblings of `*ContentEl` (not
   // children), so a stuck Master/Detail row ignores the scroll transform.
@@ -203,6 +235,17 @@ export class GridRenderer {
    * no second source of truth to drift.
    */
   private lastBodyOptions: BodyRendererOptions | null = null;
+  /**
+   * The owning grid's public `GridApi`, once it exists.
+   *
+   * Late-bound: the API is constructed after the renderer, so this is `null`
+   * until {@link setParentApiForDetail} runs. Handed to every cell renderer as
+   * `params.api` / `ctx.api`, which is what a renderer reads the grid's shared
+   * `context` through.
+   *
+   * Typed as `unknown` to avoid a renderer → api import cycle.
+   */
+  private gridApi: unknown = null;
   /** Batches patch requests into one flush per animation frame. */
   private readonly patchScheduler = new PatchScheduler((ids) => this.runCellPatch(ids));
   /** Cells written by the in-progress flush, reported by `flushCellPatches`. */
@@ -252,6 +295,12 @@ export class GridRenderer {
   private _lastRowsRef: RowNode[] | null = null;
   /** Cached total content height in pixels (sum of all visible row heights). */
   private _cachedTotalHeight = 0;
+  /**
+   * Height of the data rows alone, excluding the scroll space reserved by
+   * non-sticky summary bands. Needed separately from {@link _cachedTotalHeight}
+   * to place the bottom in-content band, which sits exactly after the last row.
+   */
+  private _cachedRowsHeight = 0;
   /** Cached center-panel content width in pixels. */
   private _cachedCenterW = 0;
   /**
@@ -1043,10 +1092,16 @@ export class GridRenderer {
   }
 
   /**
-   * Late-bound once the owning `GridCore`'s `GridApi` exists — passed through
-   * to `masterDetail.detailRendererFn` as `DetailRendererParams.parentApi`.
+   * Late-bound once the owning `GridCore`'s `GridApi` exists.
+   *
+   * Feeds three things that all need the live API and none of which exist at
+   * construction time: `masterDetail.detailRendererFn`'s `parentApi`, the
+   * column menu's custom-item context, and — through {@link gridApi} —
+   * `params.api` on every cell renderer. That last one is why a cell renderer
+   * can reach `GridApi.getContext()` at all.
    */
   setParentApiForDetail(api: unknown): void {
+    this.gridApi = api;
     this.detailRowRenderer?.setParentApi(api);
     // The same GridApi backs the column menu's custom-item context. Wired here
     // (rather than in buildLayout) because the API is created after mount().
@@ -1319,6 +1374,7 @@ export class GridRenderer {
     this.headerRenderer.destroy();
     this.columnChooser?.destroy();
     this.bodyRenderer.destroy();
+    this.destroySummaryBands();
     this.footerRenderer.destroy();
     this.overlayRenderer.destroy();
     this.detailRowRenderer?.destroy();
@@ -1460,6 +1516,11 @@ export class GridRenderer {
     const bodyWrapEl = createDiv('pg-grid__body');
     mainColEl.appendChild(bodyWrapEl);
     this.bodyWrapEl = bodyWrapEl;
+    // Sticky summary bands are flex items of this same column, so their DOM
+    // order *is* their screen order: a top band is inserted before `bodyWrapEl`,
+    // a bottom band after it. Retained here rather than resolved at render time
+    // because `buildLayout` runs once and the anchor never moves.
+    this.summaryHostEl = mainColEl;
 
     // Left body panel
     const leftBodyPanelEl = createDiv('pg-panel pg-panel--left');
@@ -1897,6 +1958,209 @@ export class GridRenderer {
     this.bodyRenderer.setStickyContainers(this.leftStickyRowEl, this.centerStickyRowEl, this.rightStickyRowEl);
   }
 
+  // ─── Summary Rows ─────────────────────────────────────────────────────────
+
+  /**
+   * Supplies the summary definition/value store.
+   *
+   * Called once by `GridCore` during initialization. Until it is, and whenever
+   * the model holds no rows, every summary code path in the render loop
+   * short-circuits on a single null/empty check.
+   */
+  setSummaryModel(model: SummaryModel): void {
+    this.summaryModel = model;
+  }
+
+  /**
+   * Returns the band for one `(position, sticky)` pair, creating and mounting it
+   * on first use.
+   *
+   * Lazy so a grid with a single bottom total never builds the other three
+   * bands' scaffolding, and so a grid with no summary at all builds none.
+   */
+  private getSummaryBand(
+    position: SummaryPosition.Top | SummaryPosition.Bottom,
+    sticky: boolean,
+  ): SummaryRowRenderer | null {
+    const key = `${position}:${sticky ? 1 : 0}`;
+    const existing = this.summaryBands.get(key);
+    if (existing) return existing;
+
+    const band = new SummaryRowRenderer(position, sticky);
+
+    if (sticky) {
+      const host = this.summaryHostEl;
+      const body = this.bodyWrapEl;
+      if (!host || !body) return null;
+      // A top band goes ahead of the body in flex order; a bottom band goes
+      // immediately after it, which is before the horizontal scrollbar row.
+      band.mount(host, position === SummaryPosition.Top ? body : (body.nextElementSibling as HTMLElement | null));
+    } else {
+      const layer = this.ensureSummaryLayer();
+      if (!layer) return null;
+      band.mount(layer);
+    }
+
+    this.summaryBands.set(key, band);
+    return band;
+  }
+
+  /**
+   * Creates (once) the absolutely-positioned layer that hosts non-sticky bands.
+   *
+   * Lives inside `.pg-grid__body` alongside the panels rather than inside one of
+   * them: a band spans all three pinned regions, and a panel sets its own
+   * `z-index`, which would trap the layer in that panel's stacking context — the
+   * same reasoning that puts `.pg-sticky-layer` at this level.
+   */
+  private ensureSummaryLayer(): HTMLElement | null {
+    if (this.summaryLayerEl) return this.summaryLayerEl;
+    if (!this.bodyWrapEl) return null;
+    const layer = createDiv('pg-summary-layer');
+    this.bodyWrapEl.appendChild(layer);
+    this.summaryLayerEl = layer;
+    return layer;
+  }
+
+  /**
+   * Pairs each of a band's row definitions with its computed values.
+   *
+   * Rows whose snapshot is missing are dropped rather than rendered blank: the
+   * only way that happens is a definition added since the last compute, and a
+   * half-painted row would be worse than one that appears a frame later.
+   */
+  private collectSummaryBandRows(
+    position: SummaryPosition.Top | SummaryPosition.Bottom,
+    sticky: boolean,
+  ): SummaryBandRow[] {
+    const model = this.summaryModel;
+    if (!model) return [];
+
+    const rows: SummaryBandRow[] = [];
+    for (const def of model.getRowsForBand(position, sticky)) {
+      const snapshot = model.getSnapshot(def.id);
+      if (snapshot) rows.push({ def, snapshot });
+    }
+    return rows;
+  }
+
+  /**
+   * Recomputes the scroll height the non-sticky bands reserve.
+   *
+   * Must run before the row window is sliced: the top band's height offsets
+   * every data row, so slicing against an unadjusted `scrollTop` would render
+   * the wrong window.
+   *
+   * @returns `true` when either reservation changed, so the caller can re-run
+   *          the scroll sizing that is otherwise keyed off the rows array.
+   */
+  private updateSummaryReservedHeights(): boolean {
+    let top = 0;
+    let bottom = 0;
+
+    const model = this.summaryModel;
+    if (model && !model.isEmpty()) {
+      for (const def of model.getRows()) {
+        if (def.sticky) continue;
+        const snapshot = model.getSnapshot(def.id);
+        if (!snapshot) continue;
+        const inTop = def.position !== SummaryPosition.Bottom;
+        const inBottom = def.position !== SummaryPosition.Top;
+        if (inTop) top += snapshot.height;
+        if (inBottom) bottom += snapshot.height;
+      }
+    }
+
+    const changed = top !== this.summaryInlineTopH || bottom !== this.summaryInlineBottomH;
+    this.summaryInlineTopH = top;
+    this.summaryInlineBottomH = bottom;
+    return changed;
+  }
+
+  /**
+   * Renders every summary band for this frame.
+   *
+   * @param layout      - The shared column layout, mirroring the header's.
+   * @param rowsHeight  - Total height of the data rows, for placing the bottom in-content band.
+   * @param scrollTop   - Current vertical scroll offset.
+   * @param viewportH   - Height of the body viewport.
+   */
+  private renderSummaryBands(
+    layout: Parameters<SummaryRowRenderer['render']>[1],
+    rowsHeight: number,
+    scrollTop: number,
+    viewportH: number,
+  ): void {
+    const model = this.summaryModel;
+    if (!model) return;
+
+    for (const position of [SummaryPosition.Top, SummaryPosition.Bottom] as const) {
+      for (const sticky of [true, false] as const) {
+        const rows = this.collectSummaryBandRows(position, sticky);
+        const key = `${position}:${sticky ? 1 : 0}`;
+        const existing = this.summaryBands.get(key);
+
+        // Nothing to draw and nothing drawn before — never build the band at all.
+        if (rows.length === 0 && !existing) continue;
+
+        const band = existing ?? this.getSummaryBand(position, sticky);
+        if (!band) continue;
+
+        band.render(rows, layout);
+
+        if (!sticky) {
+          // Screen-space Y of the band's top edge. Computed here in JS doubles
+          // and always within a viewport of zero, so it never reaches the
+          // float32 rasterisation limit that forces the data rows through origin
+          // rebasing (see `panels.css.ts`).
+          const contentY = position === SummaryPosition.Top
+            ? 0
+            : this.summaryInlineTopH + rowsHeight;
+          const offsetY = contentY - scrollTop;
+          const height = band.getHeight();
+          band.setInlineOffset(offsetY, height > 0 && offsetY < viewportH && offsetY + height > 0);
+        }
+      }
+    }
+  }
+
+  /** Detaches every summary band and its host layer. */
+  private destroySummaryBands(): void {
+    for (const band of this.summaryBands.values()) band.destroy();
+    this.summaryBands.clear();
+    this.summaryLayerEl?.remove();
+    this.summaryLayerEl = null;
+    this.summaryHostEl = null;
+    this.summaryModel = null;
+    this.summaryInlineTopH = 0;
+    this.summaryInlineBottomH = 0;
+    this._lastSummaryReservedH = -1;
+  }
+
+  /**
+   * `true` when any summary cell spans more than one column.
+   *
+   * Such a band renders every center column instead of the virtual window: a
+   * span is a single element covering several columns, and the window's edge
+   * could fall in the middle of one — leaving a cell sized for columns that are
+   * not there, and every column after it misaligned. Rendering all of them keeps
+   * the total center width identical (the spacers go to zero), so the band still
+   * lines up with the header.
+   *
+   * The cost is bounded and opt-in: it applies only to grids that use `colSpan`,
+   * and only to the handful of rows in a summary band — never to data rows.
+   */
+  private summaryUsesColSpan(): boolean {
+    const model = this.summaryModel;
+    if (!model) return false;
+    for (const snapshot of model.getSnapshots()) {
+      for (const cell of snapshot.cells.values()) {
+        if (cell.colSpan > 1) return true;
+      }
+    }
+    return false;
+  }
+
   // ─── Render ───────────────────────────────────────────────────────────────
 
   /**
@@ -2050,22 +2314,33 @@ export class GridRenderer {
     // ── Row-dependent work ────────────────────────────────────────────────────
     // The total-height O(n) loop and scrollController.updateSizes are skipped
     // when the rows reference hasn't changed (i.e. during scroll-only frames).
+    //
+    // Non-sticky summary bands occupy real scroll space, so their reservation is
+    // resolved first and folded into the height below. It also participates in
+    // the change test: adding a summary row changes the scrollable height
+    // without touching the rows array, which would otherwise leave the scroll
+    // controller sized for a grid one band shorter than it now is.
+    const summaryReservedChanged = this.updateSummaryReservedHeights();
+    const summaryReservedH = this.summaryInlineTopH + this.summaryInlineBottomH;
     const rowsChanged = rows !== this._lastRowsRef;
-    if (rowsChanged) {
+    if (rowsChanged || summaryReservedChanged) {
       this._lastRowsRef = rows;
+      this._lastSummaryReservedH = summaryReservedH;
 
       // A strategy that guarantees uniform row heights lets the total be
       // derived arithmetically. That skips an O(n) sum on every data change,
       // and it is what makes a *sparse* row array safe to publish: summing
       // would dereference the holes an on-demand row model deliberately leaves
       // for rows it has not loaded.
-      let totalHeight: number;
+      let rowsHeight: number;
       if (this.uniformRowHeight) {
-        totalHeight = rows.length * rowHeight;
+        rowsHeight = rows.length * rowHeight;
       } else {
-        totalHeight = 0;
-        for (const row of rows) totalHeight += row.height ?? rowHeight;
+        rowsHeight = 0;
+        for (const row of rows) rowsHeight += row.height ?? rowHeight;
       }
+      this._cachedRowsHeight = rowsHeight;
+      const totalHeight = rowsHeight + summaryReservedH;
       this._cachedTotalHeight = totalHeight;
 
       // The scroll controller gets the true height (it owns the mapping onto a
@@ -2195,6 +2470,17 @@ export class GridRenderer {
     const scrollTop = this.scrollController.getScrollTop();
     const viewportHeight = this.centerBodyEl?.clientHeight ?? 400;
     const buffer = this.options.virtualScroll?.rowBuffer ?? ROW_BUFFER;
+    /**
+     * Scroll offset **in row space**.
+     *
+     * A non-sticky top summary band occupies the first `summaryInlineTopH`
+     * pixels of the scrollable content, so row `top` 0 sits at content offset
+     * `summaryInlineTopH`, not 0. Every calculation below slices on row `top`s,
+     * so they all work from this shifted origin — otherwise the band's height
+     * would offset the rendered window by a row or two. Zero (and therefore
+     * free) whenever no in-content top band exists, which is the default.
+     */
+    const rowScrollTop = scrollTop - this.summaryInlineTopH;
     // During animation, expand the render window by one extra viewport so rows
     // just outside the buffer are already in the DOM and can participate in FLIP.
     const animExtra = this.rowAnimator.hasPending() ? Math.ceil(viewportHeight / rowHeight) : 0;
@@ -2203,8 +2489,8 @@ export class GridRenderer {
     let end: number;
     if (isAutoHeight) {
       const bufferPx = (buffer + animExtra) * rowHeight;
-      const viewStart = scrollTop - bufferPx;
-      const viewEnd = scrollTop + viewportHeight + bufferPx;
+      const viewStart = rowScrollTop - bufferPx;
+      const viewEnd = rowScrollTop + viewportHeight + bufferPx;
       start = 0;
       end = rows.length;
       for (let i = 0; i < rows.length; i++) {
@@ -2214,8 +2500,8 @@ export class GridRenderer {
         if (rows[i].top > viewEnd) { end = i; break; }
       }
     } else {
-      start = Math.max(0, Math.floor(scrollTop / rowHeight) - buffer - animExtra);
-      end = Math.min(rows.length, Math.ceil((scrollTop + viewportHeight) / rowHeight) + buffer + animExtra);
+      start = Math.max(0, Math.floor(rowScrollTop / rowHeight) - buffer - animExtra);
+      end = Math.min(rows.length, Math.ceil((rowScrollTop + viewportHeight) / rowHeight) + buffer + animExtra);
     }
 
     // ── Master/Detail sticky row ────────────────────────────────────────────
@@ -2227,7 +2513,7 @@ export class GridRenderer {
     let stickyBlockHeight = 0;
     let treeStickyEntries: TreeStickyEntry[] = [];
     if (this.masterDetailEnabledAtConstruction) {
-      const sticky = this.stickyRowTracker.compute(rows, scrollTop, rowHeight, start);
+      const sticky = this.stickyRowTracker.compute(rows, rowScrollTop, rowHeight, start);
       stickyNodeId = sticky.nodeId;
       stickyOffsetPx = sticky.offsetPx;
       stickyBlockHeight = sticky.blockHeight;
@@ -2236,7 +2522,7 @@ export class GridRenderer {
       // Tree Data's generalization of the same rule — see `TreeStickyRowTracker`:
       // every ancestor of the row currently at the viewport's top stacks as
       // its own sticky row, instead of there only ever being one.
-      const sticky = this.treeStickyRowTracker.compute(rows, scrollTop, rowHeight, start);
+      const sticky = this.treeStickyRowTracker.compute(rows, rowScrollTop, rowHeight, start);
       treeStickyEntries = sticky.entries;
       stickyBlockHeight = sticky.blockHeight;
       start = sticky.minStart;
@@ -2295,7 +2581,12 @@ export class GridRenderer {
     // demand-loading model publishes a sparse array, and an origin of 0 is the
     // correct fallback when the window's first slot is not resident.
     const rowOriginY = renderedRows[0]?.top ?? 0;
-    this.scrollController.setRowOrigin(rowOriginY);
+    // The origin the panels translate by carries one extra term: the scroll
+    // space an in-content top summary band occupies ahead of the first row. The
+    // position stylesheet below still writes `top - rowOriginY`, so the two
+    // deliberately disagree by exactly that amount — which is what shifts every
+    // data row down past the band instead of letting the band overlay them.
+    this.scrollController.setRowOrigin(rowOriginY + this.summaryInlineTopH);
 
     // Update row position stylesheet for visible rows.
     // In auto-height mode always use rowHeight as min-height so that widening a
@@ -2352,7 +2643,10 @@ export class GridRenderer {
         timeZone: this.options.timeZone,
         currencySymbol: this.options.currencySymbol,
         locale: this.options.locale,
-        api: null,
+        // The live API, so a cell renderer's `params.api` is the real thing —
+        // and `GridApi.getContext()` through it. `null` only in the window
+        // before `setParentApiForDetail` runs.
+        api: this.gridApi,
         editingEnabled: this.options.editing?.mode !== 'none',
         showGroupsColumn: hasGroupedColumns,
         autoGroupColWidth: AUTO_GROUP_COL_WIDTH,
@@ -2409,16 +2703,51 @@ export class GridRenderer {
         for (const row of rows) { row.top = top; top += row.height ?? rowHeight; }
         // Every `top` just moved, so the render window's origin moved with it —
         // re-derive it before restating the sheet (see the rebasing note above).
+        // Carries the same in-content summary offset as the first pass.
         const measuredOriginY = renderedRows[0]?.top ?? 0;
-        this.scrollController.setRowOrigin(measuredOriginY);
+        this.scrollController.setRowOrigin(measuredOriginY + this.summaryInlineTopH);
         this.rowPositionSheet.update(
           renderedRows.map((r) => ({ nodeId: r.nodeId, top: r.top - measuredOriginY, height: rowHeight })),
           true,
         );
-        this._cachedTotalHeight = top;
-        w.style.setProperty('--pg-content-height', `${Math.min(top, MAX_ELEMENT_HEIGHT_PX)}px`);
-        this.scrollController.updateSizes(top, this._cachedCenterW);
+        // Same reservation the fixed-height path applies: the measured row
+        // total is the *rows'* height, and the scrollable content is that plus
+        // whatever the in-content summary bands occupy.
+        this._cachedRowsHeight = top;
+        const measuredTotal = top + summaryReservedH;
+        this._cachedTotalHeight = measuredTotal;
+        w.style.setProperty('--pg-content-height', `${Math.min(measuredTotal, MAX_ELEMENT_HEIGHT_PX)}px`);
+        this.scrollController.updateSizes(measuredTotal, this._cachedCenterW);
       }
+    }
+
+    // ── Summary bands ────────────────────────────────────────────────────────
+    // Last, and deliberately after the auto-height pass: a non-sticky bottom
+    // band is placed immediately after the final row, so it needs the row total
+    // that pass may have just rewritten. Uses the same visible column window and
+    // spacer widths the header was given, so the two can never disagree about
+    // where a column starts.
+    if (this.summaryModel) {
+      this.renderSummaryBands(
+        {
+          leftCols,
+          centerCols: this.summaryUsesColSpan() ? centerCols : visibleCenterCols,
+          rightCols,
+          centerLeftSpacerW: this.summaryUsesColSpan() ? 0 : leftSpacerW,
+          centerRightSpacerW: this.summaryUsesColSpan() ? 0 : rightSpacerW,
+          showCheckboxes: !!this.options.showCheckboxes,
+          showSerialNumber: !!this.options.showSerialNumber,
+          showVerticalBorders: !!this.options.showVerticalBorders,
+          hasGroupColumn: hasGroupedColumns,
+          groupColWidth: AUTO_GROUP_COL_WIDTH,
+          hasLeftPanel: this.lastLeftPanelWidth > 0,
+          hasRightPanel: this.lastRightPanelWidth > 0,
+          getColumnWidth: (colId) => this.colStyles.getWidth(colId),
+        },
+        this._cachedRowsHeight,
+        scrollTop,
+        viewportHeight,
+      );
     }
 
     this.store.set('firstRenderedRowIndex', start);

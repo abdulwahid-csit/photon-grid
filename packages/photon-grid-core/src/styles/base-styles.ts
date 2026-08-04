@@ -12,6 +12,7 @@ import { rootCss }              from './base/root.css';
 import { groupDropZoneCss }     from './base/group-drop-zone.css';
 import { groupBarSearchCss }    from './base/group-bar-search.css';
 import { panelsCss }            from './base/panels.css';
+import { summaryCss }           from './base/summary.css';
 import { headerCss }            from './base/header.css';
 import { columnGroupHeaderCss } from './base/column-group-header.css';
 import { filterCss }            from './base/filter.css';
@@ -54,6 +55,7 @@ const baseCss = [
   groupDropZoneCss,
   groupBarSearchCss,
   panelsCss,
+  summaryCss,
   headerCss,
   columnGroupHeaderCss,
   filterCss,

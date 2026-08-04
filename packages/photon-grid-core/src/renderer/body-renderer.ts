@@ -13,6 +13,7 @@ import { ViewportVDom } from './vdom/viewport-vdom';
 import { CellPatcher } from './vdom/cell-patcher';
 import type { RenderedRowRef, VDomRenderContext, VDomStats } from './vdom/vdom.types';
 import { resolveColumnRenderer } from './renderer-resolver';
+import { LONG_TEXT_TOGGLE_ATTR } from './built-in/long-text';
 import { applyTreeToggle, syncTreeToggle, type TreeToggleRenderConfig } from './tree-cell-renderer';
 import { isTouchPointer, DRAG_THRESHOLD_TOUCH } from '../core/pointer-utils';
 
@@ -1278,7 +1279,7 @@ export class BodyRenderer {
         groupValue: row.groupValue,
         childCount: row.childCount ?? 0,
         collapsed: !row.expanded,
-        api: null,
+        api: options.api ?? null,
       });
       if (typeof rendered === 'string') label.innerHTML = rendered;
       else label.appendChild(rendered);
@@ -1371,7 +1372,7 @@ export class BodyRenderer {
             value: aggVal,
             aggregation: col.aggFunc!,
             label: col.summaryLabel,
-            api: null,
+            api: options.api ?? null,
           });
           if (typeof rendered === 'string') inner.innerHTML = rendered;
           else inner.appendChild(rendered);
@@ -1579,6 +1580,11 @@ export class BodyRenderer {
       // cell selection — it emits its own click event (see
       // applyMasterDetailToggle) and stops there.
       if ((e.target as HTMLElement).closest('[data-detail-toggle]')) return;
+      // Same for a `longText` cell's expand control, and for a sharper reason:
+      // selecting the cell mounts the fill handle in the very corner the
+      // toggle occupies, moving it out from under the cursor between press and
+      // release — so the click that was supposed to open the panel never fires.
+      if ((e.target as HTMLElement).closest(`[${LONG_TEXT_TOGGLE_ATTR}]`)) return;
       const cellEl = (e.target as HTMLElement).closest<HTMLElement>('[data-col-index][data-col-id]');
       if (!cellEl) return;
       const globalColIndex = Number(cellEl.getAttribute('data-col-index'));

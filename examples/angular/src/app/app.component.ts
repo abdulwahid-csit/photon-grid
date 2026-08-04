@@ -25,6 +25,7 @@ import { InfiniteGridComponent } from './infinite-grid.component';
 import { MasterDetailGridComponent } from './master-detail-grid.component';
 import { CustomerOrdersGridComponent } from './customer-orders-grid.component';
 import { RendererShowcaseGridComponent } from './renderer-showcase-grid.component';
+import { SummaryGridComponent } from './summary-grid.component';
 import { SchedulerDemoComponent } from './scheduler/scheduler-demo.component';
 import { CommonModule } from '@angular/common';
 import { environment } from '../environments/environment';
@@ -40,7 +41,7 @@ import { NestedColComponent } from "./nested-cols-data.component";
 @Component({
     selector: 'app-root',
     standalone: true,
-    imports: [PhotonGridComponent, CommonModule, RealtimeGridComponent, InfiniteGridComponent, MasterDetailGridComponent, CustomerOrdersGridComponent, RendererShowcaseGridComponent, SchedulerDemoComponent, NestedColComponent],
+    imports: [PhotonGridComponent, CommonModule, RealtimeGridComponent, InfiniteGridComponent, MasterDetailGridComponent, CustomerOrdersGridComponent, RendererShowcaseGridComponent, SummaryGridComponent, SchedulerDemoComponent, NestedColComponent],
     templateUrl: './app.component.html', 
     styleUrls: ['./app.component.scss', './linear-theme.scss'],
     changeDetection: ChangeDetectionStrategy.OnPush,

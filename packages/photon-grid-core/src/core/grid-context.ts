@@ -32,6 +32,9 @@ import type { TreeSelectionService } from '../engines/tree/tree-selection-servic
 import type { FormulaEngine } from '../formula/formula-engine';
 import type { FormulaInitializer } from '../formula/formula-initializer';
 import type { AutoFillEngine } from '../autofill/autofill-engine';
+import type { SummaryAggregationEngine } from '../summary/aggregation-engine';
+import type { SummaryModel } from '../summary/summary-model';
+import type { SummaryService } from '../summary/summary-service';
 import type { RowModelStrategy } from '../row-models/row-model-strategy';
 import type { PhotonThemeEngine } from '../photon-ai/theme/photon-theme-engine';
 
@@ -57,6 +60,25 @@ export interface GridContext {
   rowSelectionEngine: RowSelectionEngine;
   cellEditorEngine: CellEditorEngine;
   summaryEngine: SummaryEngine;
+  /**
+   * Summary Rows — holds the row *definitions* (which rows exist, where each is
+   * anchored, what scope it aggregates) and the values computed for them.
+   * Always present; inert when `GridOptions.summary` is absent and no column
+   * declares `showSummary`. @see {@link summaryService}
+   */
+  summaryModel: SummaryModel;
+  /**
+   * Turns {@link summaryModel}'s definitions into computed values, reading the
+   * grid only through a `SummaryDataPort`. Invoked after every pipeline run
+   * unless `GridOptions.summary.autoRefresh` is `false`.
+   */
+  summaryService: SummaryService;
+  /**
+   * Resolves summary aggregations by name — the seven built-ins plus anything
+   * registered through `GridOptions.summary.aggregations`. Per-grid, so a custom
+   * function never leaks between grids.
+   */
+  summaryAggregationEngine: SummaryAggregationEngine;
   exportEngine: ExportEngine;
   /**
    * Import Engine — ingests Excel/CSV/TSV/Clipboard data through one unified

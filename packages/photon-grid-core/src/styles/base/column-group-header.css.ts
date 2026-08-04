@@ -70,6 +70,10 @@ export const columnGroupHeaderCss = `/* ─────────────�
   z-index: 6;
   transition: opacity var(--pg-transitions-duration-fast, 100ms);
 }
+/* The element carries the leaf handle's class too, for the shared pointer
+   wiring — but a group handle is a hover-revealed grab zone with no divider of
+   its own, so the line that class paints is suppressed here. */
+.pg-th__resize-handle--group::after { content: none; }
 .pg-th--group:hover .pg-th__resize-handle--group { opacity: 1; }
 
 /* ── Flat columns alongside grouped headers ── */

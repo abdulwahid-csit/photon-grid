@@ -31,6 +31,40 @@ export { CellEditorEngine } from './engines/editing/cell-editor-engine';
 export { SummaryEngine } from './engines/summary/summary-engine';
 export { ExportEngine } from './engines/export/export-engine';
 
+// ── Summary Rows ─────────────────────────────────────────────────────────────
+// Configurable aggregate rows docked above/below the body (or flowing with its
+// content). See `GridOptions.summary` and the `GridApi` summary methods.
+export {
+  SummaryAggregation,
+  SummaryAggregationEngine,
+  SummaryModel,
+  SummaryPosition,
+  SummaryRowRenderer,
+  SummaryScope,
+  SummaryService,
+  DERIVED_SUMMARY_ROW_ID,
+} from './summary';
+export type {
+  ResolvedSummaryRow,
+  SummaryAggregateFn,
+  SummaryApi,
+  SummaryBandLayout,
+  SummaryBandRow,
+  SummaryCellContext,
+  SummaryCellDef,
+  SummaryCellRendererParams,
+  SummaryCellSnapshot,
+  SummaryComputedCellContext,
+  SummaryConfig,
+  SummaryDataPort,
+  SummaryFormatterFn,
+  SummaryRendererFn,
+  SummaryRowDef,
+  SummaryRowSnapshot,
+  SummaryTooltipFn,
+  SummaryValueFn,
+} from './summary';
+
 // ── Import Engine ────────────────────────────────────────────────────────────
 export { ImportEngine } from './engines/import/import-engine';
 export {
@@ -496,11 +530,14 @@ export type {
   BuiltInRendererDefinition,
   BuiltInRenderContext,
   BuiltInRendererOptionsMap,
+  AnyBuiltInRendererOptions,
   BaseRendererOptions,
   CountryEntry,
   CountryRendererOptions,
   TextRendererOptions,
   MultilineRendererOptions,
+  LongTextRendererOptions,
+  LongTextToggleVisibility,
   NumericRendererOptions,
   CurrencyRendererOptions,
   PercentageRendererOptions,
@@ -510,6 +547,16 @@ export type {
   LinkRendererOptions,
   ImageRendererOptions,
   AvatarRendererOptions,
+  AvatarGroupRendererOptions,
+  AvatarGroupMember,
+  AvatarSize,
+  ProfileRendererOptions,
+  ProfileAvatarOptions,
+  ProfileTextOptions,
+  ProfileSource,
+  ProfileAvatarShape,
+  ProfileAvatarFallback,
+  ProfileLayout,
   CheckboxRendererOptions,
   BadgeRendererOptions,
   ChipRendererOptions,
@@ -522,6 +569,36 @@ export type {
   ButtonRendererOptions,
   HtmlRendererOptions,
 } from './types/built-in-renderer.types';
+
+// ── Actions cell renderer ───────────────────────────────────────────────────
+// Row-scoped commands in a cell: buttons, an overflow menu, or a split of the
+// two. See `ActionsRendererOptions` and `GridOptions.context`.
+export type {
+  GridAction,
+  ActionsRendererOptions,
+  ActionsLayout,
+  ActionsSize,
+  ActionVariant,
+  ActionIconConfig,
+  ActionIconPosition,
+  CellActionIcon,
+  CellActionValue,
+  CellActionParams,
+  CellActionController,
+  CellActionConfirmOptions,
+  CellActionConfirmRequest,
+  CellActionConfirmHandler,
+} from './types/cell-action.types';
+export { actionsRenderer, CELL_ACTION_ATTR, CELL_ACTION_MENU_ATTR } from './renderer/built-in/actions/actions';
+export type { ResolvedAction, ActionSplit } from './renderer/built-in/actions/action-resolver';
+export {
+  resolveAction,
+  resolveActions,
+  splitActions,
+  findAction,
+} from './renderer/built-in/actions/action-resolver';
+export { runCellAction, setActionBusy } from './renderer/built-in/actions/action-executor';
+export type { CellActionRequest } from './renderer/built-in/actions/action-executor';
 
 export type {
   IColumnGroupNode,
@@ -561,6 +638,10 @@ export type {
   RowMenuClosedEvent,
   CellSelectionChangedEvent,
   CellButtonClickedEvent,
+  AvatarGroupMemberClickedEvent,
+  CellTextExpandedEvent,
+  CellActionClickedEvent,
+  CellActionErrorEvent,
   ColumnResizedEvent,
   ColumnMovedEvent,
   ColumnSortedEvent,
@@ -574,6 +655,8 @@ export type {
   RowDetailOpenedEvent,
   RowDetailClosedEvent,
   RowDetailHeightChangedEvent,
+  SummaryChangedEvent,
+  SummaryRowsChangedEvent,
 } from './types/event.types';
 export type { ChartConfig } from './chart/chart-engine';
 export type { ChartData, ChartDataset, ChartTransformOptions } from './chart/chart-data-transformer';

@@ -1,0 +1,322 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   Styles shared by every demo section.
+
+   The cell renderers below build DOM *inside the grid*, not inside a React
+   component's tree, so CSS-module scoping would never reach them. Every
+   selector is therefore global and namespaced by demo (`rt-`, `inf-`, `md-`)
+   so nothing leaks between sections.
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* ── Section chrome (header + controls + stats), shared by all demos ─────── */
+
+.demo__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+  margin: 32px 0 12px;
+}
+
+.demo__title {
+  margin: 0 0 4px;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.demo__subtitle {
+  margin: 0;
+  max-width: 74ch;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.demo__controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.demo__btn {
+  border: 1px solid #cbd5e1;
+  background: #2563eb;
+  color: #fff;
+  border-radius: 6px;
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.demo__btn--ghost {
+  background: #fff;
+  color: #334155;
+}
+
+.demo__toggle,
+.demo__rate {
+  font-size: 13px;
+  color: #475569;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.demo__rate select {
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+}
+
+/* Segmented control (Master/Detail content source). */
+.demo__modes {
+  display: inline-flex;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.demo__mode {
+  border: 0;
+  background: transparent;
+  color: #334155;
+  cursor: pointer;
+  padding: 7px 12px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.demo__mode + .demo__mode {
+  border-left: 1px solid #e2e8f0;
+}
+
+.demo__mode--on {
+  background: #2563eb;
+  color: #fff;
+}
+
+.demo__stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.demo__stat {
+  flex: 1 1 120px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: #f8fafc;
+}
+
+.demo__stat dt {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+}
+
+.demo__stat dd {
+  margin: 2px 0 0;
+  font-size: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #0f172a;
+}
+
+.demo__stat--accent dd { color: #2563eb; }
+.demo__stat--warn dd { color: #dc2626; }
+.demo__stat--wide { flex: 2 1 280px; }
+.demo__stat-text { font-size: 13px; font-weight: 500; }
+
+/* ── Grid viewports ─────────────────────────────────────────────────────── */
+
+.demo__grid { height: 520px; }
+.demo__grid--tall { height: 620px; }
+.demo__grid--infinite { height: 560px; }
+
+/* ── Real-Time demo: portfolio cell renderers ───────────────────────────── */
+
+.portfolio-company {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 100%;
+}
+
+.portfolio-logo {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  border: 1px solid #e6e6e6;
+  background: #fff;
+}
+
+.portfolio-company-info { overflow: hidden; }
+
+.portfolio-ticker {
+  font-weight: 700;
+  color: #222;
+  font-size: 14px;
+  line-height: 18px;
+}
+
+.portfolio-company-name {
+  color: #666;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.portfolio-value {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.portfolio-positive {
+  color: #1ea94b;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.portfolio-negative {
+  color: #ff2b63;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.portfolio-badge {
+  background: #b9ddb3;
+  color: #23402a;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 13px;
+  font-weight: 500;
+  min-width: 58px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Row-menu extras: the dot is built by a custom `icon` renderer, the danger
+   tint comes from an item's `cssClass`. */
+.rt-menu-dot { width: 8px; height: 8px; border-radius: 999px; }
+.rt-menu-danger .pg-context-menu__label { color: #dc2626; }
+
+/* ── Master/Detail: account + order cell renderers ──────────────────────── */
+
+.md-account {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.md-account__badge {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #fff;
+}
+
+.md-account__text { min-width: 0; line-height: 1.25; }
+
+.md-account__name {
+  display: block;
+  font-weight: 600;
+  color: #0f172a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.md-account__domain { display: block; font-size: 11px; color: #94a3b8; }
+
+.md-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.6;
+  border: 1px solid transparent;
+}
+
+.md-tag--healthy     { background: #ecfdf5; color: #047857; border-color: #a7f3d0; }
+.md-tag--at-risk     { background: #fffbeb; color: #b45309; border-color: #fde68a; }
+.md-tag--churn-risk  { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
+.md-tag--enterprise  { background: #eef2ff; color: #4338ca; border-color: #c7d2fe; }
+.md-tag--business    { background: #f0f9ff; color: #0369a1; border-color: #bae6fd; }
+.md-tag--team        { background: #f5f3ff; color: #6d28d9; border-color: #ddd6fe; }
+.md-tag--starter     { background: #f8fafc; color: #475569; border-color: #e2e8f0; }
+.md-tag--delivered   { background: #ecfdf5; color: #047857; border-color: #a7f3d0; }
+.md-tag--in-transit  { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
+.md-tag--processing  { background: #f8fafc; color: #475569; border-color: #e2e8f0; }
+.md-tag--backordered { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
+
+.md-progress { display: flex; align-items: center; gap: 8px; }
+
+.md-progress__track {
+  flex: 1 1 auto;
+  height: 6px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  overflow: hidden;
+  min-width: 40px;
+}
+
+.md-progress__fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: #2563eb;
+}
+
+.md-progress__fill--done { background: #059669; }
+
+.md-progress__value {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 600;
+  color: #475569;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Custom detail renderer. The panel is auto-height, so its height follows this
+   block's natural size — `min-height` is what gives the centring room. */
+.md-detail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 140px;
+  text-align: center;
+}
+
+.md-detail__title { margin: 0; font-size: 22px; font-weight: 700; color: #0f172a; }
+.md-detail__meta { margin: 0; font-size: 13px; color: #64748b; }
+
+.md-detail__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}

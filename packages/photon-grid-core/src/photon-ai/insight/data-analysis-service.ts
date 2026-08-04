@@ -1,11 +1,12 @@
+﻿import { NUMERIC_COLUMN_TYPES } from '../../types/column-type-traits';
 /**
- * The **Data Analysis Service** — computes statistics over the grid's live rows
+ * The **Data Analysis Service** â€” computes statistics over the grid's live rows
  * so Photon AI can answer analytical questions ("what sells best?", "why is
  * revenue falling?", "show unusual values") with real numbers.
  *
  * ### Privacy is the point
  * Every statistic here is computed **in the browser, from `GridApi`**. Only the
- * resulting compact summary — counts, sums, a handful of top categories — is
+ * resulting compact summary â€” counts, sums, a handful of top categories â€” is
  * ever sent to the language model, which does nothing but phrase it. Raw
  * customer rows never leave the page.
  *
@@ -29,7 +30,7 @@ import type { ColumnDef } from '../../types/column.types';
 import type { RowNode } from '../../types/row.types';
 
 /** Column types treated as numeric measures. */
-const NUMERIC_TYPES: ReadonlySet<string> = new Set(['number', 'currency', 'percentage']);
+const NUMERIC_TYPES: ReadonlySet<string> = NUMERIC_COLUMN_TYPES;
 
 /** How many entries a top-N breakdown returns. */
 const TOP_N = 5;
@@ -51,7 +52,7 @@ export interface NumericSummary {
   readonly max: number;
   readonly median: number;
   readonly stdDev: number;
-  /** Least-squares slope per row in the current order — positive means rising. */
+  /** Least-squares slope per row in the current order â€” positive means rising. */
   readonly trendPerRow: number;
   /** Values further than {@link OUTLIER_Z} standard deviations from the mean. */
   readonly outliers: readonly number[];
@@ -92,7 +93,7 @@ export interface DatasetAnalysis {
   readonly numeric: readonly NumericSummary[];
   readonly dimensions: readonly DimensionSummary[];
   readonly correlations: readonly CorrelationPair[];
-  /** Columns where some rows have no value, as `colId` → missing count. */
+  /** Columns where some rows have no value, as `colId` â†’ missing count. */
   readonly missing: Readonly<Record<string, number>>;
 }
 
@@ -101,7 +102,7 @@ export class DataAnalysisService {
   constructor(private readonly api: GridApi) {}
 
   /**
-   * Analyses the rows the user is currently looking at — i.e. after filters.
+   * Analyses the rows the user is currently looking at â€” i.e. after filters.
    * That is almost always what an analytical question means: "what sells best"
    * asked with a region filter applied is a question about that region.
    */
@@ -149,7 +150,7 @@ export class DataAnalysisService {
     for (const v of values) variance += (v - mean) ** 2;
     const stdDev = Math.sqrt(variance / count);
 
-    // Sorted copy for the median — the original order carries the trend.
+    // Sorted copy for the median â€” the original order carries the trend.
     const sorted = [...values].sort((a, b) => a - b);
     const mid = sorted.length >> 1;
     const median = sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
@@ -177,7 +178,7 @@ export class DataAnalysisService {
    * Breaks each numeric measure down by each low-cardinality dimension.
    *
    * This is what answers "best selling product" and "which customers spend the
-   * most": the top entries of (product × revenue) and (customer × spend).
+   * most": the top entries of (product Ã— revenue) and (customer Ã— spend).
    * Capped so a wide grid cannot produce a combinatorial explosion of pairs.
    */
   private buildDimensions(
@@ -280,7 +281,7 @@ export class DataAnalysisService {
 function toNumber(value: unknown): number | null {
   if (typeof value === 'number') return Number.isFinite(value) ? value : null;
   if (typeof value === 'string' && value.trim() !== '') {
-    // Tolerate formatted values ("$1,234.50") — common in imported data.
+    // Tolerate formatted values ("$1,234.50") â€” common in imported data.
     const cleaned = Number(value.replace(/[^0-9.eE+-]/g, ''));
     return Number.isFinite(cleaned) ? cleaned : null;
   }
@@ -291,7 +292,7 @@ function toNumber(value: unknown): number | null {
  * Least-squares slope of `values` against their index.
  *
  * Interpreting this as a time trend assumes the current row order is
- * meaningful — true when the user has sorted by date, which is exactly when
+ * meaningful â€” true when the user has sorted by date, which is exactly when
  * they ask "why is revenue decreasing". The prompt tells the model to hedge
  * accordingly rather than assert causation.
  */

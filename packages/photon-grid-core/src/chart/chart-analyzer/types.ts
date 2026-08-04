@@ -1,4 +1,9 @@
 import type { ColumnDef } from '../../types/column.types';
+import {
+  DATE_COLUMN_TYPES,
+  DIMENSION_COLUMN_TYPES,
+  NUMERIC_COLUMN_TYPES,
+} from '../../types/column-type-traits';
 import type { ChartData } from '../chart-data-transformer';
 
 export { ChartData };
@@ -8,9 +13,9 @@ export const APEX_COLORS = [
   '#3F51B5', '#03A9F4', '#4CAF50', '#F9CE1D', '#FF9800',
 ];
 
-export const DIMENSION_TYPES = new Set<string>(['string', 'dropdown', 'date', 'boolean', 'email']);
-export const MEASURE_TYPES   = new Set<string>(['number', 'currency', 'percentage']);
-export const DATE_TYPES      = new Set<string>(['date']);
+export const DIMENSION_TYPES = DIMENSION_COLUMN_TYPES as ReadonlySet<string>;
+export const MEASURE_TYPES   = NUMERIC_COLUMN_TYPES as ReadonlySet<string>;
+export const DATE_TYPES      = DATE_COLUMN_TYPES as ReadonlySet<string>;
 
 export const MAX_CATEGORIES = 50;
 export const PIE_MAX_SLICES = 10;

@@ -87,12 +87,18 @@ export function getComparator(type: string): ComparatorFn {
     case 'number':
     case 'currency':
     case 'percentage':
+    // A duration is stored as a number of seconds, so it sorts numerically.
+    // Sorting it as text would put "9:00" after "10:00".
+    case 'duration':
       return numberComparator;
     case 'date':
+    case 'datetime':
     case 'time':
       return dateComparator;
     case 'boolean':
       return booleanComparator;
+    // `phone`, `url` and `email` sort as text — the collator's `numeric` mode
+    // also gives phone numbers a sensible order.
     default:
       return stringComparator;
   }

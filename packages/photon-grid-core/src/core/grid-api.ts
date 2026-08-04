@@ -29,6 +29,7 @@ import type { ColumnGroupSerialState, ColumnGroupSystemState, ColumnTreeNode } f
 import { ColumnGroupStateManager } from '../column-groups/column-group-state-manager';
 import type { PhotonCommandResult } from '../photon-ai/photon-ai.types';
 import type { ThemeMode, ThemeVariant } from '../types/theme.types';
+import type { IconSet } from '../types/icon.types';
 import type { ServerSideDatasource } from '../types/server-side.types';
 import { ServerRowModel } from '../row-models/server/server-row-model';
 import { InfiniteRowModel } from '../row-models/infinite/infinite-row-model';
@@ -1142,6 +1143,18 @@ export class GridApi {
     this.ctx.renderer.scrollToRow(rowIndex);
   }
 
+  /**
+   * Scrolls the centre region to an absolute horizontal offset, in content
+   * pixels.
+   *
+   * Use {@link ensureColumnVisible} when the target is a column. This is for
+   * content whose horizontal extent is not columns -- a plugin timeline
+   * scrolling to a date, say -- where the caller has already computed the pixel.
+   */
+  scrollToX(px: number): void {
+    this.ctx.renderer.scrollToX(px);
+  }
+
   scrollToTop(): void {
     this.ctx.renderer.scrollToTop();
   }
@@ -1184,6 +1197,48 @@ export class GridApi {
 
   toggleDarkMode(): void {
     this.ctx.themeManager.toggleDarkMode();
+  }
+
+  // ── Icons ──────────────────────────────────────────────────────────────────
+
+  /**
+   * Registers host icon overrides and repaints anything already on screen.
+   *
+   * These sit at the **top** of the resolution stack, so they survive a theme
+   * change — a variant's pack can never replace a glyph the application
+   * supplied. Names not registered here still follow the active theme.
+   *
+   * @example
+   * ```ts
+   * gridApi.registerIcons({ check: '<svg viewBox="0 0 16 16">…</svg>' });
+   * ```
+   */
+  registerIcons(icons: IconSet): void {
+    this.ctx.iconRegistry.registerAll(icons);
+    this.ctx.iconThemeController.repaint();
+  }
+
+  /**
+   * Replaces (or clears, with `null`) one variant's icon pack at runtime.
+   *
+   * Repaints only when that variant is the one currently applied — editing an
+   * inactive pack changes nothing on screen until it is selected.
+   */
+  setVariantIcons(variant: ThemeVariant, icons: IconSet | null): void {
+    this.ctx.iconThemeController.setVariantIcons(variant, icons);
+  }
+
+  /**
+   * Re-renders every registry-drawn icon in the grid and its portaled overlays.
+   *
+   * An escape hatch: icon swaps that go through {@link registerIcons},
+   * {@link setVariantIcons} or {@link setVariant} repaint themselves. Reach for
+   * this only after mutating the registry directly.
+   *
+   * @returns How many icons were repainted.
+   */
+  repaintIcons(): number {
+    return this.ctx.iconThemeController.repaint();
   }
 
   /**

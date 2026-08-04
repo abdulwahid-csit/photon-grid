@@ -3,6 +3,20 @@ export interface ColorTokens {
   primaryHover: string;
   primaryActive: string;
   primaryText: string;
+  /**
+   * Accent ramp used for tints and state layers.
+   *
+   * `subtle` < `soft` < `light` in intensity; `contrast` / `onPrimary` are the
+   * foreground colours guaranteed legible on a `primary` fill. Variants re-skin
+   * these to change how the accent reads across the whole grid without touching
+   * every component rule.
+   */
+  primarySubtle: string;
+  primarySubtleHover: string;
+  primarySoft: string;
+  primaryLight: string;
+  primaryContrast: string;
+  onPrimary: string;
 
   secondary: string;
   secondaryHover: string;
@@ -48,6 +62,8 @@ export interface ColorTokens {
 
   pinnedBackground: string;
   pinnedShadow: string;
+  /** Divider between a frozen column region and the scrolling centre. */
+  pinnedBorder: string;
 
   filterBackground: string;
   filterBorder: string;
@@ -57,6 +73,8 @@ export interface ColorTokens {
   scrollbarTrack: string;
   scrollbarThumb: string;
   scrollbarThumbHover: string;
+  /** Gutter behind the scrollbar track — part of the grid's chrome surface. */
+  scrollbarBg: string;
 
   resizeHandleColor: string;
   resizeHandleActiveColor: string;
@@ -64,6 +82,11 @@ export interface ColorTokens {
   dragPreviewBackground: string;
   dragPreviewBorder: string;
   dragOverHighlight: string;
+  /** Column-drag ghost chip. */
+  dragGhostBackground: string;
+  dragGhostBorderColor: string;
+  /** Row-drag ghost chip. */
+  rowDragGhost: string;
 
   checkboxBackground: string;
   checkboxCheckedBackground: string;
@@ -71,22 +94,49 @@ export interface ColorTokens {
 
   badgeBackground: string;
   badgeText: string;
+  /** Grouping-bar chips and any pill built from the chip tokens. */
+  chipBackground: string;
+  chipText: string;
 
   groupRowBackground: string;
   groupRowBorder: string;
+  groupRowHover: string;
+  groupRowText: string;
+  groupToggleHover: string;
+  groupFooterBackground: string;
+  groupFooterHover: string;
+  /** Grouping bar while a column is dragged over it. */
+  groupZoneOver: string;
+  /** Aggregated (group summary) cell text. */
+  aggText: string;
 
   tooltipBackground: string;
   tooltipText: string;
+  /** Border on portaled menus, which sit on `surface` rather than the grid body. */
+  borderCtxtMenu: string;
+
+  /** Scrim behind modal surfaces, and the loading-overlay wash. */
+  overlay: string;
+  overlayLoading: string;
+
+  /** Placeholder rows while an infinite/server page is in flight. */
+  skeleton: string;
+  skeletonHighlight: string;
 
   success: string;
   warning: string;
   error: string;
   info: string;
+  /** Destructive intent. Distinct from `error`, which reports a failure. */
+  danger: string;
 
   successLight: string;
   warningLight: string;
   errorLight: string;
   infoLight: string;
+  /** Low-intensity fills for destructive/error surfaces. */
+  dangerSoft: string;
+  errorSubtle: string;
 }
 
 export interface TypographyTokens {
@@ -103,6 +153,8 @@ export interface TypographyTokens {
   fontWeightMedium: string;
   fontWeightSemiBold: string;
   fontWeightBold: string;
+  /** Weight for header cells specifically, so density and emphasis stay separable. */
+  headerFontWeight: string;
 
   lineHeightTight: string;
   lineHeightBase: string;
@@ -147,6 +199,8 @@ export interface BorderTokens {
   widthBase: string;
   widthThick: string;
   styleBase: string;
+  /** Focus-ring thickness. A variant that wants a heavier ring raises this once. */
+  widthFocus: string;
 }
 
 export interface ShadowTokens {
@@ -160,6 +214,8 @@ export interface ShadowTokens {
   dropdown: string;
   tooltip: string;
   dragPreview: string;
+  /** Modal surfaces (confirm dialog, chart config), which sit above a scrim. */
+  dialog: string;
 }
 
 export interface TransitionTokens {
@@ -171,6 +227,12 @@ export interface TransitionTokens {
   easingAccelerate: string;
 }
 
+/** Opacity scale. Small on purpose — only values reused across components. */
+export interface OpacityTokens {
+  /** Applied to disabled menu items and controls. */
+  disabled: string;
+}
+
 export interface ThemeTokens {
   colors: ColorTokens;
   typography: TypographyTokens;
@@ -179,6 +241,7 @@ export interface ThemeTokens {
   borders: BorderTokens;
   shadows: ShadowTokens;
   transitions: TransitionTokens;
+  opacity: OpacityTokens;
 }
 
 export interface Theme {
@@ -217,3 +280,44 @@ export const THEME_VARIANT_CLASS: Readonly<Record<ThemeVariant, string>> = {
   photon: 'pg-photon-theme',
   quantum: 'pg-quantum-theme',
 } as const;
+
+/** Row height used when neither the host nor a variant specifies one. */
+export const DEFAULT_ROW_HEIGHT = 48;
+
+/**
+ * Default body row height per variant, in pixels.
+ *
+ * Row heights are written as inline `top`/`height` by the row position sheet
+ * rather than read from CSS, so — unlike header height, which a variant sets
+ * through `--pg-header-row-height` — body density cannot be expressed in a
+ * stylesheet. This map is the variant's half of that contract: it supplies the
+ * *default* only, and an explicit `GridOptions.rowHeight` always wins.
+ *
+ * @see resolveVariantRowHeight
+ */
+export const THEME_VARIANT_ROW_HEIGHT: Readonly<Record<ThemeVariant, number>> = {
+  /** Crisp enterprise: compact but not cramped. */
+  ion: 44,
+  /** High-contrast glow: tight, terminal-like rhythm. */
+  neon: 40,
+  /** Airy editorial: generous whitespace is the whole point. */
+  photon: 56,
+  /** Tonal elevated: Material's comfortable density. */
+  quantum: 52,
+} as const;
+
+/**
+ * Resolves the effective body row height.
+ *
+ * @param rowHeight - Explicit `GridOptions.rowHeight`, if the host set one.
+ * @param variant   - Active variant, if any.
+ * @returns The host value when given, else the variant default, else {@link DEFAULT_ROW_HEIGHT}.
+ */
+export function resolveVariantRowHeight(
+  rowHeight: number | undefined,
+  variant: ThemeVariant | undefined,
+): number {
+  if (typeof rowHeight === 'number') return rowHeight;
+  if (variant && variant in THEME_VARIANT_ROW_HEIGHT) return THEME_VARIANT_ROW_HEIGHT[variant];
+  return DEFAULT_ROW_HEIGHT;
+}

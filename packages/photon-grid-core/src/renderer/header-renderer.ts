@@ -33,9 +33,9 @@ export interface HeaderRendererOptions {
   filterRowHeight?: number;
   hasGroupedColumns?: boolean;
   autoGroupColWidth?: number;
-  /** Grid-wide default display mode for the filter funnel icon. @default HeaderIconDisplay.HOVER */
+  /** Grid-wide default display mode for the filter funnel icon. @default HeaderIconDisplay.ALWAYS */
   filterIconDisplay?: HeaderIconDisplay;
-  /** Grid-wide default display mode for the column-menu "⋯" icon. @default HeaderIconDisplay.HOVER */
+  /** Grid-wide default display mode for the column-menu "⋯" icon. @default HeaderIconDisplay.ALWAYS */
   menuIconDisplay?: HeaderIconDisplay;
 }
 
@@ -162,6 +162,25 @@ export class HeaderRenderer {
 
   /** Read by grid-renderer's columns-store watcher to skip header destroy during drag */
   get isDraggingCol(): boolean { return this.isDragging; }
+
+  /**
+   * `true` for exactly the synchronous window in which a finished column drag
+   * writes its result into the column model.
+   *
+   * The store watcher fires re-entrantly from those writes, and it needs to tell
+   * "the user just dropped this column" apart from "something moved the columns
+   * on its own". A drop has already animated, live, under the pointer; replaying
+   * that motion as a FLIP once the model catches up shows the user the same
+   * movement twice. Anything that changes columns *without* a drag — a hide from
+   * the context menu, the column chooser, a programmatic `moveColumn` — still
+   * animates, because there the movement is the only feedback there is.
+   *
+   * @see cleanupDrag
+   */
+  get isCommittingColumnDrop(): boolean { return this.committingDrop; }
+
+  /** Backing flag for {@link isCommittingColumnDrop}. */
+  private committingDrop = false;
 
   /**
    * `true` while the header owns the pointer for a column reorder or resize.
@@ -479,9 +498,10 @@ export class HeaderRenderer {
         const btn = cell.querySelector<HTMLElement>('.pg-th__filter-btn');
         if (btn) {
           btn.classList.toggle('pg-th__filter-btn--active', active);
-          const iconName = active ? 'filterActive' : 'filter';
-          const iconEl = btn.querySelector<HTMLElement>('.pg-icon');
-          if (iconEl) this.iconRenderer.updateIcon(iconEl, iconName);
+          // The button is filled by `renderToString`, so its glyph is a bare
+          // `<svg>` — there is no `.pg-icon` wrapper to look for. Refill the
+          // button itself, the same way the filter-row icons below are handled.
+          this.iconRenderer.updateIcon(btn, active ? 'filterActive' : 'filter', { size: 14 });
         }
       }
     }
@@ -1068,7 +1088,7 @@ export class HeaderRenderer {
     // `!== false`); this only decides whether the header carries the funnel, so
     // a grid does not sprout an icon on every column by default. Display mode
     // then controls hover-vs-always, and `HIDDEN` suppresses it outright.
-    const filterMode = col.filterIconDisplay ?? options.filterIconDisplay ?? HeaderIconDisplay.HOVER;
+    const filterMode = col.filterIconDisplay ?? options.filterIconDisplay ?? HeaderIconDisplay.ALWAYS;
     if (col.filterable === true && filterMode !== HeaderIconDisplay.HIDDEN) {
       const filterBtn = createDiv('pg-th__filter-btn');
       const filterActive = col.filterActive === true;
@@ -1092,7 +1112,7 @@ export class HeaderRenderer {
     // gated by the grid-wide `showColumnMenu` and the display mode. Right-click
     // access to the same menu is independent (see `enableRightClick`), so a
     // column can stay configurable by context menu without showing a button.
-    const menuMode = col.menuIconDisplay ?? options.menuIconDisplay ?? HeaderIconDisplay.HOVER;
+    const menuMode = col.menuIconDisplay ?? options.menuIconDisplay ?? HeaderIconDisplay.ALWAYS;
     if (col.configurable === true && options.showColumnMenu !== false && menuMode !== HeaderIconDisplay.HIDDEN) {
       const menuBtn = createDiv('pg-th__menu-btn');
       if (menuMode === HeaderIconDisplay.ALWAYS) menuBtn.classList.add('pg-th__menu-btn--always');
@@ -1829,60 +1849,71 @@ export class HeaderRenderer {
     if (isHide) { this.columnModel.setColumnVisible(colId, false); return; }
     if (isGroup && this.groupDropZone) { this.groupDropZone.dropColumn(colId); return; }
 
-    // When a grouped leaf is dropped onto a DIFFERENT group's header cell, create a
-    // solo clone group rather than doing a plain column reorder.  Dropping on the
-    // leaf's own parent group header is treated as a no-op clone check (no action).
-    if (droppedOnGroupId && this.groupModel && this.groupDragHandler) {
-      const parentGroup = this.groupModel.getParent(colId);
-      if (parentGroup) {
-        // Dropped on its own parent → leave in place (within-group reorder already done)
-        if (droppedOnGroupId !== parentGroup.groupId) {
-          this.groupDragHandler.createLeafClone(colId, droppedOnGroupId);
-          return;
+    // Everything below commits the movement the user has already watched happen
+    // under the pointer. The flag tells the renderer's columns watcher to skip
+    // the structural FLIP for these writes only — see `isCommittingColumnDrop`.
+    // `finally` rather than a trailing assignment: several branches return
+    // early, and a leaked `true` would silently disable the animation for the
+    // next unrelated column change.
+    this.committingDrop = true;
+    try {
+      // When a grouped leaf is dropped onto a DIFFERENT group's header cell, create a
+      // solo clone group rather than doing a plain column reorder.  Dropping on the
+      // leaf's own parent group header is treated as a no-op clone check (no action).
+      if (droppedOnGroupId && this.groupModel && this.groupDragHandler) {
+        const parentGroup = this.groupModel.getParent(colId);
+        if (parentGroup) {
+          // Dropped on its own parent → leave in place (within-group reorder already done)
+          if (droppedOnGroupId !== parentGroup.groupId) {
+            this.groupDragHandler.createLeafClone(colId, droppedOnGroupId);
+            return;
+          }
+          return; // same parent — no clone needed
         }
-        return; // same parent — no clone needed
       }
-    }
 
-    if (sourcePanel === targetPanel) {
-      // Same-panel (or live-moved, then fine-tuned within new panel)
-      const visibleCols = this.columnModel.getVisibleColumns();
-      const globalFrom = visibleCols.findIndex((c) => c.colId === colId);
-      if (globalFrom === -1) return;
-      const targetColId = targetLocalIdx !== -1 && targetPD ? targetPD.colIds[targetLocalIdx] : null;
-      const globalTo = targetColId ? visibleCols.findIndex((c) => c.colId === targetColId) : globalFrom;
-      // Always call moveColumn to trigger the full header rebuild (even if same position)
-      this.columnModel.moveColumn(globalFrom, globalTo !== -1 ? globalTo : globalFrom);
+      if (sourcePanel === targetPanel) {
+        // Same-panel (or live-moved, then fine-tuned within new panel)
+        const visibleCols = this.columnModel.getVisibleColumns();
+        const globalFrom = visibleCols.findIndex((c) => c.colId === colId);
+        if (globalFrom === -1) return;
+        const targetColId = targetLocalIdx !== -1 && targetPD ? targetPD.colIds[targetLocalIdx] : null;
+        const globalTo = targetColId ? visibleCols.findIndex((c) => c.colId === targetColId) : globalFrom;
+        // Always call moveColumn to trigger the full header rebuild (even if same position)
+        this.columnModel.moveColumn(globalFrom, globalTo !== -1 ? globalTo : globalFrom);
 
-      // If the leaf left its parent group's contiguous span, extract it into a
-      // solo clone group so a group header appears at the new position.
-      if (this.groupModel && this.groupDragHandler) {
-        const parent = this.groupModel.getParent(colId);
-        if (parent) {
-          const updatedCols = (this.store.get('columns') as ColumnDef[]).filter((c) => c.visible !== false);
-          const newIdx      = updatedCols.findIndex((c) => c.colId === colId);
-          if (newIdx !== -1 && this.isLeafOutsideGroup(colId, newIdx, updatedCols)) {
-            // insertBeforeId: the column that now follows the leaf in the flat list
-            const insertBeforeId = updatedCols[newIdx + 1]?.colId ?? null;
-            this.groupDragHandler.extractLeafToSoloGroup(colId, insertBeforeId);
+        // If the leaf left its parent group's contiguous span, extract it into a
+        // solo clone group so a group header appears at the new position.
+        if (this.groupModel && this.groupDragHandler) {
+          const parent = this.groupModel.getParent(colId);
+          if (parent) {
+            const updatedCols = (this.store.get('columns') as ColumnDef[]).filter((c) => c.visible !== false);
+            const newIdx      = updatedCols.findIndex((c) => c.colId === colId);
+            if (newIdx !== -1 && this.isLeafOutsideGroup(colId, newIdx, updatedCols)) {
+              // insertBeforeId: the column that now follows the leaf in the flat list
+              const insertBeforeId = updatedCols[newIdx + 1]?.colId ?? null;
+              this.groupDragHandler.extractLeafToSoloGroup(colId, insertBeforeId);
+            }
+          }
+        }
+      } else {
+        // Cursor dropped in a different panel than dragSourcePanel (fast move before live rects update)
+        const targetPin          = targetPanel === 'left' ? ('left' as const) : targetPanel === 'right' ? ('right' as const) : null;
+        const insertBeforeColId  = targetPD ? (targetPD.colIds[targetLocalIdx] ?? null) : null;
+        this.columnModel.moveAndPin(colId, targetPin, insertBeforeColId);
+
+        // Moving a grouped leaf cross-panel always places it outside its original
+        // group — create a solo clone group in the target panel so the group
+        // header follows the column.
+        if (this.groupModel && this.groupDragHandler) {
+          const parent = this.groupModel.getParent(colId);
+          if (parent) {
+            this.groupDragHandler.extractLeafToSoloGroup(colId, insertBeforeColId);
           }
         }
       }
-    } else {
-      // Cursor dropped in a different panel than dragSourcePanel (fast move before live rects update)
-      const targetPin          = targetPanel === 'left' ? ('left' as const) : targetPanel === 'right' ? ('right' as const) : null;
-      const insertBeforeColId  = targetPD ? (targetPD.colIds[targetLocalIdx] ?? null) : null;
-      this.columnModel.moveAndPin(colId, targetPin, insertBeforeColId);
-
-      // Moving a grouped leaf cross-panel always places it outside its original
-      // group — create a solo clone group in the target panel so the group
-      // header follows the column.
-      if (this.groupModel && this.groupDragHandler) {
-        const parent = this.groupModel.getParent(colId);
-        if (parent) {
-          this.groupDragHandler.extractLeafToSoloGroup(colId, insertBeforeColId);
-        }
-      }
+    } finally {
+      this.committingDrop = false;
     }
     void srcLocalIdx;
   }

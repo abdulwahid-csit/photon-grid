@@ -1,13 +1,22 @@
-import type { GridOptions } from '../types/grid.types';
+﻿import type { GridOptions } from '../types/grid.types';
 import type { GridContext } from './grid-context';
 import type { RowNode } from '../types/row.types';
 import type { ColumnDef, ColumnDropdownOption } from '../types/column.types';
+import type { AvatarGroupRendererOptions } from '../types/built-in-renderer.types';
 import type { CellClickedEvent } from '../types/event.types';
-import type { DisplayRendererParams, EditorRendererParams } from '../types/renderer.types';
+import type { EditorRendererParams } from '../types/renderer.types';
 import { injectBaseStyles } from '../styles/base-styles';
-import { formatValue } from '../engines/editing/value-parser';
-import { getCellValue, formatCellValue, resolveFieldPath } from '../engines/editing/value-accessor';
-import { resolveColumnRenderer } from '../renderer/renderer-resolver';
+import { getCellValue, resolveFieldPath } from '../engines/editing/value-accessor';
+import { resolveColumnRenderer, resolveDisplayRenderer } from '../renderer/renderer-resolver';
+import { CellRenderer } from '../renderer/cell-renderer';
+import { isBooleanCellEditable } from '../renderer/built-in/checkbox-element';
+import { CELL_BUTTON_ATTR } from '../renderer/built-in/misc';
+import { AVATAR_GROUP_MORE_ATTR, readAvatarGroupMembers } from '../renderer/built-in/avatar-group';
+import {
+  closeAvatarGroupOverlay,
+  destroyAvatarGroupOverlay,
+  openAvatarGroupOverlay,
+} from '../renderer/built-in/avatar-group-overlay';
 import { CustomDropdownEditor } from '../engines/editing/custom-dropdown-editor';
 import { EventBus } from '../event-bus/event-bus';
 import { GridStore } from './grid-store';
@@ -30,8 +39,11 @@ import { ClipboardEngine } from '../engines/clipboard/clipboard-engine';
 import { DragDropEngine } from '../drag-drop/drag-drop-engine';
 import { CellSelectionEngine } from '../cell-selection/cell-selection-engine';
 import { ThemeManager } from '../theme/theme-manager';
+import { PluginHost } from '../plugins/plugin-host';
+import { resolveVariantRowHeight } from '../types/theme.types';
 import { IconRegistry } from '../icons/icon-registry';
 import { IconRenderer } from '../icons/icon-renderer';
+import { IconThemeController } from '../icons/icon-theme-controller';
 import { ChartEngine } from '../chart/chart-engine';
 import { RangeChartService } from '../chart/range-chart-service';
 import { GridRenderer } from '../renderer/grid-renderer';
@@ -79,12 +91,18 @@ export class GridCore {
   /** Set during `buildContext` when any top-level `ColumnDef` has `children`. */
   private columnGroupModel: ColumnGroupModel | null = null;
   private groupHeaderBuilder: ColumnGroupHeaderBuilder | null = null;
-  /** New Display Group Engine — replaces `columnGroupModel` for group rendering. */
+  /** New Display Group Engine â€” replaces `columnGroupModel` for group rendering. */
   private displayGroupEngine: DisplayGroupEngine | null = null;
-  /** Set in `initialize` when `photonAI.enabled` — needs the live `GridApi`, so it cannot be built in `buildContext`. */
+  /** Set in `initialize` when `photonAI.enabled` â€” needs the live `GridApi`, so it cannot be built in `buildContext`. */
   private photonAIService: PhotonAIService | null = null;
 
-  /** The concrete formula adapter, retained so the clipboard/fill bridge can map ids ↔ data-model indices. */
+  /**
+   * Owns registered feature plugins. `null` unless `GridOptions.plugins` was
+   * supplied, so a grid without plugins allocates nothing.
+   */
+  private pluginHost: PluginHost | null = null;
+
+  /** The concrete formula adapter, retained so the clipboard/fill bridge can map ids â†” data-model indices. */
   private formulaAdapter!: GridFormulaAdapter;
 
   /**
@@ -95,13 +113,32 @@ export class GridCore {
    */
   private normalizedColumns: ColumnDef[] = [];
 
+  /**
+   * Renders a cell's content after an edit commits.
+   *
+   * The same class the body renderer uses, so a just-edited cell is repainted
+   * through the identical code path that drew it — see {@link renderCellValue}
+   * for why that matters.
+   */
+  private readonly editCellRenderer = new CellRenderer();
+
   constructor(containerEl: HTMLElement, options: GridOptions) {
     this.ctx = this.buildContext(containerEl, options);
     this.api = new GridApi(this.ctx);
     this.initialize();
   }
 
-  private buildContext(containerEl: HTMLElement, options: GridOptions): GridContext {
+  private buildContext(containerEl: HTMLElement, hostOptions: GridOptions): GridContext {
+    // Body row height is the one density dimension a variant cannot express in
+    // CSS (rows are positioned with inline `top`/`height`), so it is resolved
+    // here, once, and every downstream reader picks it up from `ctx.options`.
+    // The host's own value always wins; this only fills the default. A copy â€”
+    // never a mutation of the caller's object.
+    const options: GridOptions = {
+      ...hostOptions,
+      rowHeight: resolveVariantRowHeight(hostOptions.rowHeight, hostOptions.variant),
+    };
+
     const eventBus = new EventBus();
     const store = new GridStore(eventBus);
     const columnModel = new ColumnModel(store, eventBus);
@@ -123,7 +160,18 @@ export class GridCore {
     const importEngine = new ImportEngine(eventBus, clipboardEngine);
     const dragDropEngine = new DragDropEngine(eventBus);
     const undoRedoEngine = new UndoRedoEngine();
-    const cellSelectionEngine = new CellSelectionEngine(store, eventBus, clipboardEngine, undoRedoEngine);
+    // Built before the engines that draw icon-bearing UI (the cell context menu
+    // in particular), so every subsystem resolves glyphs through one registry
+    // rather than embedding its own markup.
+    const iconRegistry = new IconRegistry({ icons: options.icons });
+    const iconRenderer = new IconRenderer(iconRegistry);
+    const cellSelectionEngine = new CellSelectionEngine(
+      store,
+      eventBus,
+      clipboardEngine,
+      undoRedoEngine,
+      iconRenderer,
+    );
     const masterDetailEngine = new MasterDetailEngine(store, eventBus, rowModel);
     const treeExpansionService = new TreeExpansionService(store, eventBus);
     const treeDataService = new TreeDataService(store, eventBus, filterEngine, sortEngine, treeExpansionService);
@@ -146,9 +194,18 @@ export class GridCore {
     });
     const autoFillEngine = new AutoFillEngine(options.autofill);
     const themeManager = new ThemeManager(eventBus);
-    const iconRegistry = new IconRegistry();
-    const iconRenderer = new IconRenderer(iconRegistry);
-    // Toast notifications — shares the grid's icon renderer; the layer mounts to
+    // Binds the icon layer to the theme layer: `applyVariant` fires the handler,
+    // which swaps the registry's variant layer and repaints anything already
+    // drawn. Registered here so the initial `GridOptions.variant` is honoured on
+    // the very first render.
+    const iconThemeController = new IconThemeController(
+      iconRegistry,
+      iconRenderer,
+      containerEl,
+      options.variantIcons,
+    );
+    themeManager.setVariantChangeHandler((variant) => iconThemeController.onVariant(variant));
+    // Toast notifications â€” shares the grid's icon renderer; the layer mounts to
     // document.body so toasts overlay the page and inherit the mirrored theme
     // tokens. Inert until the first toast is shown.
     const toastService = new ToastService(options.toast, { iconRenderer });
@@ -168,7 +225,7 @@ export class GridCore {
       options,
     );
 
-    // ── Column-group wiring ────────────────────────────────────────────────
+    // â”€â”€ Column-group wiring â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // Author-supplied columns are ColumnDefInput (only `field` required); fully
     // normalize the tree once (filling colId/header/type on leaves AND groups)
     // so the group engine and leaf model both work with complete ColumnDefs and
@@ -194,9 +251,9 @@ export class GridCore {
       renderer.setDisplayGroupEngine(engine);
     }
 
-    // ── Master/Detail wiring ────────────────────────────────────────────────
+    // â”€â”€ Master/Detail wiring â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // Injects a factory rather than letting the renderer import `GridCore`
-    // directly — `GridRenderer` must not depend on `GridCore` at the module
+    // directly â€” `GridRenderer` must not depend on `GridCore` at the module
     // level, since `GridCore` already imports `GridRenderer`.
     renderer.setMasterDetailConfig(
       masterDetailEngine,
@@ -206,7 +263,7 @@ export class GridCore {
     );
     // Any refresh the engine itself requests (async `getDetailData` resolving,
     // or the auto-height measurement correcting a detail row's placeholder
-    // height to its real content height) must ALSO be captured for animation —
+    // height to its real content height) must ALSO be captured for animation â€”
     // otherwise the sibling-row slide from the initial toggle click is
     // immediately followed by an uncaptured, instantly-snapping correction,
     // which reads as a jerk right after the smooth expand.
@@ -216,12 +273,12 @@ export class GridCore {
       this.api.refresh();
     });
 
-    // ── Tree Data wiring ────────────────────────────────────────────────────
+    // â”€â”€ Tree Data wiring â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // Async lazy-load resolving, or a drag-to-reparent commit, both need a
-    // pipeline refresh — same DI pattern as `masterDetailEngine` above.
+    // pipeline refresh â€” same DI pattern as `masterDetailEngine` above.
     treeDataService.setRefreshCallback(() => this.api.refresh());
     // Drag-to-reparent is only meaningful for mutable hierarchy sources
-    // (`parentId`/`childrenField`) — `getDataPath`/`custom` are derived and
+    // (`parentId`/`childrenField`) â€” `getDataPath`/`custom` are derived and
     // read-only, so `TreeDataService.moveNode` itself refuses those modes;
     // gating drag detection here too avoids even showing 3-way drop zones
     // for a drag that can never commit.
@@ -257,6 +314,7 @@ export class GridCore {
       themeManager,
       iconRegistry,
       iconRenderer,
+      iconThemeController,
       chartEngine,
       undoRedoEngine,
       masterDetailEngine,
@@ -289,8 +347,8 @@ export class GridCore {
       ctx.rowModelStrategy.rowOrderIsClientOwned === true,
     );
 
-    // AI Theme Engine (gridApi.photonAI) — always present; reuses the configured
-    // Photon AI provider (may be null → LLM methods throw, offline methods work).
+    // AI Theme Engine (gridApi.photonAI) â€” always present; reuses the configured
+    // Photon AI provider (may be null â†’ LLM methods throw, offline methods work).
     ctx.photonThemeEngine = new PhotonThemeEngine(
       createAIProvider(options.photonAI?.provider),
       themeManager,
@@ -308,7 +366,7 @@ export class GridCore {
     const ctx = this.ctx;
 
     // Theming resolves along two axes: `mode` (light/dark) drives the color
-    // palette via token injection, `variant` (ion/neon/…) layers a
+    // palette via token injection, `variant` (ion/neon/â€¦) layers a
     // cosmetic skin as a container class. The deprecated `theme` option is
     // normalized onto these axes only when neither is set explicitly.
     if (options.mode || options.variant) {
@@ -338,7 +396,7 @@ export class GridCore {
         pageSize: options.pagination.pageSize ?? 50,
         pageSizeOptions: options.pagination.pageSizeOptions ?? [10, 25, 50, 100],
         // Both server-backed models paginate remotely: the engine must not
-        // slice locally — the datasource decides which rows exist.
+        // slice locally â€” the datasource decides which rows exist.
         serverSide: options.rowModel === 'server' || options.rowModel === 'infinite'
           ? true
           : (options.pagination.serverSide ?? false),
@@ -348,7 +406,7 @@ export class GridCore {
 
     if (this.normalizedColumns.length) {
       if (this.displayGroupEngine) {
-        // Groups are a header concept — the body operates on leaf columns only.
+        // Groups are a header concept â€” the body operates on leaf columns only.
         ctx.columnModel.initColumns(collectLeaves(this.normalizedColumns));
       } else if (this.columnGroupModel) {
         this.columnGroupModel.init(this.normalizedColumns);
@@ -390,7 +448,7 @@ export class GridCore {
     ctx.renderer.setParentApiForDetail(this.api);
 
     // Photon AI needs the live `GridApi` (to resolve columns and execute
-    // commands), which does not exist until after `buildContext` returns —
+    // commands), which does not exist until after `buildContext` returns â€”
     // so, like the Master/Detail parent-api wiring above, it is constructed
     // here rather than in `buildContext`.
     if (options.photonAI?.enabled) {
@@ -410,10 +468,10 @@ export class GridCore {
         // message and either claims it (`handled`) or passes it on, so adding a
         // capability means adding a link here rather than editing a branch:
         //
-        //   1. Theme engine  — styling requests, applied live to the grid.
-        //   2. Assistant     — questions: docs/examples, code generation, data
+        //   1. Theme engine  â€” styling requests, applied live to the grid.
+        //   2. Assistant     â€” questions: docs/examples, code generation, data
         //                      analysis, and configuration diagnostics.
-        //   3. Command AI    — the fallback: anything that operates the grid.
+        //   3. Command AI    â€” the fallback: anything that operates the grid.
         const assistant = new PhotonAIAssistant(
           this.api,
           options,
@@ -451,7 +509,7 @@ export class GridCore {
     // open, so a later `setRowMenuConfig` call takes effect immediately.
     ctx.cellSelectionEngine.setRowMenuConfig(ctx.options.rowMenu, ctx.iconRenderer, this.api);
 
-    // Import wiring: the Import menu is pure UI — GridCore owns the bridge to the
+    // Import wiring: the Import menu is pure UI â€” GridCore owns the bridge to the
     // engine (via the public GridApi), and fans the engine's completion/error
     // events out to the user-supplied config callbacks.
     if (options.import?.enabled) {
@@ -491,7 +549,7 @@ export class GridCore {
     }
 
     if (options.rowModel === 'server' || options.rowModel === 'infinite') {
-      // Both server-backed models ignore any static `options.data` — the
+      // Both server-backed models ignore any static `options.data` â€” the
       // datasource is the single source of truth. Kick off the initial load:
       // the first page for `'server'`, the first window for `'infinite'`.
       ctx.rowModelStrategy.start?.();
@@ -506,6 +564,29 @@ export class GridCore {
     this.wireEventHandlers(ctx);
     this.wireEditing(ctx);
 
+    // Plugins install last, but before READY. Three reasons this position is
+    // load-bearing:
+    //   • The DOM is mounted, columns are initialized and data is loaded, so a
+    //     plugin's `init` sees a fully built grid rather than a half-built one.
+    //   • Core's own bus handlers are registered first, so for a given event
+    //     they keep the earlier tie-break slot and a plugin observes rather
+    //     than pre-empts.
+    //   • Firing before READY means a host's `onReady` already sees whatever
+    //     the plugin installed.
+    if (options.plugins?.length) {
+      this.pluginHost = new PluginHost(ctx, this.api, options.plugins, {
+        mountPluginLayer: (name, opts) => ctx.renderer.mountPluginLayer(name, opts),
+        readScrollMetrics: () => ctx.renderer.readScrollMetrics(),
+        scheduleRender: () => ctx.renderer.scheduleRender(),
+        setPluginContentWidth: (px) => ctx.renderer.setPluginContentWidth(px),
+        addScrollListener: (cb) => ctx.renderer.addPluginScrollListener(cb),
+      });
+      // Attached before `initAll` because a plugin may call `requestRender()`
+      // from its own `init`, and the very next frame must already dispatch to it.
+      ctx.renderer.setPluginHost(this.pluginHost);
+      this.pluginHost.initAll();
+    }
+
     ctx.eventBus.emit(GridEventType.READY, { api: this.api });
     options.onReady?.(this.api);
   }
@@ -518,7 +599,7 @@ export class GridCore {
     if (o.onChartOptionsChanged) ctx.eventBus.on(GridEventType.CHART_OPTIONS_CHANGED, (p) => o.onChartOptionsChanged!(p as import('../types/event.types').ChartOptionsChangedEvent));
     if (o.onChartDestroyed) ctx.eventBus.on(GridEventType.CHART_DESTROYED, (p) => o.onChartDestroyed!(p as import('../types/event.types').ChartDestroyedEvent));
 
-    // Sort changed from header/menu clicks → snapshot positions then re-run pipeline
+    // Sort changed from header/menu clicks â†’ snapshot positions then re-run pipeline
     ctx.eventBus.on(GridEventType.SORT_CHANGED, () => {
       const currentRows = ctx.store.get('visibleRows') as Array<{ nodeId: string; top: number }>;
       if (currentRows.length > 0) {
@@ -527,7 +608,7 @@ export class GridCore {
       this.api.refresh();
     });
 
-    // Filter changed → snapshot current row positions so the renderer can FLIP-animate
+    // Filter changed â†’ snapshot current row positions so the renderer can FLIP-animate
     // shifted rows and fade-in new rows.  refresh() is called separately by the
     // filter-panel callback, clearAllFilters(), setFilterModel(), etc.
     ctx.eventBus.on(GridEventType.FILTER_CHANGED, () => {
@@ -535,11 +616,11 @@ export class GridCore {
       if (currentRows.length > 0) ctx.renderer.captureRowAnimation(currentRows, 'filter');
     });
 
-    // Pagination nav from footer → re-run pipeline
+    // Pagination nav from footer â†’ re-run pipeline
     ctx.eventBus.on(GridEventType.PAGE_CHANGED, () => this.api.refresh());
     ctx.eventBus.on(GridEventType.PAGE_SIZE_CHANGED, () => this.api.refresh());
 
-    // Group row toggle from body click → smooth expand/collapse animation + re-run pipeline.
+    // Group row toggle from body click â†’ smooth expand/collapse animation + re-run pipeline.
     // Capturing row positions before the toggle lets RowAnimator FLIP-slide rows
     // that shift (filter-mode) and fade-in newly revealed child rows.
     ctx.eventBus.on(GridEventType.ROW_GROUP_OPENED, (payload: unknown) => {
@@ -563,7 +644,7 @@ export class GridCore {
       this.api.refresh();
     });
 
-    // Master/Detail toggle click → capture positions so sibling rows FLIP-slide
+    // Master/Detail toggle click â†’ capture positions so sibling rows FLIP-slide
     // into their new place (same mechanism as ROW_GROUP_OPENED above), flip
     // expanded state, then re-run the pipeline so `MasterDetailEngine.
     // injectDetailRows` inserts/removes the detail row on the next render.
@@ -574,7 +655,7 @@ export class GridCore {
       const currentRows = ctx.store.get('visibleRows') as Array<{ nodeId: string; top: number }>;
       if (currentRows.length > 0) ctx.renderer.captureRowAnimation(currentRows, 'detail');
       // Collapsing: freeze the detail row's current position and start its
-      // shrink/fade before the pipeline drops it — must happen before
+      // shrink/fade before the pipeline drops it â€” must happen before
       // `toggle()`, while `top`/`height` are still valid (see beginDetailCollapse).
       if (ctx.masterDetailEngine.isExpanded(p.row.nodeId)) {
         ctx.renderer.beginDetailCollapse(p.row.nodeId);
@@ -583,7 +664,7 @@ export class GridCore {
       this.api.refresh();
     });
 
-    // Tree Data toggle click (from `applyTreeToggle`'s chevron button) →
+    // Tree Data toggle click (from `applyTreeToggle`'s chevron button) â†’
     // same capture-then-toggle-then-refresh shape as the group/detail
     // handlers above, so expand/collapse gets the same FLIP row animation.
     ctx.eventBus.on(GridEventType.TREE_NODE_TOGGLE_CLICKED, (payload: unknown) => {
@@ -596,7 +677,7 @@ export class GridCore {
   }
 
   /**
-   * Backs `CellSelectionEngine.setTreeToggleHandler` — ArrowLeft collapses a
+   * Backs `CellSelectionEngine.setTreeToggleHandler` â€” ArrowLeft collapses a
    * node (or jumps focus to its parent if already collapsed/leaf), ArrowRight
    * expands a node (or jumps focus to its first child if already expanded).
    * Returns `false` when Tree Data isn't enabled or the row has no children,
@@ -648,11 +729,11 @@ export class GridCore {
    * Wires cell-editing activation and teardown based on the configured
    * `editing.singleClickEdit` flag.
    *
-   * - `singleClickEdit: true`  → edit starts on the first click (CELL_CLICKED)
-   * - `singleClickEdit: false` → edit starts on double-click (CELL_DOUBLE_CLICKED, default)
+   * - `singleClickEdit: true`  â†’ edit starts on the first click (CELL_CLICKED)
+   * - `singleClickEdit: false` â†’ edit starts on double-click (CELL_DOUBLE_CLICKED, default)
    *
    * On `CELL_EDIT_STOP` the cell's inner DOM is immediately restored with the
-   * committed (or cancelled) value — no full grid refresh required.
+   * committed (or cancelled) value â€” no full grid refresh required.
    */
   private wireEditing(ctx: GridContext): void {
     if (ctx.options.editing?.mode === 'none') return;
@@ -666,9 +747,14 @@ export class GridCore {
       const p = payload as CellClickedEvent;
       const { row, colDef } = p;
 
-      // Aggregate cells in group rows are read-only — never start an editor on them.
+      // Aggregate cells in group rows are read-only â€” never start an editor on them.
       if (row.type !== 'data') return;
       if (!colDef.editable) return;
+      // A boolean cell's checkbox *is* its editor: it is rendered live in the
+      // cell and toggles on click (see `wireBooleanCellToggle`). Opening a second
+      // checkbox on top of it would replace the one the user just clicked and
+      // swallow the gesture that opened it.
+      if (colDef.type === 'boolean') return;
       if (ctx.cellEditorEngine.isCellEditing(row.nodeId, colDef.colId)) return;
 
       // Find the cell and its inner element in the DOM
@@ -727,8 +813,8 @@ export class GridCore {
         // at commit time (stopEditing reads the original colDef).
         ctx.cellEditorEngine.buildNativeEditor({ ...colDef, type: 'string' }, editValue, innerEl);
       } else if (colDef.type === 'dropdown' || colDef.type === 'object') {
-        // dropdown / object → custom accessible dropdown with virtual scrolling
-        // Prefer explicit dropdownOptions; fall back to enumOptions (string array → ColumnDropdownOption[])
+        // dropdown / object â†’ custom accessible dropdown with virtual scrolling
+        // Prefer explicit dropdownOptions; fall back to enumOptions (string array â†’ ColumnDropdownOption[])
         const resolvedOpts: ColumnDropdownOption[] =
           colDef.dropdownOptions ??
           (colDef.enumOptions?.map((v) => ({ value: v, label: v })) ?? []);
@@ -748,7 +834,7 @@ export class GridCore {
               );
             },
             onStop: (commit) => {
-              // commit=true → stopEditing(false/cancel=false); commit=false → cancel=true
+              // commit=true â†’ stopEditing(false/cancel=false); commit=false â†’ cancel=true
               ctx.cellEditorEngine.stopEditing(!commit);
             },
             onTab: handleTabEdit,
@@ -761,7 +847,7 @@ export class GridCore {
           },
         );
       } else {
-        // All other types (text, number, date, time, boolean, array, …) use native editors
+        // All other types (text, number, date, time, boolean, array, â€¦) use native editors
         ctx.cellEditorEngine.buildNativeEditor(colDef, value, innerEl);
       }
     };
@@ -817,7 +903,7 @@ export class GridCore {
           { nodeId: p.row.nodeId, colId: p.colDef.colId },
         ]);
         // Dependent formula cells (e.g. `C1 = A1 + B1` when A1 changes) recompute
-        // by mutating their row *data* in place — the owning `RowNode` reference is
+        // by mutating their row *data* in place â€” the owning `RowNode` reference is
         // unchanged. `refresh()`'s cached-row path (`updatePanelRow`) only re-stamps
         // row-level attributes, never cell content, so those dependents would keep
         // their stale DOM. Evict exactly the changed rows so their new values
@@ -882,7 +968,7 @@ export class GridCore {
     // engine is disabled via `GridOptions.autofill`.
     ctx.cellSelectionEngine.setAutoFillEngine(ctx.autoFillEngine);
 
-    // Tab while editing → commit current edit, move to the adjacent cell, and
+    // Tab while editing â†’ commit current edit, move to the adjacent cell, and
     // start editing it (dropdown cells open the dropdown directly).
     const handleTabEdit = (shiftKey: boolean): void => {
       const rows = ctx.store.get('visibleRows') as RowNode[];
@@ -916,7 +1002,11 @@ export class GridCore {
 
     ctx.eventBus.on(trigger, startCellEdit);
 
-    // Enter key on a focused cell → start editing instead of navigating down.
+    this.wireBooleanCellToggle(ctx);
+    this.wireCellButtons(ctx);
+    this.wireAvatarGroups(ctx);
+
+    // Enter key on a focused cell â†’ start editing instead of navigating down.
     // Returns true to absorb the event; false to let the selection engine navigate.
     ctx.cellSelectionEngine.setEnterEditHandler((rowIndex, colIndex) => {
       if (ctx.cellEditorEngine.isEditing()) return false;
@@ -924,7 +1014,7 @@ export class GridCore {
       const cols = ctx.columnModel.getVisibleColumns();
       const row = rows[rowIndex];
       const colDef = cols[colIndex];
-      // Group rows are read-only — fall through to down-navigation.
+      // Group rows are read-only â€” fall through to down-navigation.
       if (!row || row.type !== 'data' || !colDef || !colDef.editable) return false;
       startCellEdit({ row, colDef });
       return true;
@@ -932,127 +1022,234 @@ export class GridCore {
   }
 
   /**
-   * Re-renders the display content of a cell's inner element after an edit
-   * session ends, using the current value from `row.data`.
+   * Wires the inline checkbox a `boolean` column renders in every one of its
+   * cells.
    *
-   * Rendering priority:
-   * 1. `colDef.renderer.display` — custom renderer function (e.g. flag icons)
-   * 2. `colDef.renderHtml`       — raw HTML string
-   * 3. Built-in type rendering   — boolean, dropdown, array, formatted text
+   * ### Why one delegated listener
+   * A viewport can hold thousands of boolean cells, and every cell rebuild
+   * (scroll, sort, column reorder, a Virtual DOM content patch) would have to
+   * re-attach a per-cell listener. One listener on the grid root survives all of
+   * it and costs nothing per cell â€” the same reason row clicks are delegated.
+   *
+   * ### Why the commit goes through the editor engine
+   * A toggle is an edit. Routing it through `startEditing` â†’ `updateValue` â†’
+   * `stopEditing` means it gets the identical treatment a typed edit gets:
+   * `editable`/`locked`/`editing.mode` enforcement, `parseValue` +
+   * `validateValue`, a column `valueSetter`, the immutable row-data swap,
+   * `CELL_EDIT_START` / `CELL_VALUE_CHANGED` / `CELL_EDIT_STOP`, and the commit
+   * flash. Writing `row.data` here instead would be a second, quietly divergent
+   * commit path.
+   *
+   * The checkbox is re-synced from the model afterwards, so a rejected edit
+   * (failed validation, a `valueSetter` that declined) snaps the box back
+   * instead of leaving the DOM claiming a value the row does not hold.
+   */
+  /**
+   * Wires the buttons a `button` cell renderer draws.
+   *
+   * One delegated listener on the grid root, for the same reason the boolean
+   * checkbox uses one: a viewport can hold a button in every visible row, and
+   * every cell rebuild would otherwise have to re-attach a handler.
+   *
+   * The grid does not act on the click — it reports it as
+   * `CELL_BUTTON_CLICKED` and stops. A button column is an application action,
+   * and only the application knows what it means.
+   */
+  /**
+   * Wires the `+N` counter an `avatarGroup` cell draws.
+   *
+   * One delegated listener on the grid root, like the cell button and the
+   * boolean checkbox — a viewport can hold a counter in every visible row.
+   *
+   * The roster is resolved at click time rather than being built with the cell.
+   * A team of two hundred renders three avatars and a counter; materialising
+   * two hundred rows per cell up front, for a panel that is almost never
+   * opened, is the cost this design exists to avoid.
+   */
+  private wireAvatarGroups(ctx: GridContext): void {
+    ctx.containerEl.addEventListener('click', (e: MouseEvent) => {
+      const target = e.target;
+      if (!(target instanceof HTMLElement)) return;
+      const trigger = target.closest<HTMLElement>(`[${AVATAR_GROUP_MORE_ATTR}]`);
+      if (!trigger || (trigger as HTMLButtonElement).disabled) return;
+
+      // Master/Detail nests a whole GridCore inside this one's DOM, so this
+      // listener also sees a nested grid's counters.
+      const ownerWrapper = trigger.closest<HTMLElement>('[data-photon-grid-id]');
+      if (!ownerWrapper || ownerWrapper.parentElement !== ctx.containerEl) return;
+
+      const cellEl = trigger.closest<HTMLElement>('[data-col-id]');
+      const rowEl = trigger.closest<HTMLElement>('[data-node-id]');
+      const colId = cellEl?.getAttribute('data-col-id');
+      const nodeId = rowEl?.getAttribute('data-node-id');
+      if (!colId || !nodeId) return;
+
+      const colDef = ctx.columnModel.getColumn(colId);
+      const row = this.api.getRowNode(nodeId);
+      if (!colDef || !row) return;
+
+      // Pressing the counter is a deliberate action, not a request to select
+      // the cell around it or open its editor.
+      e.stopPropagation();
+
+      // Toggle: a second click on the same counter closes the panel it opened.
+      if (trigger.getAttribute('aria-expanded') === 'true') {
+        closeAvatarGroupOverlay();
+        return;
+      }
+
+      const options = (resolveDisplayRenderer(colDef).options ?? {}) as AvatarGroupRendererOptions;
+      const members = readAvatarGroupMembers(getCellValue(row.data, colDef, this.api), options);
+
+      openAvatarGroupOverlay({
+        trigger,
+        members,
+        options,
+        onSelect: (member, event) => {
+          ctx.eventBus.emit(GridEventType.AVATAR_GROUP_MEMBER_CLICKED, {
+            member,
+            row,
+            colDef,
+            rowIndex: row.rowIndex,
+            event,
+          });
+        },
+      });
+    });
+  }
+
+  private wireCellButtons(ctx: GridContext): void {
+    ctx.containerEl.addEventListener('click', (e: MouseEvent) => {
+      const target = e.target;
+      if (!(target instanceof HTMLElement)) return;
+      const button = target.closest<HTMLButtonElement>(`button[${CELL_BUTTON_ATTR}]`);
+      if (!button || button.disabled) return;
+
+      // Master/Detail nests a whole GridCore inside this one's DOM, so this
+      // listener also sees the nested grid's buttons. Only the wrapper this
+      // instance built is a direct child of its own container.
+      const ownerWrapper = button.closest<HTMLElement>('[data-photon-grid-id]');
+      if (!ownerWrapper || ownerWrapper.parentElement !== ctx.containerEl) return;
+
+      const cellEl = button.closest<HTMLElement>('[data-col-id]');
+      const rowEl = button.closest<HTMLElement>('[data-node-id]');
+      const colId = cellEl?.getAttribute('data-col-id');
+      const nodeId = rowEl?.getAttribute('data-node-id');
+      if (!colId || !nodeId) return;
+
+      const colDef = ctx.columnModel.getColumn(colId);
+      const row = this.api.getRowNode(nodeId);
+      if (!colDef || !row) return;
+
+      // The button is inside a cell, so the click would also start a cell
+      // selection and — with `singleClickEdit` — an editor. Pressing a button
+      // is a deliberate action, not a request to select the cell around it.
+      e.stopPropagation();
+
+      ctx.eventBus.emit(GridEventType.CELL_BUTTON_CLICKED, {
+        action: button.getAttribute(CELL_BUTTON_ATTR) ?? '',
+        row,
+        colDef,
+        value: getCellValue(row.data, colDef, this.api),
+        rowIndex: row.rowIndex,
+        event: e,
+      });
+    });
+  }
+
+  private wireBooleanCellToggle(ctx: GridContext): void {    const resolve = (target: EventTarget | null): {
+      box: HTMLInputElement;
+      row: RowNode;
+      colDef: ColumnDef;
+      cellEl: HTMLElement;
+    } | null => {
+      if (!(target instanceof HTMLElement)) return null;
+      const box = target.closest<HTMLInputElement>('input[data-bool-cell]');
+      if (!box) return null;
+
+      // Master/Detail nests a whole GridCore inside this one's DOM, so this
+      // listener also sees the nested grid's cells. The nearest grid wrapper
+      // identifies the real owner; only the wrapper this instance built is a
+      // direct child of its own container.
+      const ownerWrapper = box.closest<HTMLElement>('[data-photon-grid-id]');
+      if (!ownerWrapper || ownerWrapper.parentElement !== ctx.containerEl) return null;
+
+      const cellEl = box.closest<HTMLElement>('[data-col-id]');
+      const rowEl = box.closest<HTMLElement>('[data-node-id]');
+      const colId = cellEl?.getAttribute('data-col-id');
+      const nodeId = rowEl?.getAttribute('data-node-id');
+      if (!cellEl || !colId || !nodeId) return null;
+
+      const colDef = ctx.columnModel.getColumn(colId);
+      const row = this.api.getRowNode(nodeId);
+      if (!colDef || !row || row.type !== 'data') return null;
+
+      return { box, row, colDef, cellEl };
+    };
+
+    ctx.containerEl.addEventListener('change', (e: Event) => {
+      const hit = resolve(e.target);
+      if (!hit) return;
+      const { box, row, colDef, cellEl } = hit;
+
+      // `disabled` already blocks this in every browser; the guard covers a
+      // programmatic dispatch and keeps the rule in one readable place.
+      if (!isBooleanCellEditable(colDef, ctx.options.editing?.mode !== 'none')) {
+        box.checked = !!getCellValue(row.data, colDef, this.api);
+        return;
+      }
+
+      const next = box.checked;
+      if (ctx.cellEditorEngine.startEditing(row, colDef, cellEl)) {
+        ctx.cellEditorEngine.updateValue(next);
+        ctx.cellEditorEngine.stopEditing(false);
+      }
+
+      // Whatever the commit decided is now the truth; the DOM follows it.
+      box.checked = !!getCellValue(row.data, colDef, this.api);
+    });
+
+    // Space and Enter toggle a focused checkbox natively. Stopping propagation
+    // keeps the grid's own key handling (cell navigation, range selection,
+    // Enter-to-edit) from acting on the same keystroke.
+    ctx.containerEl.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (e.key !== ' ' && e.key !== 'Enter') return;
+      if (!resolve(e.target)) return;
+      e.stopPropagation();
+    });
+  }
+
+  /**
+   * Re-renders a cell's inner element after an edit session ends, using the
+   * current value from `row.data`.
+   *
+   * Delegates to `CellRenderer.renderCellContent` — the exact code path the
+   * initial render and the Virtual DOM patch take — rather than reproducing the
+   * rendering rules here. It used to hold its own copy of that logic, and the
+   * copy had drifted: no `image` case, no `sparkline` case, a literal tick where
+   * the cell renderer drew a checkbox, and `|| '—'` where the renderer used
+   * `?? ''`. A committed edit therefore repainted some cells differently from
+   * how they were first drawn, until the next full render put them back.
    */
   private renderCellValue(innerEl: HTMLElement, row: RowNode, colDef: ColumnDef): void {
-    innerEl.innerHTML = '';
+    const cols = this.ctx.columnModel.getVisibleColumns();
     const value = getCellValue(row.data, colDef, this.api);
-
-    const displayFn = resolveColumnRenderer(colDef, 'display');
-    if (displayFn) {
-      const cols     = this.ctx.columnModel.getVisibleColumns();
-      const colIndex = cols.findIndex((c) => c.colId === colDef.colId);
-      const params: DisplayRendererParams = {
-        value,
-        rawValue: colDef.valueGetter ? resolveFieldPath(row.data, colDef.field) : value,
-        row: row.data,
-        colDef,
-        rowIndex: row.rowIndex,
-        colIndex,
-        api: this.api,
-      };
-      const rendered = displayFn(params);
-      if (typeof rendered === 'string') {
-        innerEl.innerHTML = rendered;
-      } else {
-        innerEl.appendChild(rendered);
-      }
-      return;
-    }
-
-    if (colDef.renderHtml) {
-      innerEl.innerHTML = String(value ?? '');
-      return;
-    }
-
-    // A column-level valueFormatter owns the textual presentation across all
-    // types — keep it consistent with CellRenderer's default-cell path.
-    if (colDef.valueFormatter) {
-      const span = document.createElement('span');
-      span.className = 'pg-cell__value';
-      const formatted = formatCellValue(row.data, colDef, value, {
-        locale: this.ctx.options.locale,
-        dateFormat: this.ctx.options.dateFormat,
-        timeZone: this.ctx.options.timeZone,
-        currencySymbol: this.ctx.options.currencySymbol,
-      }, this.api);
-      span.textContent = formatted || '—';
-      innerEl.appendChild(span);
-      return;
-    }
-
-    const span  = document.createElement('span');
-    span.className = 'pg-cell__value';
-
-    switch (colDef.type) {
-      case 'boolean': {
-        span.textContent = value ? '✓' : '';
-        span.classList.add(value ? 'pg-cell--bool-true' : 'pg-cell--bool-false');
-        break;
-      }
-
-      case 'dropdown':
-      case 'object': {
-        const key = colDef.type === 'object' && typeof value === 'object' && value !== null
-          ? (value as Record<string, unknown>)[colDef.objectValueKey ?? 'value']
-          : value;
-        const opt = colDef.dropdownOptions?.find((o) => String(o.value) === String(key ?? ''));
-        if (opt?.color) {
-          const badge = document.createElement('div');
-          badge.className = 'pg-badge';
-          badge.style.backgroundColor = opt.color + '20';
-          badge.style.color = opt.color;
-          badge.textContent = opt.label;
-          span.appendChild(badge);
-        } else {
-          span.textContent = opt?.label ?? String(key ?? '');
-        }
-        break;
-      }
-
-      case 'array': {
-        span.className = 'pg-cell__value pg-cell__value--tags';
-        const vals = Array.isArray(value) ? value.map(String) : [];
-        const visible = vals.slice(0, 3);
-        for (const v of visible) {
-          const opt = colDef.dropdownOptions?.find((o) => String(o.value) === v);
-          const badge = document.createElement('div');
-          badge.className = 'pg-badge';
-          badge.textContent = opt?.label ?? v;
-          if (opt?.color) {
-            badge.style.backgroundColor = opt.color + '20';
-            badge.style.color = opt.color;
-          }
-          span.appendChild(badge);
-        }
-        if (vals.length > visible.length) {
-          const more = document.createElement('div');
-          more.className = 'pg-badge pg-badge--overflow';
-          more.textContent = `+${vals.length - visible.length}`;
-          span.appendChild(more);
-        }
-        break;
-      }
-
-      default: {
-        const formatted = formatValue(value, colDef, {
-          locale: this.ctx.options.locale,
-          dateFormat: this.ctx.options.dateFormat,
-          timeZone: this.ctx.options.timeZone,
-          currencySymbol: this.ctx.options.currencySymbol,
-        });
-        span.textContent = formatted || '—';
-        span.title = formatted || '';
-      }
-    }
-
-    innerEl.appendChild(span);
+    // `rawValue` differs from `value` only when a valueGetter is configured;
+    // sharing one read otherwise keeps this off the allocation path.
+    const rawValue = colDef.valueGetter ? resolveFieldPath(row.data, colDef.field) : value;
+    this.editCellRenderer.renderCellContent(innerEl, value, rawValue, {
+      row,
+      colDef,
+      rowIndex: row.rowIndex,
+      colIndex: cols.findIndex((c) => c.colId === colDef.colId),
+      iconRenderer: this.ctx.iconRenderer,
+      dateFormat: this.ctx.options.dateFormat,
+      timeZone: this.ctx.options.timeZone,
+      currencySymbol: this.ctx.options.currencySymbol,
+      locale: this.ctx.options.locale,
+      editingEnabled: this.ctx.options.editing?.mode !== 'none',
+      api: this.api,
+    });
   }
 
   private loadState(stateKey: string): void {
@@ -1073,6 +1270,22 @@ export class GridCore {
   }
 
   destroy(): void {
+    // The avatar roster lives on `document.body`, outside everything the
+    // renderer owns, so it would survive the grid that opened it.
+    destroyAvatarGroupOverlay();
+
+    // Plugins go first, and it has to be first. `api.destroy()` below calls
+    // `eventBus.clear()` -- which drops every subscription with no per-subscriber
+    // teardown -- and `renderer.destroy()`, which removes the grid element and
+    // with it any plugin layer. A plugin torn down after either would find its
+    // elements orphaned and its unsubscribes already no-ops.
+    this.pluginHost?.destroyAll();
+    this.pluginHost = null;
+
+    // Breaks the ThemeManager -> IconThemeController -> containerEl cycle before
+    // anything else is torn down, so a late variant change cannot repaint into
+    // a detached tree.
+    this.ctx.themeManager.setVariantChangeHandler(null);
     this.ctx.rowModelStrategy.destroy();
     this.ctx.rangeChartService?.disposeAll();
     this.api.destroy();

@@ -92,6 +92,12 @@ export interface VDomRenderContext {
   readonly locale?: string;
   /** Grid API handed to custom renderers and value getters. */
   readonly api: unknown;
+  /**
+   * Whether the grid permits editing (`GridOptions.editing.mode !== 'none'`).
+   * Consulted only by `boolean` columns, to keep a patched checkbox's
+   * `disabled` state in step with the initial render's.
+   */
+  readonly editingEnabled?: boolean;
 }
 
 /**

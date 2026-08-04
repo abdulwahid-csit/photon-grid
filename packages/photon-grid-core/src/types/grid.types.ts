@@ -2,6 +2,10 @@ import type { ColumnDef, ColumnDefInput, ColumnState, HeaderIconDisplay } from '
 import type { RowNode } from './row.types';
 import type { FilterModel, QuickFilterConfig } from './filter.types';
 import type { BuiltInThemeName, ThemeMode, ThemeVariant } from './theme.types';
+import type { IconSet, VariantIconSets } from './icon.types';
+// Type-only: keeps the plugin module out of core's runtime import graph, so a
+// grid without plugins pulls in no plugin code at all.
+import type { GridPlugin } from '../plugins/plugin.types';
 import type { MasterDetailConfig } from './master-detail.types';
 import type { PhotonAIConfig } from './photon-ai.types';
 import type { TreeDataConfig } from './tree-data.types';
@@ -54,9 +58,9 @@ export interface SortConfig {
  *
  * @example
  * ```ts
- * // Always show the filter funnel, and hide the "⋯" menu icon entirely.
+ * // Reveal the filter funnel only on hover, and hide the "⋯" menu icon entirely.
  * headerIcons: {
- *   filter: HeaderIconDisplay.ALWAYS,
+ *   filter: HeaderIconDisplay.HOVER,
  *   menu:   HeaderIconDisplay.HIDDEN,
  * }
  * ```
@@ -66,13 +70,13 @@ export interface HeaderIconsConfig {
    * Default display mode for the filter funnel icon on filterable columns.
    * `HIDDEN` suppresses the funnel entirely (filtering remains available via
    * the filter row).
-   * @default HeaderIconDisplay.HOVER
+   * @default HeaderIconDisplay.ALWAYS
    */
   filter?: HeaderIconDisplay;
   /**
    * Default display mode for the column-menu "⋯" icon. `HIDDEN` removes the
    * three-dots button (the header right-click menu still works).
-   * @default HeaderIconDisplay.HOVER
+   * @default HeaderIconDisplay.ALWAYS
    */
   menu?: HeaderIconDisplay;
 }
@@ -207,7 +211,7 @@ export interface ColumnGroupConfig {
 
 export interface GridOptions {
   /** Column definitions. Only `field` is required per column — see {@link ColumnDefInput}. */
-  columns: ColumnDefInput[];
+  columns?: ColumnDefInput[];
   data?: Record<string, unknown>[];
 
   /**
@@ -236,6 +240,34 @@ export interface GridOptions {
    * axes at runtime.
    */
   theme?: BuiltInThemeName | string;
+
+  /**
+   * Icon overrides, keyed by registry name.
+   *
+   * Highest precedence: these survive a theme change, so an application's own
+   * glyphs are never replaced by a variant's pack. Names not listed here resolve
+   * through the active variant's pack, then the shared default set.
+   *
+   * @example Replace one glyph everywhere
+   * ```ts
+   * icons: { check: '<svg viewBox="0 0 16 16">…</svg>' }
+   * ```
+   */
+  icons?: IconSet;
+
+  /**
+   * Per-variant icon packs, merged over the built-in pack for that variant.
+   *
+   * Use this to give one theme its own family without touching the others.
+   * Partial at both levels — an unlisted variant keeps its built-in pack, and an
+   * unlisted name inside a pack falls through to the default set.
+   *
+   * @example Give Neon a custom sort indicator
+   * ```ts
+   * variantIcons: { neon: { sortAsc: '<svg viewBox="0 0 16 16">…</svg>' } }
+   * ```
+   */
+  variantIcons?: VariantIconSets;
 
   rowHeight?: number;
   rowHeightMode?: 'fixed' | 'auto';
@@ -508,6 +540,26 @@ export interface GridOptions {
 
   suppressScrollOnNewData?: boolean;
   suppressColumnVirtualisation?: boolean;
+
+  /**
+   * Optional feature plugins to install into this grid.
+   *
+   * A plugin owns DOM inside the grid and follows its virtualization, without
+   * shipping in the core bundle — core never imports a plugin implementation.
+   * Omitting this (the default) costs nothing beyond one `undefined` check.
+   *
+   * Plugins initialize after the grid is fully built and before
+   * `GridEventType.READY`, and are torn down first on destroy. One plugin
+   * failing cannot break the grid or its siblings — see {@link GridPlugin}.
+   *
+   * @example
+   * ```ts
+   * import { SchedulerPlugin } from 'photon-grid-core/plugins/scheduler';
+   *
+   * new GridCore(el, { columns, data, plugins: [new SchedulerPlugin({ ... })] });
+   * ```
+   */
+  plugins?: GridPlugin[];
 
   onReady?: (api: unknown) => void;
 

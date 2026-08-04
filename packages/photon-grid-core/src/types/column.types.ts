@@ -1,6 +1,7 @@
 import type { SparklineConfig } from '../chart/sparkline/sparkline.types';
 import type { ColumnGroupResizeStrategy } from '../column-groups/column-group.types';
-import type { ColumnRendererMap, DisplayRendererParams } from './renderer.types';
+import type { ColumnRenderer, ColumnRendererMap, DisplayRendererParams } from './renderer.types';
+import type { BuiltInRenderer } from './built-in-renderer.types';
 import type { ValueGetterFn, ValueSetterFn, ValueFormatterFn } from './value.types';
 
 export type ColumnPinPosition = 'left' | 'right' | null;
@@ -8,29 +9,39 @@ export type ColumnPinPosition = 'left' | 'right' | null;
 /**
  * Supported data types for a column.
  *
- * | Value        | Cell rendering                                         |
- * |--------------|--------------------------------------------------------|
- * | `string`     | Plain text                                             |
- * | `number`     | Locale-formatted number                                |
- * | `boolean`    | Check-mark icon                                        |
- * | `date`       | Formatted date string                                  |
- * | `time`       | Formatted time string                                  |
- * | `dropdown`   | Badge from `dropdownOptions`                           |
- * | `object`     | Badge resolved via `objectValueKey`                    |
- * | `array`      | Tag badges (up to 3 visible)                           |
- * | `image`      | `<img>` thumbnail                                      |
- * | `currency`   | Currency-formatted number                              |
- * | `percentage` | Percentage-formatted number                            |
- * | `email`      | Plain email text                                       |
- * | `sparkline`  | Mini chart — requires `ColumnDef.sparkline` config     |
- * | `custom`     | Delegated to `renderer.display`                        |
+ * The type drives sorting, filtering, editing and export. It also picks the
+ * column's **default renderer** when {@link ColumnDef.renderer} is not set —
+ * see `DEFAULT_RENDERER_BY_TYPE`, which is the authoritative mapping.
+ *
+ * | Value        | Default renderer | Cell rendering                          |
+ * |--------------|------------------|-----------------------------------------|
+ * | `string`     | `text`           | Plain text                              |
+ * | `number`     | `number`         | Locale-formatted number                 |
+ * | `boolean`    | `checkbox`       | Interactive checkbox                    |
+ * | `date`       | `date`           | Formatted date                          |
+ * | `datetime`   | `datetime`       | Formatted date + time                   |
+ * | `time`       | `time`           | Formatted time                          |
+ * | `duration`   | `duration`       | Elapsed time, e.g. `2h 15m`             |
+ * | `dropdown`   | `badge`          | Badge from `dropdownOptions`            |
+ * | `object`     | `badge`          | Badge resolved via `objectValueKey`     |
+ * | `array`      | `list`           | Tag badges (up to 3 visible)            |
+ * | `image`      | `image`          | `<img>` thumbnail                       |
+ * | `currency`   | `currency`       | Currency-formatted number               |
+ * | `percentage` | `percentage`     | Percentage-formatted number             |
+ * | `email`      | `email`          | `mailto:` link                          |
+ * | `phone`      | `phone`          | `tel:` link                             |
+ * | `url`        | `link`           | Anchor                                  |
+ * | `sparkline`  | `sparkline`      | Mini chart — requires `ColumnDef.sparkline` |
+ * | `custom`     | `text`           | Delegated to `renderer`                 |
  */
 export type ColumnDataType =
   | 'string'
   | 'number'
   | 'boolean'
   | 'date'
+  | 'datetime'
   | 'time'
+  | 'duration'
   | 'dropdown'
   | 'object'
   | 'array'
@@ -38,8 +49,11 @@ export type ColumnDataType =
   | 'currency'
   | 'percentage'
   | 'email'
+  | 'phone'
+  | 'url'
   | 'sparkline'
   | 'custom';
+
 
 export type ColumnSummaryAggregation = 'sum' | 'avg' | 'min' | 'max' | 'count' | 'none';
 
@@ -69,11 +83,15 @@ export enum HeaderIconDisplay {
   /**
    * Icon stays hidden until the pointer hovers the header cell (or the icon is
    * otherwise activated — e.g. a column with an active filter always shows its
-   * funnel). This is the default and matches the classic "reveal on hover"
-   * behaviour.
+   * funnel). This is the classic "reveal on hover" behaviour; opt in when a
+   * denser, quieter header is preferred over discoverability.
    */
   HOVER = 'hover',
-  /** Icon is permanently rendered, regardless of hover state. */
+  /**
+   * Icon is permanently rendered, regardless of hover state. This is the
+   * default — header actions stay discoverable without requiring a hover, and
+   * the header layout does not shift as the pointer moves across columns.
+   */
   ALWAYS = 'always',
   /**
    * Icon is never rendered. The underlying feature remains available through
@@ -269,7 +287,7 @@ export interface ColumnDef {
    * is not `false`). Overrides the grid-level {@link HeaderIconsConfig.filter}
    * default.
    *
-   * @default HeaderIconDisplay.HOVER
+   * @default HeaderIconDisplay.ALWAYS
    */
   filterIconDisplay?: HeaderIconDisplay;
 
@@ -278,7 +296,7 @@ export interface ColumnDef {
    * Only relevant while the column menu is enabled for the grid. Overrides the
    * grid-level {@link HeaderIconsConfig.menu} default.
    *
-   * @default HeaderIconDisplay.HOVER
+   * @default HeaderIconDisplay.ALWAYS
    */
   menuIconDisplay?: HeaderIconDisplay;
 
@@ -296,13 +314,26 @@ export interface ColumnDef {
   menu?: import('./column-menu.types').ColumnMenuConfig;
 
   /**
-   * Per-column rendering overrides, grouped by concern (display, editor,
-   * option, filter, tooltip, group, header, summary). Any slot left unset
+   * How this column's cells are drawn.
+   *
+   * Four forms, all optional — a column that sets none gets a renderer inferred
+   * from its {@link ColumnDef.type}:
+   *
+   * ```ts
+   * renderer: 'country'                                   // built-in, by name
+   * renderer: { name: 'progress', options: { max: 10 } }  // built-in, configured
+   * renderer: ({ value }) => `<b>${value}</b>`            // custom display fn
+   * renderer: { display: fn, editor: fn, filter: fn }     // per-slot overrides
+   * ```
+   *
+   * The last form is the original API and is unchanged: any slot left unset
    * falls back to Photon Grid's built-in rendering for that concern.
    *
+   * @see {@link ColumnRenderer}
    * @see {@link ColumnRendererMap}
+   * @see {@link BuiltInRenderer}
    */
-  renderer?: ColumnRendererMap;
+  renderer?: ColumnRenderer;
 
   dropdownOptions?: ColumnDropdownOption[];
   enumOptions?: string[];

@@ -87,7 +87,7 @@ function harness(config: Partial<MasterDetailConfig>): Harness {
   const container = new StubElement('div');
 
   return {
-    deps: { engine, api, collapse: (id) => void collapsed.push(id), verticalPadding: VERTICAL_PADDING },
+    deps: { engine, api, collapse: (id) => void collapsed.push(id), verticalChrome: VERTICAL_PADDING },
     container,
     setHeight,
     emitted,
@@ -496,6 +496,48 @@ describe('DetailComponentHost — height', () => {
 
     expect(h.setHeight).toHaveBeenCalledTimes(1);
     expect(h.setHeight).toHaveBeenCalledWith('acct-1', 340);
+  });
+
+  /**
+   * The ratchet this guards against: `measureContentHeight` rounds up, so on a
+   * display with fractional device-pixel scaling every measurement reads one
+   * pixel taller than the height just applied. Acting on that grows the panel
+   * a pixel per frame — the "detail area keeps getting taller, but only at
+   * 100% zoom" report. A one-pixel delta must therefore read as converged.
+   *
+   * Driven through `ctx.updateHeight()` (no argument = measure), which is the
+   * same code path the `ResizeObserver` and the post-mount frame both take.
+   */
+  it('treats a one-pixel measurement drift as converged, so the panel cannot ratchet', () => {
+    const h = harness({ renderer: TrackedComponent });
+    mountHost(h);
+
+    h.hostEl()!.scrollHeight = 200;
+    tracked().ctx.updateHeight();
+    expect(h.setHeight).toHaveBeenCalledTimes(1);
+    expect(h.setHeight).toHaveBeenLastCalledWith('acct-1', 200 + VERTICAL_PADDING);
+
+    // A true echo: each measurement reads back one pixel more than the height
+    // that was just applied. Left unchecked this never terminates.
+    for (let round = 0; round < 6; round++) {
+      const lastApplied = h.setHeight.mock.lastCall![1] as number;
+      h.hostEl()!.scrollHeight = lastApplied - VERTICAL_PADDING + 1;
+      tracked().ctx.updateHeight();
+    }
+
+    expect(h.setHeight).toHaveBeenCalledTimes(1);
+  });
+
+  it('still reacts to a real content change', () => {
+    const h = harness({ renderer: TrackedComponent });
+    mountHost(h);
+
+    h.hostEl()!.scrollHeight = 200;
+    tracked().ctx.updateHeight();
+    h.hostEl()!.scrollHeight = 340;
+    tracked().ctx.updateHeight();
+
+    expect(h.setHeight).toHaveBeenLastCalledWith('acct-1', 340 + VERTICAL_PADDING);
   });
 
   it('never measures when auto-height is off, so a fixed or resizable row keeps its size', () => {

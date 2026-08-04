@@ -17,6 +17,7 @@ import { columnGroupHeaderCss } from './base/column-group-header.css';
 import { filterCss }            from './base/filter.css';
 import { rowsCss }              from './base/rows.css';
 import { cellsCss }             from './base/cells.css';
+import { builtInRenderersCss }  from './base/built-in-renderers.css';
 import { contextMenuCss }       from './base/context-menu.css';
 import { rowGroupCss }          from './base/row-group.css';
 import { treeCss }              from './base/tree.css';
@@ -40,6 +41,7 @@ import { importMenuCss }        from './base/import-menu.css';
 import { toolbarCss }           from './base/toolbar.css';
 import { themeManagerCss }      from './base/theme-manager.css';
 import { toastCss }             from './base/toast.css';
+import { pluginLayerCss }  from './base/plugin-layer.css';
 import { touchCss }             from './base/touch.css';
 
 const STYLE_ID = 'photon-grid-base-styles';
@@ -58,6 +60,12 @@ const baseCss = [
   rowsCss,
   cellsCss,
   contextMenuCss,
+  // After the modules that define the base cell primitives it refines
+  // (`.pg-cell__value` in cellsCss; `.pg-badge` and `.pg-cell-checkbox` in
+  // contextMenuCss), so a renderer variant wins a same-specificity tie against
+  // the base rule rather than losing to it. Rules that must also outrank a
+  // module further down the list raise their own specificity — see the switch.
+  builtInRenderersCss,
   rowGroupCss,
   treeCss,
   scrollbarsCss,
@@ -82,6 +90,9 @@ const baseCss = [
   themeManagerCss,
   toastCss,
   touchCss,
+  // Last: plugin layers stack above everything the grid draws itself, so their
+  // structural rules should win any same-specificity tie.
+  pluginLayerCss,
 ].join('');
 
 // Variant skins are appended after the base rules. Each is a cosmetic layer

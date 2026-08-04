@@ -1,3 +1,4 @@
+﻿import { DIMENSION_COLUMN_TYPES, NUMERIC_COLUMN_TYPES } from '../types/column-type-traits';
 import type { GridContext } from '../core/grid-context';
 import type { RowNode } from '../types/row.types';
 import type { ColumnDef } from '../types/column.types';
@@ -10,11 +11,11 @@ import { applyModelChange, type ChartModel, type ChartModelPatch } from './model
 import { buildChartData, toRenderOptions } from './model/chart-model-mapper';
 
 /** Column data types treated as measures (plottable series). */
-const MEASURE_TYPES = new Set<string>(['number', 'currency', 'percentage']);
+const MEASURE_TYPES: ReadonlySet<string> = NUMERIC_COLUMN_TYPES;
 /** Column data types treated as dimensions (category candidates). */
-const DIMENSION_TYPES = new Set<string>(['string', 'dropdown', 'date', 'boolean', 'email']);
+const DIMENSION_TYPES: ReadonlySet<string> = DIMENSION_COLUMN_TYPES;
 
-/** Default `⋮` toolbar items in display order. */
+/** Default `â‹®` toolbar items in display order. */
 const DEFAULT_TOOLBAR_ITEMS: readonly ChartToolbarItem[] = ['edit', 'advancedSettings', 'unlink', 'download'];
 
 /**
@@ -47,7 +48,7 @@ export class RangeChartController implements ChartPanelHost, ChartToolPanelHost 
     private readonly onDestroyed: (chartId: string) => void,
   ) {
     this.model = model;
-    this.panel = new ChartPanel(hostEl);
+    this.panel = new ChartPanel(hostEl, ctx.iconRenderer);
   }
 
   /** Opens the chart and, for a linked chart, subscribes to grid data changes. */
@@ -144,7 +145,7 @@ export class RangeChartController implements ChartPanelHost, ChartToolPanelHost 
     this.onDestroyed(this.model.chartId);
   }
 
-  // ── ChartPanelHost ─────────────────────────────────────────────────────────
+  // â”€â”€ ChartPanelHost â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   getRenderOptions(size: { width: number; height: number }): ChartRenderOptions {
     return toRenderOptions(this.model, size);
@@ -176,14 +177,14 @@ export class RangeChartController implements ChartPanelHost, ChartToolPanelHost 
 
   onMove(_rect: DOMRect): void {
     // The configuration drawer is a child of the chart card, so it moves with
-    // the card automatically — no external re-docking is required.
+    // the card automatically â€” no external re-docking is required.
   }
 
   onClose(): void {
     this.dispose();
   }
 
-  // ── ChartToolPanelHost ─────────────────────────────────────────────────────
+  // â”€â”€ ChartToolPanelHost â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   getColumnOptions(): ChartColumnOption[] {
     const visible = this.ctx.columnModel.getVisibleColumns() as ColumnDef[];
@@ -219,7 +220,7 @@ export class RangeChartController implements ChartPanelHost, ChartToolPanelHost 
     return this.ctx.options.chartToolPanelsDef?.defaultToolPanel ?? 'chart';
   }
 
-  // ── Internals ──────────────────────────────────────────────────────────────
+  // â”€â”€ Internals â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   private buildData() {
     const allRows = this.ctx.store.get('visibleRows') as RowNode[];
@@ -229,7 +230,7 @@ export class RangeChartController implements ChartPanelHost, ChartToolPanelHost 
 
   /**
    * Restricts the source rows to the chart's selected cell range, so the chart
-   * plots only the rows the user highlighted — not the entire data set. The
+   * plots only the rows the user highlighted â€” not the entire data set. The
    * range is positional (indices into the current `visibleRows`), which keeps a
    * linked chart tracking the same slice as the grid is sorted or filtered.
    *

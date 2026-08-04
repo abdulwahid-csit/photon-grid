@@ -16,10 +16,18 @@ import { clearChildren, createDiv } from './dom-utils';
 const EMPTY_PROPS: Readonly<Record<string, unknown>> = Object.freeze({});
 
 /**
- * Sub-pixel deadband (px) for auto-height. Fractional row offsets make
- * `getBoundingClientRect().height` wobble in the last decimal between frames;
- * without a floor, every wobble would be a height change and every height
- * change is a pipeline run.
+ * Sub-pixel deadband (px) for auto-height: a measured content height within
+ * this much of the one already applied is treated as unchanged.
+ *
+ * The bound is **inclusive**, and that is load-bearing rather than fussy.
+ * {@link DetailComponentHost.measureContentHeight} rounds up, so on a display
+ * with fractional device-pixel scaling a height that is really 158.3px reads as
+ * 159 — and if anything inside the row echoes the row's own height back (a
+ * stretched flex item, `height: 100%`), the next measurement reads 159.3 → 160,
+ * then 161, and the panel ratchets a pixel taller per frame instead of
+ * settling. An exclusive bound lets that through, because each step *is*
+ * exactly one pixel. Nothing a consumer can perceive rides on a single pixel of
+ * detail height, so refusing to act on one costs nothing and closes the ratchet.
  */
 const HEIGHT_EPSILON_PX = 1;
 
@@ -349,15 +357,34 @@ export class DetailComponentHost {
    * Clamping to `detailMinHeight`/`detailMaxHeight` and the change detection
    * that avoids a redundant pipeline run both live in
    * `MasterDetailEngine.setDetailHeight`.
+   *
+   * An explicit height is honoured to the pixel; only a *measured* one goes
+   * through the {@link HEIGHT_EPSILON_PX} deadband, since only a measurement
+   * can be off by a rounding step it did not mean.
    */
   private updateHeight(height?: number): void {
     if (this.destroyed) return;
-    if (height !== undefined) this.heightPinned = true;
 
-    const content = height === undefined ? this.measureContentHeight() : Math.ceil(height);
-    if (content <= 0 || Math.abs(content - this.lastContentHeight) < HEIGHT_EPSILON_PX) return;
+    if (height !== undefined) {
+      this.heightPinned = true;
+      const explicit = Math.ceil(height);
+      if (explicit <= 0 || explicit === this.lastContentHeight) return;
+      this.applyContentHeight(explicit);
+      return;
+    }
 
+    const content = this.measureContentHeight();
+    if (!this.isMeaningfulChange(content)) return;
     this.applyContentHeight(content);
+  }
+
+  /**
+   * Whether a freshly measured content height differs from the applied one by
+   * enough to be worth a pipeline run. See {@link HEIGHT_EPSILON_PX} for why
+   * a one-pixel difference specifically must not qualify.
+   */
+  private isMeaningfulChange(content: number): boolean {
+    return content > 0 && Math.abs(content - this.lastContentHeight) > HEIGHT_EPSILON_PX;
   }
 
   private applyContentHeight(content: number): void {
@@ -425,7 +452,7 @@ export class DetailComponentHost {
    */
   private measureAndApply(): void {
     const content = this.measureContentHeight();
-    if (content <= 0 || Math.abs(content - this.lastContentHeight) < HEIGHT_EPSILON_PX) {
+    if (!this.isMeaningfulChange(content)) {
       this.autoCorrections = 0; // converged
       return;
     }

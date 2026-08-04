@@ -19,6 +19,7 @@ import type { CellSelectionEngine } from '../cell-selection/cell-selection-engin
 import type { ThemeManager } from '../theme/theme-manager';
 import type { IconRegistry } from '../icons/icon-registry';
 import type { IconRenderer } from '../icons/icon-renderer';
+import type { IconThemeController } from '../icons/icon-theme-controller';
 import type { ChartEngine } from '../chart/chart-engine';
 import type { RangeChartService } from '../chart/range-chart-service';
 import type { AggregationEngine } from '../engines/aggregation/aggregation-engine';
@@ -82,6 +83,12 @@ export interface GridContext {
    * same registry the rest of the grid uses, instead of embedding markup.
    */
   iconRenderer: IconRenderer;
+  /**
+   * Keeps {@link iconRegistry} in step with the active theme variant, and
+   * repaints icons already in the DOM when the pack changes. Internal — hosts
+   * reach it through the icon methods on `GridApi`.
+   */
+  iconThemeController: IconThemeController;
   chartEngine: ChartEngine;
   /**
    * Manages AG-Grid-style range charts (configurable, live-linked). Assigned in

@@ -71,8 +71,8 @@ export class ScrollController {
 
   private abortCtrl: AbortController | null = null;
   private resizeObs: ResizeObserver | null = null;
-  private scrollYCb: ScrollYCallback | null = null;
-  private scrollXCb: (() => void) | null = null;
+  private scrollYCbs: ScrollYCallback[] = [];
+  private scrollXCbs: Array<() => void> = [];
   /**
    * When `true`, the vertical scrollbar column is never collapsed to 0 width
    * — it stays reserved (a "stable gutter") even while `totalHeight <=
@@ -84,8 +84,65 @@ export class ScrollController {
    */
   private reserveVerticalGutter = false;
 
-  onScrollY(cb: ScrollYCallback): void { this.scrollYCb = cb; }
-  onScrollX(cb: () => void): void { this.scrollXCb = cb; }
+  /**
+   * Subscribes to vertical scroll. **Multicast** — every registered callback
+   * runs on each change, in registration order.
+   *
+   * Was a single-slot setter through v2.0.10, where a second call silently
+   * *replaced* the first. That made it a trap for anything outside the renderer:
+   * `GridRenderer` claims a slot for its own `scheduleRender()`, so a plugin
+   * subscribing would have disabled the grid's re-render with no error. The only
+   * signature change is the return value, so existing call sites that discard it
+   * are unaffected.
+   *
+   * @returns Unsubscribe. Callbacks fire **synchronously during the scroll**,
+   *   ahead of the animation frame `scheduleRender` books — so do cheap work
+   *   here and structural DOM work in the render callback.
+   */
+  onScrollY(cb: ScrollYCallback): () => void {
+    this.scrollYCbs.push(cb);
+    return () => {
+      const i = this.scrollYCbs.indexOf(cb);
+      if (i !== -1) this.scrollYCbs.splice(i, 1);
+    };
+  }
+
+  /** Subscribes to horizontal scroll. Multicast; see {@link onScrollY}. */
+  onScrollX(cb: () => void): () => void {
+    this.scrollXCbs.push(cb);
+    return () => {
+      const i = this.scrollXCbs.indexOf(cb);
+      if (i !== -1) this.scrollXCbs.splice(i, 1);
+    };
+  }
+
+  /**
+   * Notifies vertical-scroll subscribers.
+   *
+   * Iterates a snapshot so a callback that unsubscribes (itself or a sibling)
+   * cannot corrupt the walk, and isolates failures per listener — one bad
+   * subscriber must not stop the grid from re-rendering.
+   */
+  private fireScrollY(scrollTop: number): void {
+    for (const cb of [...this.scrollYCbs]) {
+      try {
+        cb(scrollTop);
+      } catch (err) {
+        console.error('[PhotonGrid] scroll listener failed:', err);
+      }
+    }
+  }
+
+  /** Notifies horizontal-scroll subscribers. See {@link fireScrollY}. */
+  private fireScrollX(): void {
+    for (const cb of [...this.scrollXCbs]) {
+      try {
+        cb();
+      } catch (err) {
+        console.error('[PhotonGrid] scroll listener failed:', err);
+      }
+    }
+  }
 
   setReserveVerticalGutter(reserve: boolean): void {
     this.reserveVerticalGutter = reserve;
@@ -150,7 +207,7 @@ export class ScrollController {
       // Viewport height is part of both scroll ranges, so a resize changes the
       // content⇄track ratio; restate the thumb against the new one.
       this.writeTrackY();
-      this.scrollXCb?.();
+      this.fireScrollX();
     });
     this.resizeObs.observe(bodyEl);
     this.resizeObs.observe(centerBodyEl);
@@ -196,6 +253,16 @@ export class ScrollController {
 
   getScrollTop(): number { return this.scrollTop; }
   getScrollLeft(): number { return this.scrollLeft; }
+  /**
+   * Pixel offset rendered rows are positioned relative to, as of the last
+   * {@link setRowOrigin}.
+   *
+   * Anything positioning content against rows must subtract this: row `top`
+   * values are in absolute content space, but the position stylesheet writes
+   * `top - rowOriginY` and the panels apply `translateY(--pg-row-offset-y)`.
+   * Note it is **not** `scrollTop` — the two differ by up to a render window.
+   */
+  getRowOriginY(): number { return this.rowOriginY; }
   /** Returns the current visible height of the body viewport in pixels. */
   getViewportHeight(): number { return this.viewportHeight; }
   /** Returns the current visible width of the center body viewport in pixels. */
@@ -213,7 +280,7 @@ export class ScrollController {
     this.syncCSSVars();
     this.syncScrollbars();
     this.writeTrackY();
-    this.scrollYCb?.(this.scrollTop);
+    this.fireScrollY(this.scrollTop);
   }
 
   scrollToX(x: number): void {
@@ -224,7 +291,7 @@ export class ScrollController {
     this.syncCSSVars();
     this.syncScrollbars();
     if (this.sbHNativeEl) this.sbHNativeEl.scrollLeft = next;
-    this.scrollXCb?.();
+    this.fireScrollX();
   }
 
   scrollToRow(rowIndex: number, rows: ReadonlyArray<{ top: number }>): void {
@@ -239,6 +306,11 @@ export class ScrollController {
     this.abortCtrl = null;
     this.resizeObs?.disconnect();
     this.resizeObs = null;
+    // Subscribers hold references back into the renderer (and into plugins),
+    // so dropping them here is what lets a destroyed grid be collected.
+    this.scrollYCbs.length = 0;
+    this.scrollXCbs.length = 0;
+    this.gestureGuard = null;
   }
 
   private clampScroll(): void {
@@ -321,7 +393,7 @@ export class ScrollController {
     if (Math.abs(st - this.scrollTop) < 0.5) return;
     this.scrollTop = st;
     this.syncCSSVars();
-    this.scrollYCb?.(st);
+    this.fireScrollY(st);
   };
 
   private readonly onHNativeScroll = (): void => {
@@ -329,7 +401,7 @@ export class ScrollController {
     if (Math.abs(sl - this.scrollLeft) < 0.5) return;
     this.scrollLeft = sl;
     this.syncCSSVars();
-    this.scrollXCb?.();
+    this.fireScrollX();
   };
 
   private readonly onWheel = (e: WheelEvent): void => {

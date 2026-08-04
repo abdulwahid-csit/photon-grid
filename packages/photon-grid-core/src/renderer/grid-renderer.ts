@@ -51,6 +51,19 @@ import { ThemeManagerPanel } from './theme-manager-panel';
 import type { PhotonThemeApi } from '../types/theme-ai.types';
 import { ImportSourceType } from '../types/import.types';
 import { createDiv } from './dom-utils';
+import type { PluginLayerOptions, RenderWindow, ScrollMetrics } from '../plugins/plugin.types';
+
+/**
+ * The slice of `PluginHost` the renderer calls back into.
+ *
+ * Declared structurally rather than importing the class so the renderer keeps no
+ * runtime dependency on the plugin subsystem — a grid without plugins never
+ * touches it.
+ */
+export interface PluginHostSeam {
+  wantsRenderWindow(): boolean;
+  dispatchRenderWindow(window: RenderWindow): void;
+}
 import type { MasterDetailEngine } from '../engines/master-detail/master-detail-engine';
 import type { TreeExpansionService } from '../engines/tree/tree-expansion-service';
 import type { ThemeManager } from '../theme/theme-manager';
@@ -884,12 +897,117 @@ export class GridRenderer {
    * @param getToasts - Lazily resolves the grid's toast service, used to
    *   surface action feedback (import/export/reset) as transient toasts.
    */
+  // ── Plugin seam ───────────────────────────────────────────────────────────
+  // The renderer owns the grid's DOM and its virtualization window, so it is
+  // the only place a plugin can be given a layer that stays in step with the
+  // rows. Kept deliberately narrow: mount a layer, read geometry, and receive
+  // the window that was just computed.
+
+  /** Set by `GridCore` when at least one plugin is registered; `null` otherwise. */
+  private pluginHost: PluginHostSeam | null = null;
+  /** Layers handed out by {@link mountPluginLayer}, keyed by name for idempotency. */
+  private pluginLayers = new Map<string, HTMLElement>();
+  /**
+   * Extra horizontal content width contributed by a plugin layer.
+   *
+   * The centre panel derives its scrollable width from its columns, but a
+   * plugin can own horizontal content the grid knows nothing about -- a
+   * scheduler timeline being the motivating case, where every resource column
+   * is pinned left and the centre has no columns at all. Without this the
+   * content width would be 0 and the timeline would have no scrollbar.
+   */
+  private pluginContentWidth = 0;
+
+  /** Monotonic frame counter published on the render window. */
+  private pluginFrame = 0;
+  /** Last resolved left/right pinned panel widths, for the render window. */
+  private lastLeftPanelWidth = 0;
+  private lastRightPanelWidth = 0;
+
+  /**
+   * Declares horizontal content width owned by a plugin layer.
+   *
+   * Combined with the column width by , so a plugin can only ever
+   * widen the scrollable area, never shrink it below what the columns need.
+   */
+  setPluginContentWidth(px: number): void {
+    if (px === this.pluginContentWidth) return;
+    this.pluginContentWidth = px;
+
+    // Pushed straight through rather than waiting for the next column pass. The
+    // three places that compute centre width all sit inside "the columns
+    // changed" branches, and a scheduler grid pins every column to the left --
+    // so the centre has none, those branches never run, and the scrollbar would
+    // never appear. `Math.max` keeps a real column layout authoritative.
+    const width = Math.max(this._cachedCenterW, px);
+    this.wrapperEl?.style.setProperty('--pg-center-content-width', `${width}px`);
+    this.scrollController.updateSizes(this._cachedTotalHeight, width);
+
+    this.scheduleRender();
+  }
+
+  /** Attaches the plugin host. Must run before the first render. */
+  setPluginHost(host: PluginHostSeam): void {
+    this.pluginHost = host;
+  }
+
+  /**
+   * Creates (or returns) a plugin-owned layer inside the grid body.
+   *
+   * Mounted as a **sibling of the pinned/centre panels**, the same position
+   * Master/Detail uses for `.pg-detail-layer` — which is what lets the layer
+   * span the full body while still sitting inside the scroll-transform
+   * coordinate space.
+   *
+   * The optional `followRowOrigin` / `followScrollX` flags apply the same
+   * transforms the grid's own panels use, so a layer that opts in needs no
+   * scroll handling of its own: content positioned in rebased row space and
+   * absolute content-x simply tracks the grid for free.
+   */
+  mountPluginLayer(name: string, options: PluginLayerOptions = {}): HTMLElement {
+    const existing = this.pluginLayers.get(name);
+    if (existing) return existing;
+
+    const layer = createDiv('pg-plugin-layer');
+    layer.setAttribute('data-plugin-layer', name);
+    layer.style.zIndex = String(options.zIndex ?? 4);
+    if (options.transparentToPointer !== false) layer.style.pointerEvents = 'none';
+
+    // Composed rather than either/or: a timeline wants both axes.
+    const transforms: string[] = [];
+    if (options.followScrollX) transforms.push('translateX(var(--pg-scroll-x, 0px))');
+    if (options.followRowOrigin) transforms.push('translateY(var(--pg-row-offset-y, 0px))');
+    if (transforms.length) layer.style.transform = transforms.join(' ');
+
+    this.pluginLayers.set(name, layer);
+    this.bodyWrapEl?.appendChild(layer);
+    return layer;
+  }
+
+  /** Current scroll/viewport geometry. Reads cached values only — forces no layout. */
+  readScrollMetrics(): ScrollMetrics {
+    return {
+      scrollTop: this.scrollController.getScrollTop(),
+      scrollLeft: this.scrollController.getScrollLeft(),
+      viewportHeight: this.centerBodyEl?.clientHeight ?? 0,
+      viewportWidth: this.centerBodyEl?.clientWidth ?? 0,
+      contentHeight: this._cachedTotalHeight,
+      contentWidth: this._cachedCenterW,
+    };
+  }
+
+  /** Subscribes to scroll on both axes. Returns a single disposer for the pair. */
+  addPluginScrollListener(cb: () => void): () => void {
+    const offY = this.scrollController.onScrollY(cb);
+    const offX = this.scrollController.onScrollX(cb);
+    return () => { offY(); offX(); };
+  }
+
   setThemeManager(
     getThemeApi: () => PhotonThemeApi,
     enabled: boolean,
     getToasts: () => import('../toast/toast-service').ToastService,
-  ): void {
-    this.themeApiProvider = getThemeApi;
+  ): void {    this.themeApiProvider = getThemeApi;
     this.themeManagerEnabled = enabled;
     this.themeToastProvider = getToasts;
   }
@@ -993,6 +1111,19 @@ export class GridRenderer {
   scrollToRow(rowIndex: number): void {
     const rows = this.store.get('allRows');
     this.scrollController.scrollToRow(rowIndex, rows);
+  }
+
+  /**
+   * Scrolls the centre region to an absolute horizontal offset, in content
+   * pixels.
+   *
+   * The column-oriented counterpart is `ensureColumnVisible`, which is the right
+   * call when the target is a column. This one exists for content whose
+   * horizontal extent is not columns at all -- a plugin timeline scrolling to a
+   * date, for instance -- where the caller already knows the pixel it wants.
+   */
+  scrollToX(px: number): void {
+    this.scrollController.scrollToX(px);
   }
 
   scrollToTop(): void {
@@ -1211,6 +1342,14 @@ export class GridRenderer {
     this.colStyles.destroy();
     this.autoScroller?.stop();
     this.autoScroller = null;
+    // Plugin layers are children of the body wrapper, which `wrapperEl.remove()`
+    // detaches wholesale. `PluginHost.destroyAll()` has already run by now (it
+    // is the first thing `GridCore.destroy()` does); this is the sweep for a
+    // plugin that threw during its own teardown and left its layer behind.
+    for (const layer of this.pluginLayers.values()) layer.remove();
+    this.pluginLayers.clear();
+    this.pluginHost = null;
+
     this.wrapperEl?.remove();
     this.wrapperEl = null;
   }
@@ -1835,6 +1974,10 @@ export class GridRenderer {
 
       // Set left/right panel CSS vars BEFORE resolving flex so that
       // centerBodyEl.clientWidth reflects the true center panel width.
+      // Cached for the plugin render window: a plugin layer spans the whole
+      // body, so anything that must line up with centre columns needs these.
+      this.lastLeftPanelWidth  = hasLeft  ? showCb + showSn + leftPinnedWidth : 0;
+      this.lastRightPanelWidth = hasRight ? rightContentWidth + 2 : 0;
       w.style.setProperty('--pg-left-panel-width',  hasLeft  ? `${showCb + showSn + leftPinnedWidth}px` : '0px');
       w.style.setProperty('--pg-right-panel-width', hasRight ? `${rightContentWidth + 2}px`                 : '0px');
 
@@ -1954,11 +2097,18 @@ export class GridRenderer {
       const rightContentWidth = this.colStyles.getTotalWidth(rightCols.map((c) => c.colId));
       const hasLeft  = showCb > 0 || showSn > 0 || leftCols.length > 0;
       const hasRight = rightCols.length > 0;
+      // Cached for the plugin render window: a plugin layer spans the whole
+      // body, so anything that must line up with centre columns needs these.
+      this.lastLeftPanelWidth  = hasLeft  ? showCb + showSn + leftPinnedWidth : 0;
+      this.lastRightPanelWidth = hasRight ? rightContentWidth + 2 : 0;
       w.style.setProperty('--pg-left-panel-width',  hasLeft  ? `${showCb + showSn + leftPinnedWidth}px` : '0px');
       w.style.setProperty('--pg-right-panel-width', hasRight ? `${rightContentWidth + 2}px`             : '0px');
 
       const centerColIds = centerCols.map((c) => c.colId);
-      const liveCenterW = this.colStyles.getTotalWidth(centerColIds) + (hasGroupedColumns ? AUTO_GROUP_COL_WIDTH : 0);
+      const liveCenterW = Math.max(
+        this.colStyles.getTotalWidth(centerColIds) + (hasGroupedColumns ? AUTO_GROUP_COL_WIDTH : 0),
+        this.pluginContentWidth,
+      );
       this._cachedCenterW = liveCenterW;
       w.style.setProperty('--pg-center-content-width', `${liveCenterW}px`);
       this.scrollController.updateSizes(this._cachedTotalHeight, liveCenterW);
@@ -2203,6 +2353,7 @@ export class GridRenderer {
         currencySymbol: this.options.currencySymbol,
         locale: this.options.locale,
         api: null,
+        editingEnabled: this.options.editing?.mode !== 'none',
         showGroupsColumn: hasGroupedColumns,
         autoGroupColWidth: AUTO_GROUP_COL_WIDTH,
         leafGroupColDef,
@@ -2329,11 +2480,53 @@ export class GridRenderer {
       this.cellSelectionEngine.applySelectionClasses();
     }
 
+    // Hand plugins the window that was just committed — after every measurement
+    // and after the auto-height re-measure, so `rowOriginY` is the value
+    // actually baked into this frame's CSS rather than the pre-measure one.
+    // Skipped entirely when nothing subscribes, so a plugin-less grid pays a
+    // single null check per frame.
+    if (this.pluginHost?.wantsRenderWindow()) {
+      this.pluginHost.dispatchRenderWindow({
+        startIndex: start,
+        endIndex: end,
+        rowOriginY: this.scrollController.getRowOriginY(),
+        rows: renderedRows,
+        rowHeight,
+        leftPinnedWidth: this.lastLeftPanelWidth,
+        rightPinnedWidth: this.lastRightPanelWidth,
+        scroll: this.readScrollMetrics(),
+        frame: ++this.pluginFrame,
+      });
+    }
+
     this.eventBus.emit(GridEventType.ROWS_RENDERED, { renderedCount: renderedRows.length });
 
   }
 
   // ─── Store subscriptions ──────────────────────────────────────────────────
+
+  /**
+   * Commits a pure column permutation.
+   *
+   * Every panel still holds exactly the same columns, so no row's DOM needs to
+   * be discarded: the header is rebuilt (stateless and cheap — no user cell
+   * renderer, no in-flight image) while `BodyRenderer.renderRows` moves the
+   * surviving cell elements into their new order. A sparkline keeps its canvas,
+   * an `<img>` keeps its decoded bitmap, an open editor keeps its focus — which
+   * is exactly what a reorder should cost.
+   *
+   * The render is forced rather than scheduled. A drop removes the live
+   * `--pg-drag-x` transforms synchronously, so deferring the commit to the next
+   * animation frame would paint one frame of the *old* order in between — the
+   * flash that reads as the column snapping back before jumping into place.
+   */
+  private applyColumnReorder(): void {
+    // Nothing here is an entrance: the columns are already where the user put
+    // them, and any snapshot taken for an earlier change is now meaningless.
+    this.columnAnimator.cancel();
+    this.rebuildHeader();
+    this.forceRender();
+  }
 
   private subscribeToStore(): void {
     this.unsubscribers.push(
@@ -2351,12 +2544,14 @@ export class GridRenderer {
 
         if (this.headerRenderer.isDraggingCol || this.displayGroupEngine?.isDraggingGroup) {
           // Live drag (leaf column or group): skip header destroy so drag state
-          // and live-preview group rows are preserved. Only reset body + virtual
-          // column range so body cells and panel widths stay in sync.
+          // and live-preview group rows are preserved. Only reset the virtual
+          // column range so body cells and panel widths stay in sync — the body
+          // itself is reconciled cell-by-cell by `BodyRenderer.renderRows`, not
+          // rebuilt, so a cross-panel live move never re-runs a custom cell
+          // renderer for a column that merely changed position.
           this.wrapperEl?.classList.add('pg-grid--drag-preview-sync');
           this.lastCenterColStart = -1;
           this.lastCenterColEnd = -1;
-          this.bodyRenderer.clear();
           this.scheduleRender();
           requestAnimationFrame(() => {
             this.wrapperEl?.classList.remove('pg-grid--drag-preview-sync');
@@ -2364,30 +2559,37 @@ export class GridRenderer {
           return;
         }
 
-        // Hiding a column from the context menu, dropping one outside the grid,
-        // or reordering programmatically all land here as a full rebuild, which
-        // would snap the survivors to their new offsets in a single frame.
-        // Capturing the outgoing layout lets `performRender` FLIP them across
-        // that rebuild on the same 180 ms curve the live drag shift uses.
-        if (changeKind === ColumnChangeKind.STRUCTURAL) {
-          this.columnAnimator.capture(this.lastColumnPositions, 'visibility');
-        } else if (changeKind === ColumnChangeKind.ORDER_ONLY) {
-          this.columnAnimator.capture(this.lastColumnPositions, 'reorder');
+        // A drop has already shown the user the movement, frame by frame, via
+        // the live `--pg-drag-x` shift. FLIPping the same columns a second time
+        // as the model commits would replay a motion that has already finished —
+        // so the drop path commits silently and only *structural* changes the
+        // user did not watch happen (a hide, a column chooser toggle, a
+        // programmatic move) get an entrance animation.
+        const isDropCommit = this.headerRenderer.isCommittingColumnDrop;
+
+        if (changeKind === ColumnChangeKind.ORDER_ONLY) {
+          this.applyColumnReorder();
+          return;
         }
 
-        this.headerRendered = false;
-        this.lastCenterColStart = -1;
-        this.lastCenterColEnd = -1;
-        if (this.leftHeaderPanelEl) this.leftHeaderPanelEl.innerHTML = '';
-        if (this.centerHeaderInnerEl) this.centerHeaderInnerEl.innerHTML = '';
-        if (this.rightHeaderPanelEl) this.rightHeaderPanelEl.innerHTML = '';
-        this.headerRenderer.destroy();
-        // Re-wire group model references cleared by destroy() — this is required
-        // whenever columns change due to collapse/expand (setColumnVisible fires
-        // COLUMNS_STATE_CHANGED which updates the store, triggering this watcher).
-        // Without re-wiring here, the next renderInPanels call would build no group rows.
-        this.rewireGroupModelIntoHeaderRenderer();
-        this.bodyRenderer.clear();
+        // Hiding a column from the context menu, dropping one outside the grid,
+        // or re-pinning all move the survivors to new offsets in a single frame.
+        // Capturing the outgoing layout lets `performRender` FLIP them across
+        // that change on the same 180 ms curve the live drag shift uses.
+        if (changeKind === ColumnChangeKind.STRUCTURAL && !isDropCommit) {
+          this.columnAnimator.capture(this.lastColumnPositions, 'visibility');
+        } else {
+          this.columnAnimator.cancel();
+        }
+
+        // The body is deliberately NOT cleared. `BodyRenderer.renderRows`
+        // reconciles each rendered row's cells against the new layout, so a
+        // column that merely moved, got pinned, or scrolled into the horizontal
+        // window keeps the exact element it already had — the only cells built
+        // are the ones for columns that genuinely appeared. Clearing here would
+        // re-run every custom cell renderer in the viewport and is what made
+        // images and sparklines blink on every column change.
+        this.rebuildHeader();
         this.scheduleRender();
       }),
 

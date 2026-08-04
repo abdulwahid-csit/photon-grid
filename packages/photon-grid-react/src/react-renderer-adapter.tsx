@@ -82,12 +82,23 @@ type PhotonGridColumnDef = Omit<ColumnDefInput, 'renderer'> & {
   };
 };
 
-function isComponentRenderer(value: RendererSlotValue): value is ReactRendererSpec | ComponentType<Record<string, unknown>> {
+/**
+ * Runtime probe for the React forms of a renderer slot.
+ *
+ * Takes `unknown` rather than {@link RendererSlotValue} on purpose: the slot map
+ * on {@link PhotonGridColumnDef} is a union with the core's `ColumnRendererMap`
+ * (both lack `name`, so neither the `typeof` nor the `'name' in` narrowing in
+ * {@link ReactRendererAdapter.adaptColumns} can separate them), which makes each
+ * slot read a union of the core's strongly-typed slot functions *and* the React
+ * forms. A structural check needs no static contract, so widening the parameter
+ * is more honest than casting at every call site.
+ */
+function isComponentRenderer(value: unknown): value is ReactRendererSpec | ComponentType<Record<string, unknown>> {
   if (!value) {
     return false;
   }
 
-  if (typeof value === 'object' && 'kind' in value && value.kind === 'component') {
+  if (typeof value === 'object' && value !== null && 'kind' in value && value.kind === 'component') {
     return true;
   }
 
@@ -96,7 +107,7 @@ function isComponentRenderer(value: RendererSlotValue): value is ReactRendererSp
   }
 
   if (typeof value === 'function') {
-    return /^[A-Z]/.test(value.name ?? '');
+    return /^[A-Z]/.test((value as { readonly name?: string }).name ?? '');
   }
 
   return false;

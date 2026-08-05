@@ -34,6 +34,7 @@ import type {
   ResolvedLoadingOverlayConfig,
 } from '../types/loading.types';
 import { ColumnStyleManager } from './column-style-manager';
+import { compileDisplayText } from './renderer-resolver';
 import { ColumnAnimator, computeColumnPositions, type ColumnPosition } from './column-animator';
 import {
   ColumnChangeKind,
@@ -953,6 +954,15 @@ export class GridRenderer {
    * Extracts unique display value/label pairs for set-type (dropdown / array)
    * filter panels.  For `dropdown` columns the predefined `dropdownOptions`
    * are used directly; for other types unique values are scanned from `allRows`.
+   *
+   * Columns whose renderer transforms its value (a `country` column showing
+   * "United States" for a stored `"US"`) are collected by that **displayed
+   * text**, not by the raw value: the list then reads the way the column does,
+   * and `FilterEngine` compares against the same text so ticking a box matches
+   * exactly the rows the user can see. Collecting by display text also collapses
+   * the rows where one country arrived as `"US"`, `"USA"` and `"United States"`
+   * into the single entry a user expects, instead of three that each hide part
+   * of the answer.
    */
   private extractUniqueOptions(colDef: ColumnDef): FilterSetOption[] {
     // Dropdown: use predefined options list
@@ -968,6 +978,12 @@ export class GridRenderer {
     const parts = field.split('.');
     const nested = field.includes('.');
     const seen = new Set<string>();
+    const toText = compileDisplayText(colDef);
+    // Hoisted out of the row loop: `null` for an ordinary column, so the scan
+    // below is the plain `String(v)` it has always been.
+    const asText = toText
+      ? (v: unknown): string => toText(v) ?? String(v)
+      : (v: unknown): string => String(v);
 
     for (const row of allRows) {
       if (row.type !== 'data') continue;
@@ -983,9 +999,9 @@ export class GridRenderer {
       }
 
       if (Array.isArray(val)) {
-        for (const v of val) { if (v != null && v !== '') seen.add(String(v)); }
+        for (const v of val) { if (v != null && v !== '') seen.add(asText(v)); }
       } else if (val != null && val !== '') {
-        seen.add(String(val));
+        seen.add(asText(val));
       }
     }
 

@@ -152,7 +152,7 @@ export const headerCss = `/* ─────────────────
    Opt out to reveal-on-hover via headerIcons.menu / ColumnDef.menuIconDisplay. */
 .pg-th__menu-btn--always { display: flex; }
 .pg-th__menu-btn:hover { opacity: 1; background: var(--pg-colors-background-alt, #f1f5f9); }
-.pg-th__menu-btn--active { opacity: 1; background: var(--pg-colors-border, #e2e8f0); }
+.pg-th__menu-btn--active { opacity: 1;  }
 /* The element is the grab zone; the line is drawn by ::after.
    Keeping the two separate is what lets the target be comfortable to hit
    without the divider looking heavier — a 2px element means a 2px target, and

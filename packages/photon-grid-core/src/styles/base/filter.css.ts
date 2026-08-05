@@ -150,9 +150,9 @@ export const filterCss = `/* ─────────────────
 }
 
 /* ── Condition filter ── */
-.pg-filter-cond-wrap { padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+.pg-filter-cond-wrap { padding: 10px; display: flex; flex-direction: column; gap: 10px; }
 
-.pg-filter-cond__row { display: flex; flex-direction: column; gap: 4px; }
+.pg-filter-cond__row { display: flex; flex-direction: column; gap: 8px; }
 .pg-filter-cond__row--hidden { display: none; }
 
 .pg-filter-cond__select {

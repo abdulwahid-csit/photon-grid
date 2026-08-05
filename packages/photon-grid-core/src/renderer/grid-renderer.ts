@@ -2804,6 +2804,7 @@ export class GridRenderer {
         serialColumnSelection: this.rowSelectionEngine.serialColumnSelection,
         showVerticalBorders: this.options.showVerticalBorders,
         rowShading: this.options.rowShading,
+        rowClassFn: this.options.rowClassFn,
         rowHeight: this.options.rowHeight,
         dateFormat: this.options.dateFormat,
         timeZone: this.options.timeZone,

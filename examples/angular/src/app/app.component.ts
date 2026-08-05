@@ -178,6 +178,8 @@ export class AppComponent implements OnInit {
         showVerticalBorders: false,
         enableRangeSelection: true,
         enableClipboard: false, 
+        rowClassFn: (row) =>
+                    row['department'] === 'HR' ? 'danger-row' : '',
         // Header icons: keep the filter funnel always visible, hide the "⋯" menu.
        
         toast: {

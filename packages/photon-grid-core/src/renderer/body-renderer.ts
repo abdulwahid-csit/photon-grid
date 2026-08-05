@@ -93,6 +93,11 @@ export interface BodyRendererOptions {
   serialColumnSelection?: boolean;
   showVerticalBorders?: boolean;
   rowShading?: boolean;
+  /**
+   * Returns additional CSS classes for a data row. Re-evaluated whenever the
+   * row is rendered so classes stay current as virtualized DOM is reused.
+   */
+  rowClassFn?: (row: Record<string, unknown>, index: number) => string;
   rowHeight?: number;
   api?: unknown;
   dateFormat?: string;
@@ -1430,19 +1435,32 @@ export class BodyRenderer {
     const els = [ps.left, ps.center, ps.right].filter((e): e is HTMLElement => e !== null);
     const rowIndexStr = String(row.rowIndex);
     for (const el of els) {
-      el.className = cls;
-      el.setAttribute('data-row-index', rowIndexStr);
-      if (row.type === 'group') el.setAttribute('data-level', String(row.level));
-      if (options.treeData && row.type === 'data') el.setAttribute('data-level', String(row.level));
+      // Assigning className invalidates style for the entire row subtree. The
+      // class calculation is still performed on every render (so dynamic row
+      // classes retain their current semantics), but the DOM write is needed
+      // only when its result differs.
+      if (el.className !== cls) el.className = cls;
+      // A row normally keeps the same display index while it remains in the
+      // virtual window during scrolling. Avoid querying and rewriting every
+      // child cell in that common case: doing so creates O(visible rows ×
+      // visible cells) DOM mutations for each scroll frame. When the index
+      // genuinely changes (sort, filter, expansion, or a detail row being
+      // inserted), keep the existing full restamp so every consumer of the
+      // cell-level attribute observes exactly the same state as before.
+      const rowIndexChanged = el.getAttribute('data-row-index') !== rowIndexStr;
+      if (rowIndexChanged) el.setAttribute('data-row-index', rowIndexStr);
+      if (row.type === 'group') this.setAttributeIfChanged(el, 'data-level', String(row.level));
+      if (options.treeData && row.type === 'data') this.setAttributeIfChanged(el, 'data-level', String(row.level));
 
-      // Re-stamp every cell's own `data-row-index` too. Cells set it at build
-      // time and are reused across renders — but a row's index can shift while
-      // its cached DOM is kept (e.g. a Master/Detail detail row being injected
-      // above it, or a group expanding). Selection/keyboard/clipboard all match
-      // cells by this attribute, so leaving it stale silently breaks cell
-      // selection on any row whose index moved without a full rebuild.
-      const cells = el.querySelectorAll<HTMLElement>('.pg-cell[data-row-index]');
-      for (const cell of cells) cell.setAttribute('data-row-index', rowIndexStr);
+      if (rowIndexChanged) {
+        // Cells set this attribute at build time and are reused across renders.
+        // A row's index can shift while its cached DOM is kept (e.g. a
+        // Master/Detail detail row being injected above it, or a group
+        // expanding), so selection/keyboard/clipboard still require a full
+        // restamp in that less-common case.
+        const cells = el.querySelectorAll<HTMLElement>('.pg-cell[data-row-index]');
+        for (const cell of cells) cell.setAttribute('data-row-index', rowIndexStr);
+      }
     }
 
     // Keep the serial-number cell in sync. Its value is a display POSITION
@@ -1453,7 +1471,8 @@ export class BodyRenderer {
     // first built and silently drift out of order.
     if (options.showSerialNumber && ps.left) {
       const serial = ps.left.querySelector<HTMLElement>('.pg-cell__serial');
-      if (serial) serial.textContent = String(displayIndex + 1);
+      const serialText = String(displayIndex + 1);
+      if (serial && serial.textContent !== serialText) serial.textContent = serialText;
     }
 
     // Sync expand/collapse icon — expanded state can change without a full row rebuild.
@@ -1659,6 +1678,11 @@ export class BodyRenderer {
     });
   }
 
+  /** Avoids a DOM mutation when an attribute already has the required value. */
+  private setAttributeIfChanged(el: HTMLElement, name: string, value: string): void {
+    if (el.getAttribute(name) !== value) el.setAttribute(name, value);
+  }
+
   private getRowClass(row: RowNode, displayIndex: number, options: BodyRendererOptions): string {
     const cls = ['pg-row'];
     // Hover is part of the row's class *identity*, not a decoration applied
@@ -1684,6 +1708,8 @@ export class BodyRenderer {
     if (row.isTreeFiller) cls.push('pg-row--tree-filler');
     if (options.rowShading && displayIndex % 2 === 1) cls.push('pg-row--alt');
     if (row.cssClass) cls.push(row.cssClass);
+    const dynamicClass = options.rowClassFn?.(row.data, displayIndex);
+    if (dynamicClass) cls.push(dynamicClass);
     return cls.join(' ');
   }
 }

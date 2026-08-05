@@ -41,7 +41,9 @@
     "clean": "rimraf dist",
     "build": "npm run clean && tsc && npm run build:cjs && npm run build:cdn && node scripts/make-dist-pkg.mjs",
     "build:cjs": "esbuild src/index.ts --bundle --platform=node --format=cjs --outfile=dist/index.cjs",
-    "build:cdn": "esbuild src/index.ts --bundle --minify --platform=browser --target=es2020 --format=iife --global-name=PhotonGrid --outfile=dist/index.min.js",
+
+    "build:cdn": "esbuild src/index.ts --bundle --minify --platform=browser --target=es2020 --format=iife --global-name=PhotonGrid --outfile=dist/photon-grid.min.js",
+
     "build:watch": "tsc --project tsconfig.json --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

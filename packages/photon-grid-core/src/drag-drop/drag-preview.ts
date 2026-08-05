@@ -1,4 +1,5 @@
 import { DragGhost } from './drag-ghost';
+import { portalHostFor } from '../theme/overlay-portal';
 
 /**
  * Content of the floating chip shown while a {@link DragDropEngine} drag is in
@@ -33,16 +34,19 @@ export class DragPreview {
   private offsetY = 12;
 
   /**
-   * Builds a chip, appends it to `document.body`, and takes ownership of its
-   * position.
+   * Builds a chip, appends it to the owning grid's portal host, and takes
+   * ownership of its position.
    *
    * Any previous chip is destroyed first, so a re-entrant drag start cannot leak
    * an orphaned element.
    *
    * @param options - Label, icon, count badge, and optional avatar metadata.
+   * @param originEl - The dragged element, used to resolve which grid's portal
+   *                   host the chip belongs to so it wears that grid's theme.
+   *                   Omit outside a grid; the chip then falls back to `<body>`.
    * @returns The created element, for callers that need to decorate it further.
    */
-  create(options: DragPreviewOptions = {}): HTMLElement {
+  create(options: DragPreviewOptions = {}, originEl?: HTMLElement | null): HTMLElement {
     this.destroy();
 
     const preview = document.createElement('div');
@@ -80,7 +84,7 @@ export class DragPreview {
       preview.appendChild(badge);
     }
 
-    document.body.appendChild(preview);
+    portalHostFor(originEl).appendChild(preview);
     this.ghost.attach(preview, this.offsetX, this.offsetY);
     return preview;
   }

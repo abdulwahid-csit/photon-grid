@@ -308,11 +308,16 @@ export const DEFAULT_THEME_VARIANT: ThemeVariant = 'classic';
  */
 export const THEME_VARIANT_ROW_HEIGHT: Readonly<Record<ThemeVariant, number>> = {
   /**
-   * The grid's own default, deliberately equal to {@link DEFAULT_ROW_HEIGHT}:
-   * classic became the default skin without changing the density any existing
-   * grid already renders at.
+   * AG Grid Quartz's own body density: `font-size + grid-size * 3.5`, i.e.
+   * `14 + 8 * 3.5`. Classic is pitched to match Quartz, and density is as much
+   * a part of that match as colour — a Quartz palette at 48px rhythm reads as a
+   * near-miss rather than a match.
+   *
+   * This is the one place classic departs from {@link DEFAULT_ROW_HEIGHT}, so a
+   * grid that wants the old spacing back sets `GridOptions.rowHeight: 48`,
+   * which always wins.
    */
-  classic: 48,
+  classic: 42,
   /** Crisp enterprise: compact but not cramped. */
   ion: 44,
   /** High-contrast glow: tight, terminal-like rhythm. */

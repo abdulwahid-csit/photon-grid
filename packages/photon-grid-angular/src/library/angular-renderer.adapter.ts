@@ -70,6 +70,10 @@ function isRendererSlotMap(renderer: unknown): renderer is ColumnRendererMap {
  * mounted host element, a MutationObserver on the grid root sees it and we
  * destroy the corresponding Angular view right then. This is what keeps
  * scrolling/virtualized grids from leaking components.
+ *
+ * What the observer must *not* do is treat every `removedNodes` entry as a
+ * teardown: the core also **moves** cells, which the DOM reports the same way.
+ * See {@link RendererAdapter.cleanupRemovedNode}.
  */
 export class RendererAdapter {
     /** Host element -> live Angular view mounted into it. */
@@ -541,6 +545,28 @@ export class RendererAdapter {
             return;
         }
 
+        // A node in `removedNodes` has not necessarily been discarded. Moving an
+        // element - which `insertBefore` does implicitly - is specified as a
+        // removal followed by an insertion, so the observer reports it in both
+        // `removedNodes` and `addedNodes` of the same batch.
+        //
+        // The core moves cells routinely: whenever the horizontal virtual window
+        // shifts (a column resize that changes how many columns fit, a sideways
+        // scroll, a reorder, a pin), `BodyRenderer.reconcilePanelCells` keeps
+        // every surviving cell's element and re-anchors it with `insertBefore`.
+        // That is deliberate - it is what preserves an <img> mid-request, a
+        // painted <canvas>, an open editor... and the Angular view mounted here.
+        // Treating those moves as removals destroyed the component inside a cell
+        // that was still on screen, and the cell went blank.
+        //
+        // Observer callbacks are delivered as a microtask *after* the task that
+        // mutated the DOM, so a moved node has already been re-attached by the
+        // time we see it. Connectivity is therefore an exact test for the
+        // distinction, with no bookkeeping and no guessing at the core's intent.
+        if (node.isConnected) {
+            return;
+        }
+
         const directMount = this.mounts.get(node);
         if (directMount) {
             this.mounts.delete(node);
@@ -554,7 +580,11 @@ export class RendererAdapter {
             return;
         }
         for (const [element, mount] of this.mounts) {
-            if (node.contains(element)) {
+            // `contains` reflects the tree as it is *now*, so a host that was
+            // moved out of this subtree before the callback ran no longer
+            // matches - and `isConnected` catches the reverse case, where the
+            // subtree was detached and its host re-homed somewhere live.
+            if (!element.isConnected && node.contains(element)) {
                 this.mounts.delete(element);
                 this.destroyMount(mount);
             }

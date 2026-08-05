@@ -171,23 +171,19 @@ export class AppComponent implements OnInit {
 
     /** Remaining grid configuration bound to the grid's `options` input. */
     readonly options: Partial<GridOptions> = {
+        rowHeight: 40,
+        headerRowHeight: 48,
+        showFooter: true,
         mode: 'dark',
-        variant: 'neon',
-        showCheckboxes: false,
-        showSerialNumber: true,
-        rowShading: false,
-        showGroupingBar: true,
+        showColumnMenu: true,
         showVerticalBorders: false,
-        showFilterRow: false,
+        enableRangeSelection: true,
+        enableClipboard: false, 
         // Header icons: keep the filter funnel always visible, hide the "⋯" menu.
-        headerIcons: {
-            filter: HeaderIconDisplay.HIDDEN,
-            menu: HeaderIconDisplay.HIDDEN,
-        },
+       
         toast: {
             position: ToastPosition.TopRight,
         },
-        rowHeight: 42,
         pagination: { enabled: true, pageSize: 1000, },
         // Import Engine: mounts the top-right "Import ▾" button. CSV/TSV/Clipboard
         // work out of the box; register a SheetJS parser (see onGridReady) for
@@ -216,15 +212,13 @@ export class AppComponent implements OnInit {
                 ],
             },
         },
-        filterRowHeight: 48,
-        headerRowHeight: 48,
-        selection: { mode: 'multiple', serialColumnSelection: true },
         photonAI: {
             enabled: true,
              provider: {
-            type: PhotonAIProviderType.Gemini,
-            apiKey: environment.gemeniApiKey,
-            model: 'gemini-flash-latest',
+                type: PhotonAIProviderType.OpenAI,
+                apiKey: environment.groqApiKey,
+                apiUrl: 'https://api.groq.com/openai/v1/chat/completions',
+                model: 'llama-3.3-70b-versatile',
         },
         }
     };

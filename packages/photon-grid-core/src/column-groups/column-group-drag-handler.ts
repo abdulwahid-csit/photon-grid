@@ -8,7 +8,7 @@ import type { IColumnGroupNode } from './column-group.types';
 import { ColumnGroupNodeType } from './column-group.types';
 import { GridEventType } from '../types/event.types';
 import { createDiv } from '../renderer/dom-utils';
-import { adoptGridTheme } from '../renderer/overlay-theme';
+import { portalHostFor } from '../theme/overlay-portal';
 import { isTouchPointer, DRAG_THRESHOLD_MOUSE, DRAG_THRESHOLD_TOUCH, LONG_PRESS_MS } from '../core/pointer-utils';
 import { DragFrameScheduler } from '../drag-drop/drag-frame-scheduler';
 import { DragRectCache, NO_SLOT } from '../drag-drop/drag-rect-cache';
@@ -317,10 +317,9 @@ export class ColumnGroupDragHandler {
     label.className   = 'pg-col-drag-ghost__label';
     label.textContent = group.header;
     ghost.appendChild(label);
-    // Portaled to `document.body` — adopt the grid's token scope so the chip
-    // follows the active mode instead of falling back to light-mode literals.
-    adoptGridTheme(ghost, gridEl);
-    document.body.appendChild(ghost);
+    // Portaled into the grid's own host, so the chip follows the active mode and
+    // variant instead of falling back to light-mode literals.
+    portalHostFor(gridEl).appendChild(ghost);
     // Positioned by transform from here on: no layout, no paint per move.
     this.ghost.attach(ghost, 14, 0);
     this.ghost.moveTo(clientX, clientY);

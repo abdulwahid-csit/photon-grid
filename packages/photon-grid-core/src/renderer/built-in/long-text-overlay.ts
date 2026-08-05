@@ -1,6 +1,6 @@
 import type { LongTextRendererOptions } from '../../types/built-in-renderer.types';
 import { createDiv } from '../dom-utils';
-import { adoptGridTheme } from '../overlay-theme';
+import { portalHostFor } from '../../theme/overlay-portal';
 import { placeOverlay } from '../overlay-position';
 
 /**
@@ -62,7 +62,12 @@ let activeAnchor: HTMLElement | null = null;
 let activeWidth = MIN_WIDTH;
 let activeLines = 1;
 
-/** Builds the panel once. Subsequent opens refill it. */
+/**
+ * Builds the panel once. Subsequent opens refill it.
+ *
+ * Left detached: `openLongTextOverlay` parents it into the triggering grid's
+ * portal host on every open, so the singleton follows the user across grids.
+ */
 function ensurePanel(): HTMLElement {
   if (panelEl) return panelEl;
 
@@ -78,7 +83,6 @@ function ensurePanel(): HTMLElement {
   panel.appendChild(title);
   panel.appendChild(body);
 
-  document.body.appendChild(panel);
   panelEl = panel;
   titleEl = title;
   bodyEl = body;
@@ -131,10 +135,11 @@ export function openLongTextOverlay(request: LongTextOverlayRequest): void {
   const anchor = request.anchor ?? request.trigger;
   const width = resolveWidth(anchor, request.options);
 
-  // Before anything is measured or painted: the panel sits on `document.body`,
-  // so without this it resolves none of the owning grid's tokens and renders in
-  // light-mode fallbacks over a dark grid.
-  adoptGridTheme(panel, request.trigger);
+  // Before anything is measured or painted. The panel is a module singleton
+  // shared by every grid on the page, so each open re-parents it into the
+  // triggering grid's portal host — otherwise it would resolve none of that
+  // grid's tokens and render in light-mode fallbacks over a dark grid.
+  portalHostFor(request.trigger).appendChild(panel);
 
   // `textContent`, never `innerHTML`: this is a cell value, and it arrives from
   // whatever the row data holds.

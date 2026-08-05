@@ -4,7 +4,7 @@ import type { IconRenderer } from '../icons/icon-renderer';
 import type { RowNode } from '../types/row.types';
 import { GridEventType } from '../types/event.types';
 import { createDiv } from './dom-utils';
-import { adoptGridTheme } from './overlay-theme';
+import { portalHostFor } from '../theme/overlay-portal';
 import { computeRowDragPreview, previewTopFor } from './row-drag-preview';
 import { DragFrameScheduler } from '../drag-drop/drag-frame-scheduler';
 import { DragGhost } from '../drag-drop/drag-ghost';
@@ -238,10 +238,9 @@ export class RowDragRenderer {
     ghost.appendChild(dragIcon);
     ghost.appendChild(blockIcon);
     ghost.appendChild(labelSpan);
-    // Portaled to `document.body`, so it must be pointed back at the owning
-    // grid's token scope or it paints in light-mode fallbacks. See adoptGridTheme.
-    if (this.gridEl) adoptGridTheme(ghost, this.gridEl);
-    document.body.appendChild(ghost);
+    // Portaled out of the grid container, so it goes into the owning grid's host
+    // or it paints in light-mode fallbacks. See theme/overlay-portal.
+    portalHostFor(this.gridEl).appendChild(ghost);
     // The chip is moved by transform from here on — no layout, no paint. The
     // theme rule composes this translation with the chip's own `-50%` centring.
     this.ghost.attach(ghost);

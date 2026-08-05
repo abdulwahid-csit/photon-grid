@@ -2,6 +2,7 @@ import type { IconRenderer } from '../icons/icon-renderer';
 import type { DisplayGroupNode } from '../column-groups/display-group.types';
 import type { DisplayGroupEngine } from '../column-groups/display-group-engine';
 import { createDiv } from './dom-utils';
+import { portalHostFor } from '../theme/overlay-portal';
 import { MenuKeyboardController } from './menu-keyboard-controller';
 import type { MenuKeyboardHost } from './menu-keyboard-controller';
 
@@ -103,7 +104,7 @@ export class GroupContextMenu {
     anchorEl.classList.add('pg-th--ctx-menu-open');
 
     const menu = this.buildMenu(group);
-    document.body.appendChild(menu);
+    portalHostFor(anchorEl).appendChild(menu);
     this.el = menu;
 
     this.positionMenu(anchorEl, clientX, clientY);

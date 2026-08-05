@@ -1,6 +1,6 @@
 import type { DisplayGroupNode } from './display-group.types';
 import { createDiv } from '../renderer/dom-utils';
-import { adoptGridTheme } from '../renderer/overlay-theme';
+import { portalHostFor } from '../theme/overlay-portal';
 import { isTouchPointer, DRAG_THRESHOLD_MOUSE, DRAG_THRESHOLD_TOUCH, LONG_PRESS_MS } from '../core/pointer-utils';
 import { DragFrameScheduler } from '../drag-drop/drag-frame-scheduler';
 import { DragRectCache, NO_SLOT } from '../drag-drop/drag-rect-cache';
@@ -298,18 +298,15 @@ export class DisplayGroupDragHandler {
     // Ghost chip — follows the cursor in both modes
     const ghostEl = createDiv('pg-col-drag-ghost');
     ghostEl.textContent = node.header;
-    // Both of these are portaled to `document.body`, outside the container the
-    // grid's token stylesheet is scoped to, so each has to adopt that scope or
-    // it paints in light-mode fallbacks regardless of the grid's mode.
-    adoptGridTheme(ghostEl, gridEl);
-    document.body.appendChild(ghostEl);
+    // Both of these are portaled out of the grid container, so each goes into the
+    // grid's own host or it paints in light-mode fallbacks regardless of mode.
+    portalHostFor(gridEl).appendChild(ghostEl);
     this.ghost.attach(ghostEl, 12, -14);
     this.ghost.moveTo(e.clientX, e.clientY);
 
     // Drop indicator (vertical line) — used in both modes
     this.indicatorEl = createDiv('pg-group-drop-indicator');
-    adoptGridTheme(this.indicatorEl, gridEl);
-    document.body.appendChild(this.indicatorEl);
+    portalHostFor(gridEl).appendChild(this.indicatorEl);
 
     // Panel bounds, read once here rather than on every pointer event inside
     // detectPanelAtPoint. Panels do not move during a group drag.

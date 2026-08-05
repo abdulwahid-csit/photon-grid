@@ -1,5 +1,6 @@
 import type { ThemeVariant } from '../../types/theme.types';
 import type { IconSet } from '../../types/icon.types';
+import { classicIcons } from './classic-icons';
 import { ionIcons } from './ion-icons';
 import { neonIcons } from './neon-icons';
 import { photonIcons } from './photon-icons';
@@ -19,11 +20,11 @@ import { quantumIcons } from './quantum-icons';
  */
 export const variantIconSets: Readonly<Record<ThemeVariant, IconSet>> = {
   /**
-   * Empty on purpose. Classic is the default skin, and the default glyphs are
-   * `coreIcons` — every name falls straight through, which is exactly the
-   * "no icon opinion" this theme wants.
+   * Two glyphs only — the sort arrows, which are the one place the default
+   * skin's reference point (AG Grid) differs from `coreIcons`. Everything else
+   * falls straight through. See `classic-icons.ts`.
    */
-  classic: {},
+  classic: classicIcons,
   ion: ionIcons,
   neon: neonIcons,
   photon: photonIcons,

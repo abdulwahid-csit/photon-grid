@@ -273,10 +273,10 @@ export class GridCore {
       options.variantIcons,
     );
     themeManager.setVariantChangeHandler((variant) => iconThemeController.onVariant(variant));
-    // Toast notifications â€” shares the grid's icon renderer; the layer mounts to
-    // document.body so toasts overlay the page and inherit the mirrored theme
-    // tokens. Inert until the first toast is shown.
-    const toastService = new ToastService(options.toast, { iconRenderer });
+    // Toast notifications — shares the grid's icon renderer; the layer mounts
+    // into this grid's portal host so toasts overlay the page while still
+    // wearing this grid's mode and variant. Inert until the first toast.
+    const toastService = new ToastService(options.toast, { iconRenderer, owner: containerEl });
     const chartEngine = new ChartEngine(eventBus);
 
     const renderer = new GridRenderer(

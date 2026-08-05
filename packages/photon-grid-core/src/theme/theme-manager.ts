@@ -6,9 +6,12 @@ import { CssVarInjector } from './css-var-injector';
 import { TOKEN_PREFIX } from './css-var-injector';
 import { lightTheme } from './themes/light-theme';
 import { darkTheme } from './themes/dark-theme';
-
-/** Attribute used to scope a grid instance's mode tokens to its container. */
-const SCOPE_ATTR = 'data-pg-theme-scope';
+import {
+  SCOPE_ATTR,
+  PORTAL_HOST_CLASS,
+  registerPortalHost,
+  disposePortalHost,
+} from './overlay-portal';
 /** Matches any `pg-<name>-theme` variant class so it can be swapped cleanly. */
 const VARIANT_CLASS_RE = /^pg-[a-z0-9]+-theme$/;
 
@@ -30,21 +33,28 @@ interface ResolvedLegacyTheme {
  *    class on that same container. Variant stylesheets only override structural
  *    and accent concerns, so any variant composes with either mode.
  *
- * Mode tokens are additionally mirrored onto `:root` so fixed/portal elements
- * (menus, dropdowns, overlays appended to `<body>`) inherit the palette.
+ * Mode tokens are additionally mirrored onto `:root` so any element outside both
+ * the container and the portal host still resolves a sensible palette.
  *
- * The active `data-pg-mode` / `data-pg-variant` attributes are mirrored onto
- * `document.documentElement` for the same reason: overlays are portaled to
- * `<body>`, i.e. **outside** the grid container, so a selector rooted at the
- * container can never reach them. Variant and dark-mode stylesheets target
- * `[data-pg-variant="…"] .pg-context-menu` / `[data-pg-mode="dark"] …` and
- * match from the document root down, covering in-grid and portaled nodes alike.
+ * The `data-pg-mode` / `data-pg-variant` **attributes** are not mirrored there
+ * when the instance has a container. Both are used ancestor-rooted in CSS —
+ * `[data-pg-mode="dark"] .pg-cell--in-selection`,
+ * `[data-pg-variant="quantum"] .pg-context-menu` — so a copy on
+ * `<html>` makes every such rule match *every* grid on the page instead of the
+ * one it belongs to. A light grid beside a dark one took the dark selection
+ * tints and flash colours; a classic grid's menu was skinned by whichever
+ * variant stylesheet was concatenated last. Only a manager driving the document
+ * root itself (no container) still mirrors, where there is nothing else to hang
+ * the attributes on and no second grid to mis-target.
  *
- * With several grids on one page that mirror is last-writer-wins. This is
- * acceptable because only one overlay is ever open at a time — but it does mean
- * an overlay belonging to grid A can be skinned by grid B's variant if B applied
- * its variant more recently. Per-instance chrome is unaffected: those rules stay
- * scoped to `.pg-<variant>-theme .pg-grid`.
+ * What overlays resolve instead is the **portal host**: a `display: contents`
+ * element in `<body>`, one per grid, carrying that grid's scope id, mode,
+ * variant and variant class. Built-in overlays are appended into their owner's
+ * host (see `overlay-portal.ts`), so both the ancestor-rooted rules above and
+ * the scoped token stylesheet reach them, per instance.
+ *
+ * Per-instance chrome is unaffected either way: those rules stay scoped to
+ * `.pg-<variant>-theme .pg-grid`.
  */
 export class ThemeManager {
   /** Per-instance stylesheet carrying the active mode's tokens. */
@@ -56,6 +66,14 @@ export class ThemeManager {
   private activeMode: Theme;
   private activeVariant: ThemeVariant | 'none' = 'none';
   private scopeEl: HTMLElement | null = null;
+  /**
+   * This instance's portal host in `<body>`, created with the scope id and kept
+   * in step with the active mode/variant. Null until a scope element is known,
+   * since the host is identified by that scope. See `overlay-portal.ts`.
+   */
+  private portalHost: HTMLElement | null = null;
+  /** Scope id stamped on {@link scopeEl} and {@link portalHost}; needed to unregister. */
+  private scopeId: string | null = null;
   /** Names of inline token overrides applied via {@link applyTokenOverrides}, for clean removal. */
   private readonly tokenOverrideKeys = new Set<string>();
   /**
@@ -111,18 +129,31 @@ export class ThemeManager {
       // native control inside (filter inputs/selects, date pickers, native
       // scrollbars) render with the correct light/dark chrome.
       target.style.colorScheme = theme.mode;
+
+      // The host shares the scope id, so the stylesheet injected above matches it
+      // too and portaled overlays resolve this grid's palette rather than the
+      // last-writer-wins one on `<html>`.
+      const host = this.ensurePortalHost(scopeId);
+      host.setAttribute('data-pg-mode', theme.mode);
+      host.style.colorScheme = theme.mode;
     } else {
       this.injector.injectAsStylesheet(theme.tokens, ':root');
       document.documentElement.style.colorScheme = theme.mode;
+      // Only the unscoped case mirrors the mode attribute to the root. With a
+      // container there is deliberately no mirror: roughly fifteen base rules
+      // are written as `[data-pg-mode="dark"] .pg-cell--…` — ancestor-rooted, so
+      // an attribute on `<html>` makes every one of them match *every* grid on
+      // the page. A light grid beside a dark one would take the dark selection
+      // tints, flash colours and serial-gutter fill, and a light grid nested in
+      // a dark Master/Detail parent would do the same. The container and the
+      // portal host each carry the attribute themselves, which is what those
+      // rules match through, so nothing needs the root copy.
+      document.documentElement.setAttribute('data-pg-mode', theme.mode);
     }
 
-    // Mirror the mode onto the document root unconditionally: `[data-pg-mode]`
-    // rules in the base stylesheet (selection tints, flash animations, the
-    // loading overlay) have to reach overlays portaled to `<body>`, which sit
-    // outside the container the scoped branch above marks.
-    document.documentElement.setAttribute('data-pg-mode', theme.mode);
-
-    // Always mirror variables to :root so fixed/portal elements pick them up.
+    // Tokens are still mirrored to `:root`: unlike the attribute they cannot
+    // mis-target a rule, and they remain the fallback for any host-authored
+    // element outside both the container and the portal host.
     this.rootInjector.inject(theme.tokens, document.documentElement);
 
     this.eventBus.emit(GridEventType.THEME_CHANGED, { themeName: theme.name });
@@ -136,21 +167,41 @@ export class ThemeManager {
     if (scopeEl) this.scopeEl = scopeEl;
     const target = this.scopeEl ?? document.documentElement;
 
+    // The portal host wears the same skin as the container, so overlays match the
+    // grid that opened them. Resolved before the swap so both are updated in one
+    // pass; null when no scope element has been seen yet (mode not applied).
+    const host = this.scopeEl ? this.ensurePortalHost(this.ensureScopeId(this.scopeEl)) : null;
+
     // Remove any previously applied variant class before adding the new one.
-    for (const cls of Array.from(target.classList)) {
-      if (VARIANT_CLASS_RE.test(cls)) target.classList.remove(cls);
+    for (const el of host ? [target, host] : [target]) {
+      for (const cls of Array.from(el.classList)) {
+        if (VARIANT_CLASS_RE.test(cls)) el.classList.remove(cls);
+      }
     }
 
     this.activeVariant = variant;
     if (variant !== 'none') {
-      target.classList.add(THEME_VARIANT_CLASS[variant]);
+      const variantClass = THEME_VARIANT_CLASS[variant];
+      target.classList.add(variantClass);
       target.setAttribute('data-pg-variant', variant);
-      // Mirrored to the document root so variant rules can reach overlays
-      // portaled to `<body>` — see the class doc for the multi-grid caveat.
-      document.documentElement.setAttribute('data-pg-variant', variant);
+      host?.classList.add(variantClass);
+      host?.setAttribute('data-pg-variant', variant);
     } else {
       target.removeAttribute('data-pg-variant');
-      document.documentElement.removeAttribute('data-pg-variant');
+      host?.removeAttribute('data-pg-variant');
+    }
+
+    // The document root is deliberately *not* mirrored when this instance has a
+    // container of its own. Variant rules are ancestor-rooted
+    // (`[data-pg-variant="quantum"] .pg-context-menu`), so an attribute on
+    // `<html>` matches every grid's overlays, not just that variant's — and
+    // since the variant stylesheets are concatenated in a fixed order, the
+    // last-declared skin silently wins for all of them. The container and the
+    // portal host each carry the attribute, which is what those rules match
+    // through. Only a manager driving the document root itself still mirrors.
+    if (!this.scopeEl) {
+      if (variant !== 'none') document.documentElement.setAttribute('data-pg-variant', variant);
+      else document.documentElement.removeAttribute('data-pg-variant');
     }
 
     // Fired synchronously, after the class swap, so the CSS skin and anything
@@ -164,7 +215,9 @@ export class ThemeManager {
    * rebuild-free preview/apply. Inline properties win over the scoped mode
    * stylesheet in the cascade, so these override the active mode without
    * touching it. The same variables are mirrored onto `document.documentElement`
-   * so portaled menus/overlays (appended to `<body>`) pick them up too.
+   * so portaled menus/overlays (appended to `<body>`) pick them up too, and onto
+   * this instance's portal host so overlays that *are* scoped to it — which win
+   * over the root mirror — preview the override as well.
    *
    * @param vars    - Map of full `--pg-*` variable names to values.
    * @param scopeEl - Optional container; defaults to the current scope element.
@@ -173,11 +226,13 @@ export class ThemeManager {
     if (scopeEl) this.scopeEl = scopeEl;
     const target = this.scopeEl ?? document.documentElement;
     const root = document.documentElement;
+    const host = this.portalHost;
     for (const [name, value] of Object.entries(vars)) {
       if (!name.startsWith(TOKEN_PREFIX)) continue;
       this.tokenOverrideKeys.add(name);
       target.style.setProperty(name, value);
       if (root !== target) root.style.setProperty(name, value);
+      host?.style.setProperty(name, value);
     }
   }
 
@@ -188,9 +243,11 @@ export class ThemeManager {
   clearTokenOverrides(scopeEl?: HTMLElement): void {
     const target = scopeEl ?? this.scopeEl ?? document.documentElement;
     const root = document.documentElement;
+    const host = this.portalHost;
     for (const name of this.tokenOverrideKeys) {
       target.style.removeProperty(name);
       if (root !== target) root.style.removeProperty(name);
+      host?.style.removeProperty(name);
     }
     this.tokenOverrideKeys.clear();
   }
@@ -236,6 +293,23 @@ export class ThemeManager {
     return this.activeVariant;
   }
 
+  /**
+   * This grid's portal host — the `<body>`-level element carrying its scope id,
+   * mode and variant, into which overlays should be appended so they resolve
+   * this instance's theme rather than the shared document root.
+   *
+   * Prefer `portalHostFor(anchorEl)` from `overlay-portal.ts` at call sites that
+   * have a triggering element: it resolves the owner from the DOM and needs no
+   * reference to the manager. Use this accessor for long-lived layers that have
+   * no per-open anchor, such as the toast layer.
+   *
+   * Returns `null` until a mode has been applied, since the host is keyed by the
+   * scope id minted at that point.
+   */
+  getPortalHost(): HTMLElement | null {
+    return this.portalHost;
+  }
+
   getTheme(name: string): Theme | undefined {
     return this.registry.get(name);
   }
@@ -256,14 +330,43 @@ export class ThemeManager {
   destroy(): void {
     this.injector.remove();
     this.rootInjector.remove();
+    // Takes any overlay still parented to the host down with it, so a destroyed
+    // grid cannot leave a menu or toast stranded on the page.
+    if (this.scopeId) disposePortalHost(this.scopeId);
+    this.portalHost = null;
+    this.scopeId = null;
   }
 
   // ──────────────────── internals ────────────────────
 
-  /** Resolve a mode name or Theme object to a concrete light/dark Theme. */
+  /**
+   * Resolve a mode name or Theme object to a concrete light/dark Theme.
+   */
   private resolveModeTheme(modeOrTheme: ThemeMode | Theme): Theme {
     if (typeof modeOrTheme !== 'string') return modeOrTheme;
     return this.registry.get(modeOrTheme) ?? lightTheme;
+  }
+
+  /**
+   * Lazily creates this instance's portal host and registers it under `scopeId`.
+   * Idempotent — subsequent calls return the existing host.
+   *
+   * The host carries the scope id so the mode-token stylesheet injected by
+   * {@link applyMode} matches it, and is styled `display: contents` so it adds no
+   * box, no layout and no containing block. See `overlay-portal.ts`.
+   */
+  private ensurePortalHost(scopeId: string): HTMLElement {
+    if (this.portalHost) return this.portalHost;
+
+    const host = document.createElement('div');
+    host.className = PORTAL_HOST_CLASS;
+    host.setAttribute(SCOPE_ATTR, scopeId);
+    document.body.appendChild(host);
+
+    this.portalHost = host;
+    this.scopeId = scopeId;
+    registerPortalHost(scopeId, host);
+    return host;
   }
 
   /** Ensure the scope element carries a stable id used to target its tokens. */

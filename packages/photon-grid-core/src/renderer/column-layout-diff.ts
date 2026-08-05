@@ -15,7 +15,19 @@ export enum ColumnChangeKind {
   WIDTH_ONLY = 'width-only',
   /** At least one panel's columns were permuted; every panel holds the same set. */
   ORDER_ONLY = 'order-only',
-  /** Columns were added, removed, hidden, shown or re-pinned. Full rebuild. */
+  /**
+   * A column changed panel (pinned, unpinned, or re-pinned to the other side).
+   * The grid's visible column set is unchanged — only the panel each column
+   * belongs to differs.
+   *
+   * Split out from {@link STRUCTURAL} because the two need the same DOM work but
+   * different motion: pinning teleports a column across the grid and freezes it
+   * against a different edge, so FLIPping the survivors reads as the layout
+   * sloshing rather than as the column being pinned. See the columns watcher in
+   * `GridRenderer`.
+   */
+  PIN = 'pin',
+  /** Columns were added, removed, hidden or shown. Full rebuild. */
   STRUCTURAL = 'structural',
 }
 
@@ -79,7 +91,11 @@ export function captureColumnLayout(columns: readonly ColumnDef[]): ColumnLayout
  *
  * Ordering of the checks matters: membership is tested before permutation so
  * that an add/remove/hide/pin is never mistaken for a reorder, and widths are
- * only consulted once the arrangement is known to be identical.
+ * only consulted once the arrangement is known to be identical. A panel-level
+ * membership change is then split once more — same visible ids in different
+ * panels is a {@link ColumnChangeKind.PIN}, anything else is
+ * {@link ColumnChangeKind.STRUCTURAL} — and that second test only runs on the
+ * rare path where the panels already disagree.
  *
  * @param prev - Layout captured on the previous `columns` change.
  * @param next - Layout captured for the incoming `columns` value.
@@ -89,23 +105,19 @@ export function diffColumnLayout(
   prev: ColumnLayoutSnapshot,
   next: ColumnLayoutSnapshot,
 ): ColumnChangeKind {
-  // Different column counts in any panel → membership changed.
-  if (
+  // Different column counts in any panel → membership changed. Same counts still
+  // allow a column to have moved *between* panels (a pin change) or to have been
+  // swapped for a brand-new id, so both tests feed the same branch.
+  const panelsDiffer =
     prev.left.length !== next.left.length ||
     prev.center.length !== next.center.length ||
-    prev.right.length !== next.right.length
-  ) {
-    return ColumnChangeKind.STRUCTURAL;
-  }
-
-  // Same counts: a column can still have moved *between* panels (pin change) or
-  // been swapped for a brand-new id. Both are structural.
-  if (
+    prev.right.length !== next.right.length ||
     !sameMembers(prev.left, next.left) ||
     !sameMembers(prev.center, next.center) ||
-    !sameMembers(prev.right, next.right)
-  ) {
-    return ColumnChangeKind.STRUCTURAL;
+    !sameMembers(prev.right, next.right);
+
+  if (panelsDiffer) {
+    return sameVisibleSet(prev, next) ? ColumnChangeKind.PIN : ColumnChangeKind.STRUCTURAL;
   }
 
   const reordered =
@@ -148,6 +160,42 @@ function sameWidths(a: ReadonlyMap<string, number>, b: ReadonlyMap<string, numbe
   if (a.size !== b.size) return false;
   for (const [colId, width] of a) {
     if (b.get(colId) !== width) return false;
+  }
+  return true;
+}
+
+/**
+ * Whether both snapshots hold the same visible column ids, ignoring which panel
+ * each one sits in — i.e. whether a panel-level difference is *only* a pin
+ * change.
+ *
+ * Called on the structural path alone, so the single `Set` allocation is paid
+ * once per pin/hide/add, never on a scroll, a resize or a reorder.
+ */
+function sameVisibleSet(prev: ColumnLayoutSnapshot, next: ColumnLayoutSnapshot): boolean {
+  const prevCount = prev.left.length + prev.center.length + prev.right.length;
+  const nextCount = next.left.length + next.center.length + next.right.length;
+  if (prevCount !== nextCount) return false;
+
+  const seen = new Set<string>();
+  collectInto(seen, prev.left);
+  collectInto(seen, prev.center);
+  collectInto(seen, prev.right);
+
+  // Equal totals plus full containment is set equality — column ids are unique
+  // per grid, so no multiset counting is needed.
+  return containedIn(seen, next.left) && containedIn(seen, next.center) && containedIn(seen, next.right);
+}
+
+/** Adds every id in `ids` to `set`, without the intermediate array a spread would build. */
+function collectInto(set: Set<string>, ids: readonly string[]): void {
+  for (let i = 0; i < ids.length; i++) set.add(ids[i]);
+}
+
+/** Whether every id in `ids` is present in `set`. */
+function containedIn(set: ReadonlySet<string>, ids: readonly string[]): boolean {
+  for (let i = 0; i < ids.length; i++) {
+    if (!set.has(ids[i])) return false;
   }
   return true;
 }

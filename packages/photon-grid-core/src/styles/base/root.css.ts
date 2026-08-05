@@ -7,6 +7,20 @@
  */
 export const rootCss = `
 /* ──────────────────── Root ──────────────────── */
+
+/* Per-grid portal host: the <body>-level element that overlays (context menus,
+   dropdown panels, the column chooser, toasts, drag ghosts) are appended into so
+   they resolve the theme of the grid that opened them rather than the shared
+   document root. See theme/overlay-portal.ts.
+
+   \`display: contents\` is load-bearing, not cosmetic: the host must carry the
+   scope id, mode and variant for CSS matching while generating no box at all.
+   With no box it adds no layout, establishes no containing block — so a
+   \`position: fixed\` overlay inside still resolves against the viewport — and
+   cannot clip its children. Custom properties and \`color-scheme\` still inherit
+   through it, because inheritance follows the element tree, not the box tree. */
+.pg-portal-host { display: contents; }
+
 .pg-grid {
   display: flex;
   flex-direction: column;

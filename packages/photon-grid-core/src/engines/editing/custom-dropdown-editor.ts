@@ -1,5 +1,6 @@
 import type { ColumnDropdownOption } from '../../types/column.types';
 import type { RendererOutput } from '../../types/renderer.types';
+import { portalHostFor } from '../../theme/overlay-portal';
 
 export interface CustomDropdownCallbacks {
   /**
@@ -100,7 +101,7 @@ export class CustomDropdownEditor {
     this.buildPanel();
     this.positionPanel();
 
-    document.body.appendChild(this.panelEl);
+    portalHostFor(this.cellEl).appendChild(this.panelEl);
 
     // Animate in on next frame (so the initial opacity:0 is applied first)
     requestAnimationFrame(() => {

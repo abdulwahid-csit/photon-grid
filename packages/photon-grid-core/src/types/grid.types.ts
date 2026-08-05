@@ -17,6 +17,7 @@ import type { ImportConfig } from './import.types';
 import type { ToolbarConfig } from './toolbar.types';
 import type { RowModelType, ServerSideConfig, ServerSideDatasource } from './server-side.types';
 import type { InfiniteScrollConfig } from './infinite.types';
+import type { ScrollConfig } from './scroll.types';
 import type { ToastServiceConfigInput } from '../toast/toast.types';
 import type { ChartPanelType } from '../chart/chart-panel';
 import type { ChartModel, ChartModelPatch } from '../chart/model/chart-model';
@@ -361,6 +362,28 @@ export interface GridOptions {
   grouping?: Partial<RowGroupingConfig>;
   virtualScroll?: Partial<VirtualScrollConfig>;
   exportConfig?: Partial<ExportConfig>;
+
+  /**
+   * How input gestures are translated into scroll motion.
+   *
+   * The defaults need no configuration: a notched mouse wheel is eased into
+   * continuous motion (so each detent no longer teleports the viewport by a
+   * couple of rows), while precision-touchpad gestures — already smooth, and
+   * steered by the user's own finger — are applied 1:1 with no added lag.
+   *
+   * @example Snappier, shorter mouse-wheel steps
+   * ```ts
+   * scroll: { smoothWheelDuration: 90, wheelStepScale: 0.75 }
+   * ```
+   *
+   * @example Opt out entirely
+   * ```ts
+   * scroll: { wheelMode: WheelScrollMode.Instant }
+   * ```
+   *
+   * @see {@link ScrollConfig}
+   */
+  scroll?: ScrollConfig;
 
   /**
    * Which row model backs the grid. `'client'` (default) keeps all data

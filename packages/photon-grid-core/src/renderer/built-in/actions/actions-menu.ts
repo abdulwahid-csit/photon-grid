@@ -3,6 +3,7 @@ import type { IconRenderer } from '../../../icons/icon-renderer';
 import { createDiv, clearChildren } from '../../dom-utils';
 import { MenuKeyboardController } from '../../menu-keyboard-controller';
 import { placeOverlay } from '../../overlay-position';
+import { portalHostFor } from '../../../theme/overlay-portal';
 import type { ResolvedAction } from './action-resolver';
 import { CELL_ACTION_ATTR } from './actions';
 
@@ -64,7 +65,6 @@ function ensurePanel(): HTMLElement {
   panel.appendChild(title);
   panel.appendChild(list);
 
-  document.body.appendChild(panel);
   panelEl = panel;
   titleEl = title;
   listEl = list;
@@ -145,6 +145,11 @@ export function openActionsMenu(request: ActionsMenuRequest): void {
   const panel = ensurePanel();
 
   closeActionsMenu({ restoreFocus: false });
+
+  // A module singleton shared by every grid on the page: re-parent it into the
+  // triggering grid's portal host so it resolves that grid's tokens and skin
+  // rather than whichever grid last wrote to the document root.
+  portalHostFor(request.trigger).appendChild(panel);
 
   const title = request.options.menuTitle;
   titleEl!.textContent = title ?? '';

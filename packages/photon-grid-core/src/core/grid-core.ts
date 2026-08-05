@@ -541,6 +541,11 @@ export class GridCore {
     // rows, and the render loop short-circuits on that.
     ctx.renderer.setSummaryModel(ctx.summaryModel);
 
+    // Loading state, before the first paint: a grid constructed with
+    // `loading: true` must show its overlay immediately rather than flash an
+    // empty body for one frame.
+    this.wireLoadingState(ctx);
+
     ctx.renderer.mount();
     ctx.renderer.setParentApiForDetail(this.api);
 
@@ -686,6 +691,37 @@ export class GridCore {
 
     ctx.eventBus.emit(GridEventType.READY, { api: this.api });
     options.onReady?.(this.api);
+  }
+
+  /**
+   * Subscribes the loading state to the grid store: seeds `GridOptions.loading`
+   * and makes the store the single place `LOADING_STARTED` / `LOADING_STOPPED`
+   * are emitted from.
+   *
+   * Every producer of the flag — `GridApi.setLoading`, the Server-Side row
+   * model, the Infinite row model — writes the same store key, so routing the
+   * events through one watcher is what guarantees exactly one event per
+   * transition regardless of who caused it. The store de-duplicates writes of an
+   * unchanged value, so a producer that re-asserts `true` emits nothing.
+   *
+   * The seed is applied *before* the watcher is attached: the host passed
+   * `loading` in explicitly, so announcing it back is noise, and no subscriber
+   * exists this early anyway.
+   *
+   * Teardown is implicit — `GridApi.destroy()` calls `store.destroy()`, which
+   * drops every subscriber.
+   */
+  private wireLoadingState(ctx: GridContext): void {
+    if (ctx.options.loading === true) {
+      ctx.store.set('loading', true);
+    }
+
+    ctx.store.watch('loading', (loading) => {
+      ctx.eventBus.emit(
+        loading ? GridEventType.LOADING_STARTED : GridEventType.LOADING_STOPPED,
+        { loading, indicator: ctx.renderer.getLoadingOverlayConfig().indicator },
+      );
+    });
   }
 
   /**

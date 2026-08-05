@@ -645,6 +645,48 @@ export interface GridOptions {
   currencyFormat?: string;
   locale?: string;
 
+  /**
+   * Whether the grid starts in — or is held in — its loading state.
+   *
+   * While set, a loading indicator covers the body (the header stays visible
+   * and interactive) and row rendering is skipped entirely, so a grid that is
+   * waiting on a fetch costs nothing to paint.
+   *
+   * This is the *initial* value only; the live flag lives in the grid store.
+   * Toggle it at runtime with `GridApi.setLoading()` — the framework wrappers
+   * expose it as a dedicated `loading` input/prop that routes there, so
+   * flipping it never recreates the grid.
+   *
+   * The Server-Side and Infinite row models drive the same flag themselves; a
+   * grid using one of those does not need to set this.
+   *
+   * @default false
+   * @see {@link loadingOverlay}
+   */
+  loading?: boolean;
+
+  /**
+   * Appearance of the loading indicator — spinner (default) or skeleton
+   * placeholder rows, plus caption, backdrop and anti-flicker delay.
+   *
+   * @example
+   * ```ts
+   * loadingOverlay: {
+   *   indicator: LoadingIndicator.Skeleton,
+   *   delay: 150,
+   * }
+   * ```
+   *
+   * @see {@link import('./loading.types').LoadingOverlayConfig}
+   */
+  loadingOverlay?: import('./loading.types').LoadingOverlayConfig;
+
+  /**
+   * Caption shown under the loading spinner.
+   *
+   * @deprecated Use `loadingOverlay.text`, which sits alongside the rest of the
+   * overlay configuration. Still honoured when `loadingOverlay.text` is absent.
+   */
   loadingOverlayText?: string;
   noRowsOverlayText?: string;
   noRowsOverlayHtml?: string;

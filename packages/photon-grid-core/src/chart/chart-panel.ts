@@ -1,6 +1,6 @@
 import type { ChartData } from './chart-data-transformer';
 import type { ChartRenderOptions } from './chart-renderer';
-import { ChartRenderer } from './chart-renderer';
+import { ChartRenderer, DEFAULT_SERIES_PALETTE, resolveSeriesColors } from './chart-renderer';
 import { resolveChartTheme } from './chart-theme';
 import type { ChartToolbarItem } from '../types/grid.types';
 import type { IconRenderer } from '../icons/icon-renderer';
@@ -551,7 +551,21 @@ export class ChartPanel {
 
   /** The resolved theme series palette, used to color per-slice legend swatches. */
   private palette(): readonly string[] {
-    return this.canvasEl ? resolveChartTheme(this.canvasEl).palette : [];
+    const themed = this.canvasEl ? resolveChartTheme(this.canvasEl).palette : [];
+    return themed.length > 0 ? themed : DEFAULT_SERIES_PALETTE;
+  }
+
+  /**
+   * Per-series color overrides from the chart model, keyed by series label.
+   *
+   * Read straight off the host's render options — the same object the renderer
+   * is given — so the legend can never disagree with the canvas about an
+   * explicitly configured series color. The size passed in is irrelevant here:
+   * `seriesColors` is layout-independent, and this runs on legend rebuilds only,
+   * never per frame.
+   */
+  private seriesColorOverrides(): Readonly<Record<string, string>> {
+    return this.host?.getRenderOptions({ width: 0, height: 0 }).seriesColors ?? {};
   }
 
   /**
@@ -559,16 +573,25 @@ export class ChartPanel {
    * category (slice); for cartesian charts each item is a series. Clicking an
    * item toggles that slice/series in or out with an animation and dims the
    * entry.
+   *
+   * Swatch colors are resolved through {@link resolveSeriesColors} — the very
+   * chain `ChartRenderer` applies — because the renderer colors a private copy
+   * of the data and leaves `dataset.color` undefined on the panel's own
+   * `ChartData`. Reading that field directly is what previously painted every
+   * swatch in the same fallback blue while the bars were correctly varied.
    */
   private buildLegend(data: ChartData): void {
     if (!this.legendEl) return;
     this.legendEl.innerHTML = '';
 
     const categorical = this.isCategorical();
-    const pal = categorical ? this.palette() : [];
-    const entries: Array<{ label: string; color: string }> = categorical
-      ? data.labels.map((label, i) => ({ label, color: pal[i % Math.max(pal.length, 1)] ?? '#5470c6' }))
-      : data.datasets.map((ds, i) => ({ label: ds.label, color: ds.color ?? '#5470c6' }));
+    const pal = this.palette();
+    const entries: ReadonlyArray<{ label: string; color: string }> = categorical
+      ? data.labels.map((label, i) => ({ label, color: pal[i % pal.length] }))
+      : resolveSeriesColors(data.datasets, pal, this.seriesColorOverrides()).map((color, i) => ({
+          label: data.datasets[i].label,
+          color,
+        }));
 
     const hidden = categorical ? this.hiddenSlices : this.hiddenSeries;
 

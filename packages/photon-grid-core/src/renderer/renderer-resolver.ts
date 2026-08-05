@@ -212,3 +212,40 @@ function inferred(colDef: ColumnDef): ResolvedDisplayRenderer {
   const name = DEFAULT_RENDERER_BY_TYPE[colDef.type];
   return (name && fromBuiltIn(name, optionsFor(colDef))) ?? PLAIN_TEXT;
 }
+
+/**
+ * Turns one cell value into the text that column displays.
+ *
+ * `null` means "this value has no special text form" — the caller keeps its own
+ * formatting for that cell.
+ *
+ * @see BuiltInRendererDefinition.toText
+ */
+export type DisplayTextFn = (value: unknown) => string | null;
+
+/**
+ * Compiles a column's display-text resolver, once, for the loops that need it
+ * per row — clipboard export and filtering.
+ *
+ * Resolving the renderer is cheap but not free (it reads `ColumnDef.renderer`,
+ * merges options and hits the registry), and filtering a million rows would pay
+ * that per cell. Callers hoist this out of their row loop the same way
+ * `ClipboardEngine` hoists its field-path descriptors.
+ *
+ * The `null` return is the important half of the contract: it says this column's
+ * renderer does not transform its value at all, so the caller can skip the
+ * per-cell call entirely rather than invoking a function that would only ever
+ * answer `null`. Every column that is not explicitly text-transforming takes
+ * that path, which is why adding this seam costs untransformed columns nothing.
+ *
+ * @param colDef - The column to compile for.
+ * @returns A resolver, or `null` when the column has no text-transforming
+ *   renderer.
+ */
+export function compileDisplayText(colDef: ColumnDef): DisplayTextFn | null {
+  const resolved = resolveDisplayRenderer(colDef);
+  const toText = resolved.builtIn?.toText;
+  if (!toText) return null;
+  const options = resolved.options;
+  return (value) => toText(value, options);
+}

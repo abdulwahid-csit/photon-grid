@@ -104,6 +104,26 @@ function buildFlag(entry: CountryEntry, options: CountryRendererOptions): HTMLEl
 export const countryRenderer: BuiltInRendererDefinition<CountryRendererOptions> = {
   name: 'country',
   textOnly: false,
+  /**
+   * The country as text — which is what the cell shows, not the code the data
+   * happens to store.
+   *
+   * A country column's whole point is that `"US"`, `"USA"` and `"United States"`
+   * all render the same; without this, copying such a cell yielded whichever raw
+   * form that row stored, and filtering matched against it instead of against
+   * the name on screen.
+   *
+   * A flag-only column (`showName: false`) still reports the full name: it is
+   * the cell's accessible label already (see `buildFlag`), and "nothing" is not
+   * a useful thing to copy or filter by.
+   */
+  toText(value, options) {
+    const entry = normalizeCountry(value);
+    // Unresolvable — the cell falls back to the raw text, so the caller should
+    // too rather than being told the name is empty.
+    if (!entry) return null;
+    return options.showName === false ? entry.name : displayName(entry, options.nameFormat);
+  },
   render(ctx) {
     if (renderIfEmpty(ctx)) return;
 

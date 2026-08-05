@@ -27,7 +27,14 @@ import type { VDomStats } from './vdom/vdom.types';
 import { RowDragRenderer } from './row-drag-renderer';
 import { FooterRenderer } from './footer-renderer';
 import { OverlayRenderer } from './overlay-renderer';
+import type { LoadingGeometry } from './overlay-renderer';
+import { resolveLoadingOverlayConfig } from '../types/loading.types';
+import type {
+  LoadingOverlayConfig,
+  ResolvedLoadingOverlayConfig,
+} from '../types/loading.types';
 import { ColumnStyleManager } from './column-style-manager';
+import { compileDisplayText } from './renderer-resolver';
 import { ColumnAnimator, computeColumnPositions, type ColumnPosition } from './column-animator';
 import {
   ColumnChangeKind,
@@ -371,6 +378,19 @@ export class GridRenderer {
    */
   private _lastFlexResolvedWidth = -1;
 
+  /**
+   * Host-supplied loading overlay configuration, kept unresolved so a partial
+   * runtime update via {@link setLoadingOverlayConfig} merges onto what the
+   * host originally asked for rather than onto filled-in defaults.
+   */
+  private loadingOverlaySource: LoadingOverlayConfig;
+
+  /**
+   * {@link loadingOverlaySource} with every default applied. Resolved once here
+   * (and again only on an explicit update) so the render path never re-merges.
+   */
+  private loadingOverlayConfig: ResolvedLoadingOverlayConfig;
+
   constructor(
     private containerEl: HTMLElement,
     private store: GridStore,
@@ -386,6 +406,13 @@ export class GridRenderer {
   ) {
     this.colStyles = new ColumnStyleManager();
     this.rowPositionSheet = new RowPositionSheet();
+    // `loadingOverlayText` is the deprecated predecessor of
+    // `loadingOverlay.text`; folding it in here is the single back-compat site.
+    this.loadingOverlaySource = options.loadingOverlay ?? {};
+    this.loadingOverlayConfig = resolveLoadingOverlayConfig(
+      this.loadingOverlaySource,
+      options.loadingOverlayText,
+    );
     this.scrollController = new ScrollController(options.scroll);
     // Constructed unconditionally so the `GridApi` size methods always have
     // something to write through — an absent `resize` option only means no
@@ -927,6 +954,15 @@ export class GridRenderer {
    * Extracts unique display value/label pairs for set-type (dropdown / array)
    * filter panels.  For `dropdown` columns the predefined `dropdownOptions`
    * are used directly; for other types unique values are scanned from `allRows`.
+   *
+   * Columns whose renderer transforms its value (a `country` column showing
+   * "United States" for a stored `"US"`) are collected by that **displayed
+   * text**, not by the raw value: the list then reads the way the column does,
+   * and `FilterEngine` compares against the same text so ticking a box matches
+   * exactly the rows the user can see. Collecting by display text also collapses
+   * the rows where one country arrived as `"US"`, `"USA"` and `"United States"`
+   * into the single entry a user expects, instead of three that each hide part
+   * of the answer.
    */
   private extractUniqueOptions(colDef: ColumnDef): FilterSetOption[] {
     // Dropdown: use predefined options list
@@ -942,6 +978,12 @@ export class GridRenderer {
     const parts = field.split('.');
     const nested = field.includes('.');
     const seen = new Set<string>();
+    const toText = compileDisplayText(colDef);
+    // Hoisted out of the row loop: `null` for an ordinary column, so the scan
+    // below is the plain `String(v)` it has always been.
+    const asText = toText
+      ? (v: unknown): string => toText(v) ?? String(v)
+      : (v: unknown): string => String(v);
 
     for (const row of allRows) {
       if (row.type !== 'data') continue;
@@ -957,9 +999,9 @@ export class GridRenderer {
       }
 
       if (Array.isArray(val)) {
-        for (const v of val) { if (v != null && v !== '') seen.add(String(v)); }
+        for (const v of val) { if (v != null && v !== '') seen.add(asText(v)); }
       } else if (val != null && val !== '') {
-        seen.add(String(val));
+        seen.add(asText(val));
       }
     }
 
@@ -1774,7 +1816,7 @@ export class GridRenderer {
       this.unsubscribers.push(
         this.eventBus.on<import('../types/import.types').ImportProgressEvent>(
           GridEventType.IMPORT_PROGRESS,
-          (e) => this.overlayRenderer.showLoading(e.message),
+          (e) => this.overlayRenderer.showLoadingMessage(e.message),
         ),
         this.eventBus.on(GridEventType.IMPORT_COMPLETE, () => this.overlayRenderer.hideLoading()),
         this.eventBus.on<import('../types/import.types').ImportErrorEvent>(GridEventType.IMPORT_ERROR, (e) => {
@@ -2279,6 +2321,75 @@ export class GridRenderer {
   // ─── Render ───────────────────────────────────────────────────────────────
 
   /**
+   * The loading overlay configuration currently in force, with defaults applied.
+   *
+   * @returns The resolved configuration. Reached publicly through
+   *          `GridApi.getLoadingOverlayConfig()`.
+   */
+  getLoadingOverlayConfig(): ResolvedLoadingOverlayConfig {
+    return this.loadingOverlayConfig;
+  }
+
+  /**
+   * Replaces part of the loading overlay configuration at runtime — swapping
+   * the spinner for skeleton placeholders mid-session, for example.
+   *
+   * The patch merges onto the host's *original* configuration, not onto the
+   * resolved one, so omitted keys fall back to their documented defaults rather
+   * than sticking at whatever a previous patch happened to resolve them to.
+   *
+   * Callers are responsible for scheduling a repaint; `GridApi` does this.
+   *
+   * @param config - Partial configuration to merge over the current one.
+   */
+  setLoadingOverlayConfig(config: LoadingOverlayConfig): void {
+    this.loadingOverlaySource = { ...this.loadingOverlaySource, ...config };
+    this.loadingOverlayConfig = resolveLoadingOverlayConfig(
+      this.loadingOverlaySource,
+      this.options.loadingOverlayText,
+    );
+    // The overlay caches the config it painted; without this the next frame
+    // would compare against a stale signature and skip the rebuild. Invalidating
+    // rather than hiding keeps the current overlay on screen until the
+    // replacement is painted, so the swap does not flash the body.
+    this.overlayRenderer.invalidateLoadingSignature();
+  }
+
+  /**
+   * Body geometry for the skeleton indicator: row height, the placeholder row
+   * count that fills the viewport, and the visible column ids per panel.
+   *
+   * Forces no layout. The viewport height comes from `ScrollController`, which
+   * maintains it from the `ResizeObserver` it already runs (reading
+   * `clientHeight` here would be a synchronous layout on every loading frame),
+   * and column *widths* are never read at all — the placeholder cells carry
+   * `data-col-id` and pick their widths up from `ColumnStyleManager`'s
+   * generated rules.
+   *
+   * The row count is bucketed here rather than in the overlay so a sub-row
+   * container resize leaves the skeleton's cache signature unchanged.
+   */
+  private buildLoadingGeometry(
+    leftCols: ColumnDef[],
+    centerCols: ColumnDef[],
+    rightCols: ColumnDef[],
+    rowHeight: number,
+  ): LoadingGeometry {
+    const viewportHeight = this.scrollController.getViewportHeight();
+
+    return {
+      rowHeight,
+      // One extra row covers the partial row at the bottom edge.
+      viewportRows: viewportHeight > 0 && rowHeight > 0
+        ? Math.ceil(viewportHeight / rowHeight) + 1
+        : 0,
+      leftColIds:   leftCols.map((c) => c.colId),
+      centerColIds: centerCols.map((c) => c.colId),
+      rightColIds:  rightCols.map((c) => c.colId),
+    };
+  }
+
+  /**
    * Per-panel column offsets for the current layout, from `colStyles`' resolved
    * widths rather than the DOM — so a column FLIP forces no layout, and center
    * columns outside the virtual window are still positioned correctly.
@@ -2506,10 +2617,22 @@ export class GridRenderer {
     }
 
     if (loading) {
-      this.overlayRenderer.showLoading(this.options.loadingOverlayText);
+      // Deliberately placed after the column/panel-width work above (so the
+      // skeleton lays out against current widths) and before row
+      // virtualization (so a loading frame never pays to build rows nobody
+      // sees). `showLoading` is idempotent, so calling it every frame while the
+      // flag is set costs one string compare, not a DOM rebuild.
+      this.overlayRenderer.showLoading(
+        this.loadingOverlayConfig,
+        this.buildLoadingGeometry(leftCols, centerCols, rightCols, rowHeight),
+      );
       return;
     }
-    this.overlayRenderer.hideLoading();
+    // Not `hideLoading()`: an import puts up its own progress message and then
+    // feeds rows in through `setColumns`/`setData`, each of which schedules a
+    // render — so an unconditional hide here would wipe the message on the very
+    // next frame the import itself caused.
+    this.overlayRenderer.hideLoadingState();
 
     if (rows.length === 0) {
       this.overlayRenderer.showNoRows(this.options.noRowsOverlayHtml, this.options.noRowsOverlayText);

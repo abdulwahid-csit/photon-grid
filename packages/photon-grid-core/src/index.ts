@@ -162,6 +162,18 @@ export type {
 } from './types/toolbar.types';
 export type { ToolbarTabChangedEvent, ToolbarSearchChangedEvent } from './types/event.types';
 
+// ── Loading state ───────────────────────────────────────────────────────────
+// `GridOptions.loading` + `GridOptions.loadingOverlay`, driven at runtime by
+// `GridApi.setLoading()`. Two indicators ship in the box: a themed spinner
+// (default) and skeleton placeholder rows aligned to the real column widths.
+export { LoadingBackdrop, LoadingIndicator, resolveLoadingOverlayConfig } from './types/loading.types';
+export type {
+  LoadingChangedEvent,
+  LoadingOverlayConfig,
+  ResolvedLoadingOverlayConfig,
+} from './types/loading.types';
+export type { LoadingGeometry } from './renderer/overlay-renderer';
+
 export type {
   RowModelType,
   SortModelItem,
@@ -287,7 +299,7 @@ export { WheelSourceDetector, classifyWheelSample, WheelInputType, WheelDeltaMod
 export type { WheelSample } from './renderer/wheel-source';
 
 export { ChartEngine } from './chart/chart-engine';
-export { ChartRenderer } from './chart/chart-renderer';
+export { ChartRenderer, DEFAULT_SERIES_PALETTE, resolveSeriesColors } from './chart/chart-renderer';
 export { ChartDataTransformer } from './chart/chart-data-transformer';
 export { SparklineRenderer } from './chart/sparkline/sparkline-renderer';
 

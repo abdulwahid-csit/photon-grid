@@ -772,6 +772,32 @@ export interface BuiltInRendererDefinition<O extends BaseRendererOptions = BaseR
   /** Fills `ctx.inner`. Must not throw — a renderer error would blank the row. */
   render(ctx: BuiltInRenderContext<O>): void;
   /**
+   * The plain-text form of what {@link render} puts on screen.
+   *
+   * Implement this whenever the renderer *transforms* its value rather than
+   * merely decorating it — `country` turning `"US"` into `"United States"` is
+   * the canonical case. Everything that has to reason about a cell as text
+   * rather than as pixels routes through here, so one method keeps them all
+   * agreeing with the cell:
+   *
+   * - **Clipboard** — copying gives the user the text they can see, not an
+   *   internal code they never asked about.
+   * - **Filtering** — text conditions, the quick filter and the set-filter
+   *   checkbox list all match on the displayed text, so a column that shows
+   *   "United States" is filtered by typing "United States".
+   *
+   * Leave it unimplemented when the rendered text is already the value's normal
+   * string form (`text`, `number`, `badge`, …). Those columns keep the grid's
+   * default type formatting, which is what their callers expect.
+   *
+   * @param value - The cell's logical value, exactly as `render` receives it.
+   * @param options - The renderer's resolved options, as `ctx.options`.
+   * @returns The displayed text, or `null` when this value has no special text
+   *   form and the caller should fall back to its own formatting. Must be pure
+   *   and cheap: filtering calls it once per row per filtered column.
+   */
+  readonly toText?: (value: unknown, options: O) => string | null;
+  /**
    * Updates an already-rendered cell in place, instead of rebuilding it.
    *
    * The extensibility seam for the Virtual DOM: a renderer whose element holds

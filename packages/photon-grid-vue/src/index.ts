@@ -26,3 +26,9 @@ export type * from 'photon-grid-core';
 // when configuring the AI panel's Gemini back-end via `options.photonAI`.
 export { PhotonAIProviderType } from 'photon-grid-core';
 
+// Same reason: `LoadingIndicator` and `LoadingBackdrop` are enums, so the
+// `export type *` above does not carry their runtime values. Needed to write
+// `loadingOverlay: { indicator: LoadingIndicator.Skeleton }` when shaping the
+// overlay behind the `:loading` prop.
+export { LoadingBackdrop, LoadingIndicator } from 'photon-grid-core';
+

@@ -19,6 +19,7 @@ import type {
   RowClickPayload,
   RowSelectedEvent,
   ThemeChangedEvent,
+  LoadingChangedEvent,
 } from 'photon-grid-core';
 
 import { ReactRendererAdapter, type PhotonGridColumnDef, type PhotonGridOptions } from './react-renderer-adapter';
@@ -64,6 +65,26 @@ export interface PhotonGridProps {
    * ```
    */
   options?: Partial<PhotonGridOptions>;
+  /**
+   * Whether the grid shows its loading indicator.
+   *
+   * A dedicated prop rather than an `options` field, because a new `options`
+   * object identity recreates the grid — this routes to `GridApi.setLoading`
+   * instead, so toggling it is a repaint, not a rebuild, and grid state
+   * (scroll position, selection, column layout) survives untouched.
+   *
+   * Configure the indicator's appearance — spinner (default) or skeleton
+   * placeholder rows — through `options.loadingOverlay`.
+   *
+   * @example
+   * ```tsx
+   * <PhotonGrid
+   *   loading={isLoading}
+   *   options={{ loadingOverlay: { indicator: LoadingIndicator.Skeleton } }}
+   * />
+   * ```
+   */
+  loading?: boolean;
   onGridReady?: (api: GridApi) => void;
   onDataChanged?: (event: DataChangedEvent) => void;
   onRowClicked?: (payload: RowClickPayload) => void;
@@ -81,6 +102,12 @@ export interface PhotonGridProps {
   onColumnsStateChanged?: (event: ColumnsStateChangedEvent) => void;
   onThemeChanged?: (event: ThemeChangedEvent) => void;
   onExportComplete?: (event: ExportEvent) => void;
+  /**
+   * The loading state changed — fired once per transition, whether it came from
+   * the `loading` prop, `GridApi.setLoading`, or a server-backed row model
+   * fetching in the background.
+   */
+  onLoadingChanged?: (event: LoadingChangedEvent) => void;
 }
 
 export function PhotonGrid(props: PhotonGridProps): JSX.Element {
@@ -89,7 +116,15 @@ export function PhotonGrid(props: PhotonGridProps): JSX.Element {
   const rendererAdapterRef = useRef<ReactRendererAdapter | null>(null);
   const disposersRef = useRef<Array<() => void>>([]);
 
-  const { columns = [], dataSet = [], options = {} } = props;
+  const { columns = [], dataSet = [], options = {}, loading = false } = props;
+
+  /**
+   * The `loading` value the live grid was built with. The build effect seeds it
+   * into the core's options, so the sync effect below must not re-apply it on
+   * the same pass — and after a rebuild it must resync, because the new core
+   * starts from the seeded value rather than from whatever the old one held.
+   */
+  const seededLoadingRef = useRef<boolean>(loading);
 
   useEffect(() => {
     if (!hostRef.current) {
@@ -106,7 +141,12 @@ export function PhotonGrid(props: PhotonGridProps): JSX.Element {
       ...rendererAdapter.adaptOptions(options),
       columns: rendererAdapter.adaptColumns(columns),
       data: dataSet,
+      // Seeded rather than applied after construction, so a grid created with
+      // `loading` already true paints its overlay on the first frame instead of
+      // flashing an empty body.
+      loading,
     } as GridOptions;
+    seededLoadingRef.current = loading;
 
     const grid = new GridCore(host, mergedOptions);
     gridRef.current = grid;
@@ -137,6 +177,10 @@ export function PhotonGrid(props: PhotonGridProps): JSX.Element {
     subscribe(GridEventType.COLUMNS_STATE_CHANGED, props.onColumnsStateChanged);
     subscribe(GridEventType.THEME_CHANGED, props.onThemeChanged);
     subscribe(GridEventType.EXPORT_COMPLETE, props.onExportComplete);
+    // Both transitions feed one callback: the payload's `loading` flag is what
+    // a host switches on, so two props would only duplicate it.
+    subscribe(GridEventType.LOADING_STARTED, props.onLoadingChanged);
+    subscribe(GridEventType.LOADING_STOPPED, props.onLoadingChanged);
 
     disposersRef.current = disposers;
     props.onGridReady?.(grid.api);
@@ -154,6 +198,23 @@ export function PhotonGrid(props: PhotonGridProps): JSX.Element {
       rendererAdapterRef.current = null;
     };
   }, [columns, dataSet, options]);
+
+  /**
+   * Loading is synced on its own, deliberately outside the build effect's
+   * dependency list: adding it there would tear the grid down and rebuild it on
+   * every toggle, losing scroll position, selection and column layout.
+   *
+   * The guard makes this a no-op when the build effect just seeded the same
+   * value into a freshly constructed core, so a rebuild never redundantly
+   * writes the flag.
+   */
+  useEffect(() => {
+    if (seededLoadingRef.current === loading) {
+      return;
+    }
+    seededLoadingRef.current = loading;
+    gridRef.current?.api.setLoading(loading);
+  }, [loading]);
 
   useEffect(() => {
     return () => {

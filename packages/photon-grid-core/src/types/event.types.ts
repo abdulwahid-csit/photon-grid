@@ -657,4 +657,6 @@ export type GridEventMap = {
   [GridEventType.INFINITE_CACHE_MISS]: InfiniteCacheEvent;
   [GridEventType.THEME_AI_APPLIED]: ThemeAiAppliedEvent;
   [GridEventType.THEME_AI_ERROR]: ThemeAiErrorEvent;
+  [GridEventType.LOADING_STARTED]: import('./loading.types').LoadingChangedEvent;
+  [GridEventType.LOADING_STOPPED]: import('./loading.types').LoadingChangedEvent;
 };

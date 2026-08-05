@@ -34,6 +34,10 @@ const EVENT_MAP: ReadonlyArray<readonly [event: string, emit: string]> = [
   [GridEventType.COLUMNS_STATE_CHANGED, 'columnsStateChanged'],
   [GridEventType.THEME_CHANGED, 'themeChanged'],
   [GridEventType.EXPORT_COMPLETE, 'exportComplete'],
+  // Both transitions feed one emit: the payload's `loading` flag is what a host
+  // switches on, so two events would only duplicate it.
+  [GridEventType.LOADING_STARTED, 'loadingChanged'],
+  [GridEventType.LOADING_STOPPED, 'loadingChanged'],
 ];
 
 /**
@@ -96,6 +100,25 @@ export const PhotonGrid = defineComponent({
      * ```
      */
     options: { type: Object as PropType<Partial<PhotonGridOptions>>, default: () => ({}) },
+    /**
+     * Whether the grid shows its loading indicator.
+     *
+     * A dedicated prop rather than an `options` field, because an `options`
+     * change rebuilds the grid — this routes to `GridApi.setLoading` instead,
+     * so toggling it is a repaint, not a rebuild, and grid state (scroll
+     * position, selection, column layout) survives untouched.
+     *
+     * Configure the indicator's appearance — spinner (default) or skeleton
+     * placeholder rows — through `options.loadingOverlay`.
+     *
+     * @example
+     * ```vue
+     * <PhotonGrid
+     *   :loading="isLoading"
+     *   :options="{ loadingOverlay: { indicator: LoadingIndicator.Skeleton } }" />
+     * ```
+     */
+    loading: { type: Boolean, default: false },
   },
   emits: [
     'gridReady',
@@ -115,6 +138,7 @@ export const PhotonGrid = defineComponent({
     'columnsStateChanged',
     'themeChanged',
     'exportComplete',
+    'loadingChanged',
   ],
   setup(props, { emit }) {
     const host = ref<HTMLDivElement | null>(null);
@@ -134,6 +158,10 @@ export const PhotonGrid = defineComponent({
         ...adaptVueOptions(props.options ?? {}),
         columns: props.columns ?? [],
         data: props.dataSet ?? [],
+        // Seeded rather than applied after construction, so a grid built with
+        // `:loading="true"` paints its overlay on the first frame instead of
+        // flashing an empty body. Also resyncs after a rebuild.
+        loading: props.loading,
       } as GridOptions;
 
       const instance = new GridCore(host.value, merged);
@@ -158,6 +186,15 @@ export const PhotonGrid = defineComponent({
         teardown();
         build();
       },
+    );
+
+    // Loading is watched on its own, deliberately outside the rebuild watcher
+    // above: including it there would tear the grid down on every toggle and
+    // lose scroll position, selection and column layout. `build()` seeds the
+    // current value, so this only ever handles subsequent changes.
+    watch(
+      () => props.loading,
+      (value) => grid.value?.api.setLoading(value),
     );
 
     return () => h('div', { ref: host, class: 'photon-grid__host' });

@@ -44,6 +44,7 @@ import type {
     ServerErrorEvent,
     ServerRefreshEvent,
     ServerRetryEvent,
+    LoadingChangedEvent,
 } from 'photon-grid-core';
 
 import { RendererAdapter } from './angular-renderer.adapter';
@@ -179,6 +180,30 @@ export class PhotonGridComponent implements AfterViewInit, OnChanges, OnDestroy 
     @Input()
     options: Partial<PhotonGridOptions> = {};
 
+    /**
+     * Whether the grid shows its loading indicator.
+     *
+     * A dedicated input rather than an `options` field, because a change to
+     * `options` recreates the grid — this routes to {@link GridApi.setLoading}
+     * instead, so toggling it is a repaint, not a rebuild, and grid state
+     * (scroll position, selection, column layout) survives untouched.
+     *
+     * Configure the indicator's appearance — spinner (default) or skeleton
+     * placeholder rows — through `options.loadingOverlay`.
+     *
+     * @example
+     * ```html
+     * <photon-grid-angular
+     *   [columns]="columns"
+     *   [dataSet]="rows"
+     *   [loading]="isLoading"
+     *   [options]="{ loadingOverlay: { indicator: LoadingIndicator.Skeleton } }">
+     * </photon-grid-angular>
+     * ```
+     */
+    @Input()
+    loading = false;
+
     /** Emitted once the grid is constructed, carrying its {@link GridApi}. */
     @Output() readonly gridReady = new EventEmitter<GridApi>();
 
@@ -257,6 +282,13 @@ export class PhotonGridComponent implements AfterViewInit, OnChanges, OnDestroy 
     /** Server-Side Row Model: a failed request is being retried. */
     @Output() readonly serverRetry = new EventEmitter<ServerRetryEvent>();
 
+    /**
+     * The loading state changed — emitted once per transition, whether it came
+     * from the `loading` input, `GridApi.setLoading`, or a server-backed row
+     * model fetching in the background.
+     */
+    @Output() readonly loadingChanged = new EventEmitter<LoadingChangedEvent>();
+
     /** The live core instance, created in {@link ngAfterViewInit}. */
     private grid?: GridCore;
 
@@ -295,6 +327,14 @@ export class PhotonGridComponent implements AfterViewInit, OnChanges, OnDestroy 
             return;
         }
 
+        // Handled before the `options` branch below: a loading toggle must never
+        // fall through to a recreate, and it is applied even when `options`
+        // changed in the same tick — the recreate seeds `loading` itself.
+        if (changes['loading'] && !changes['loading'].firstChange && !changes['options']) {
+            this.grid.api.setLoading(this.loading);
+            return;
+        }
+
         // An options change cannot be applied incrementally (no core setter),
         // so recreate; this already re-seeds columns and data.
         if (changes['options'] && !changes['options'].firstChange) {
@@ -325,6 +365,10 @@ export class PhotonGridComponent implements AfterViewInit, OnChanges, OnDestroy 
             ...this.rendererAdapter.adaptOptions(this.options),
             columns: this.rendererAdapter.adaptColumns(this.columns),
             data: this.dataSet,
+            // Seeded rather than applied after construction, so a grid created
+            // with `[loading]="true"` paints its overlay on the first frame
+            // instead of flashing an empty body.
+            loading: this.loading,
         } as GridOptions;
 
         const grid = new GridCore(this.gridHost.nativeElement, mergedOptions);
@@ -392,6 +436,10 @@ export class PhotonGridComponent implements AfterViewInit, OnChanges, OnDestroy 
         this.subscribe(api, GridEventType.SERVER_ERROR, this.serverError);
         this.subscribe(api, GridEventType.SERVER_REFRESH, this.serverRefresh);
         this.subscribe(api, GridEventType.SERVER_RETRY, this.serverRetry);
+        // Both transitions feed one emitter: the payload's `loading` flag is
+        // what a host switches on, so two outputs would only duplicate it.
+        this.subscribe(api, GridEventType.LOADING_STARTED, this.loadingChanged);
+        this.subscribe(api, GridEventType.LOADING_STOPPED, this.loadingChanged);
     }
 
     /**

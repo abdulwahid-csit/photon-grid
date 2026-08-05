@@ -31,6 +31,7 @@ import { rowDragCss }           from './base/row-drag.css';
 import { chartPanelCss }        from './base/chart-panel.css';
 import { sparklineCss }         from './base/sparkline.css';
 import { skeletonCss }          from './base/skeleton.css';
+import { loadingCss }           from './base/loading.css';
 import { columnContextMenuCss } from './base/column-context-menu.css';
 import { masterDetailCss }      from './base/master-detail.css';
 import { photonAiCss }          from './base/photon-ai.css';
@@ -81,6 +82,10 @@ const baseCss = [
   sparklineCss,
 
   skeletonCss,
+  // Immediately after the shared skeleton bar it refines: the loading overlay's
+  // layout rules must win a same-specificity tie against it, and its backdrop
+  // modifiers must outrank `.pg-overlay--loading` from miscCss above.
+  loadingCss,
   columnContextMenuCss,
   masterDetailCss,
   photonAiCss,

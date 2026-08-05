@@ -37,6 +37,10 @@ import type { PhotonCommandResult } from '../photon-ai/photon-ai.types';
 import type { ThemeMode, ThemeVariant } from '../types/theme.types';
 import type { IconSet } from '../types/icon.types';
 import type { ServerSideDatasource } from '../types/server-side.types';
+import type {
+  LoadingOverlayConfig,
+  ResolvedLoadingOverlayConfig,
+} from '../types/loading.types';
 import { ServerRowModel } from '../row-models/server/server-row-model';
 import { InfiniteRowModel } from '../row-models/infinite/infinite-row-model';
 import type { InfiniteStats } from '../types/infinite.types';
@@ -1441,6 +1445,97 @@ export class GridApi {
     const rows = this.ctx.store.get('visibleRows');
     const cols = this.ctx.columnModel.getVisibleColumns();
     return this.ctx.summaryEngine.compute(rows, cols);
+  }
+
+  // ──────────────────── Loading state ────────────────────
+
+  /**
+   * Puts the grid into — or takes it out of — its loading state.
+   *
+   * While loading, the configured indicator (spinner by default, or skeleton
+   * placeholder rows) covers the body; the header stays visible and
+   * interactive, and row rendering is skipped entirely, so a grid waiting on a
+   * fetch costs nothing to paint.
+   *
+   * Idempotent: setting the value it already has does nothing and emits
+   * nothing. Each real transition emits exactly one `LOADING_STARTED` or
+   * `LOADING_STOPPED`, whoever caused it.
+   *
+   * Grids on the Server-Side or Infinite row model drive this flag themselves;
+   * calling it manually there will be overwritten by the next fetch.
+   *
+   * @param loading - `true` to show the loading indicator, `false` to hide it.
+   *
+   * @example
+   * ```ts
+   * api.setLoading(true);
+   * const rows = await fetchRows();
+   * api.setData(rows);
+   * api.setLoading(false);
+   * ```
+   *
+   * @see {@link isLoading}
+   * @see {@link updateLoadingOverlay}
+   */
+  setLoading(loading: boolean): void {
+    // The store de-duplicates unchanged writes, and `GridCore` watches this key
+    // to emit the events and schedule the repaint — so this is the whole
+    // implementation, not a shortcut.
+    this.ctx.store.set('loading', loading);
+  }
+
+  /**
+   * Whether the grid is currently in its loading state.
+   *
+   * @returns `true` while the loading indicator is showing.
+   * @see {@link setLoading}
+   */
+  isLoading(): boolean {
+    return this.ctx.store.get('loading');
+  }
+
+  /** Shows the loading indicator. Equivalent to `setLoading(true)`. */
+  showLoadingOverlay(): void {
+    this.setLoading(true);
+  }
+
+  /** Hides the loading indicator. Equivalent to `setLoading(false)`. */
+  hideLoadingOverlay(): void {
+    this.setLoading(false);
+  }
+
+  /**
+   * The loading overlay configuration currently in force, with every default
+   * applied.
+   *
+   * @returns The resolved configuration.
+   * @see {@link updateLoadingOverlay}
+   */
+  getLoadingOverlayConfig(): ResolvedLoadingOverlayConfig {
+    return this.ctx.renderer.getLoadingOverlayConfig();
+  }
+
+  /**
+   * Changes the loading overlay's appearance at runtime — swapping the spinner
+   * for skeleton placeholders mid-session, for example.
+   *
+   * The patch merges onto the configuration the host originally supplied, so
+   * omitted keys fall back to their documented defaults rather than sticking at
+   * whatever an earlier patch resolved them to. Repaints immediately when the
+   * overlay is on screen.
+   *
+   * @param config - Partial configuration to merge over the current one.
+   *
+   * @example
+   * ```ts
+   * api.updateLoadingOverlay({ indicator: LoadingIndicator.Skeleton });
+   * ```
+   *
+   * @see {@link LoadingOverlayConfig}
+   */
+  updateLoadingOverlay(config: LoadingOverlayConfig): void {
+    this.ctx.renderer.setLoadingOverlayConfig(config);
+    if (this.isLoading()) this.ctx.renderer.forceRender();
   }
 
   // ──────────────────── Lifecycle ────────────────────

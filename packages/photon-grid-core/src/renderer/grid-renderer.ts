@@ -94,6 +94,30 @@ const COL_BUFFER = 2;
 const DRAG_COL_BUFFER = 8;
 const AUTO_GROUP_COL_WIDTH = 200;
 
+/**
+ * Width (px) of the divider a pinned panel draws on the edge facing the data.
+ *
+ * Published *on top of* the panel's column widths in `--pg-left-panel-width`,
+ * because the divider is a real `border-right` and every element inside the
+ * grid is `box-sizing: border-box` — so a panel sized to exactly its columns
+ * has a content box 1px narrower than them, and the last pinned column loses
+ * its rightmost pixel to the clip.
+ *
+ * That pixel is precisely where a cell paints its right-hand edge: the
+ * range-selection outline (`.pg-cell--sel-right::after`), the focused cell's
+ * 2px ring, and the fill handle all lose their right side on the last pinned
+ * column while rendering fine everywhere else. Carrying the allowance in the
+ * variable rather than in the panel rule keeps every other consumer of it —
+ * the summary band's left region, the horizontal scrollbar's left spacer, the
+ * Master/Detail layer's left offset, the plugin render window — describing the
+ * same geometry the panel actually occupies.
+ *
+ * The right panel reaches the same place from the other direction: it is
+ * published at `+2` and the stylesheet takes 1px back with a `calc()`.
+ */
+const PINNED_DIVIDER_WIDTH = 1;
+
+
 export class GridRenderer {
   private wrapperEl: HTMLElement | null = null;
 
@@ -237,6 +261,11 @@ export class GridRenderer {
   private tooltipController: TooltipController;
 
   private rafId: number | null = null;
+  /**
+   * Whether a same-frame repaint is already queued for the animation frame in
+   * progress. See {@link onScrollRepaint}.
+   */
+  private inlineRenderQueued = false;
   private autoScroller: AutoScroller | null = null;
   private unsubscribers: Array<() => void> = [];
   private headerRendered = false;
@@ -357,7 +386,7 @@ export class GridRenderer {
   ) {
     this.colStyles = new ColumnStyleManager();
     this.rowPositionSheet = new RowPositionSheet();
-    this.scrollController = new ScrollController();
+    this.scrollController = new ScrollController(options.scroll);
     // Constructed unconditionally so the `GridApi` size methods always have
     // something to write through — an absent `resize` option only means no
     // handles are mounted, not that the grid cannot be sized programmatically.
@@ -387,8 +416,11 @@ export class GridRenderer {
       // Nested grids never scroll themselves via mouse wheel — every wheel
       // gesture over one drives the parent's own scroll instead, so the
       // parent + detail sections read as one continuous scrollable surface.
-      this.detailRowRenderer.setParentScrollForwarder((delta) => {
-        this.scrollController.scrollToY(this.scrollController.getScrollTop() + delta);
+      // Forwarded as the event rather than a raw delta so the parent applies
+      // its own delta-mode conversion and wheel smoothing to it, and the
+      // hand-off keeps the feel the nested grid just had.
+      this.detailRowRenderer.setParentScrollForwarder((event) => {
+        this.scrollController.scrollByWheelEvent(event);
       });
     }
 
@@ -486,6 +518,43 @@ export class GridRenderer {
       this.performRender();
     });
   }
+
+  /**
+   * Repaints in response to a scroll, on the frame that scroll will be painted
+   * on.
+   *
+   * A wheel or momentum glide publishes its offsets from inside an animation
+   * frame. Deferring the repaint with `requestAnimationFrame` from there would
+   * book the *next* frame, so the rendered row/column window would trail the
+   * panel translate by one frame for the whole glide — briefly exposing
+   * unfilled space past the virtualization buffer on a fast spin.
+   *
+   * The repaint is deferred to a **microtask** rather than run inline, so a
+   * frame that moves both axes (a momentum flick, a diagonal glide) still
+   * renders once instead of twice. Microtasks drain before the browser's
+   * rendering steps, so this is still the same frame — just after both writes
+   * have landed.
+   *
+   * A bound field so both scroll subscriptions share one function reference.
+   */
+  private readonly onScrollRepaint = (): void => {
+    if (!this.scrollController.isInAnimationFrame()) {
+      this.scheduleRender();
+      return;
+    }
+    if (this.inlineRenderQueued) return;
+    this.inlineRenderQueued = true;
+    queueMicrotask(this.flushInlineRender);
+  };
+
+  /** Renders the repaint queued by {@link onScrollRepaint} for the current frame. */
+  private readonly flushInlineRender = (): void => {
+    this.inlineRenderQueued = false;
+    // The grid can be torn down between the write and the microtask (a scroll
+    // listener that destroys it, a detail row collapsing mid-glide).
+    if (!this.wrapperEl) return;
+    this.forceRender();
+  };
 
   forceRender(): void {
     if (this.rafId !== null) {
@@ -1632,8 +1701,8 @@ export class GridRenderer {
         || (this.displayGroupEngine?.isDraggingGroup ?? false),
     );
 
-    this.scrollController.onScrollY(() => this.scheduleRender());
-    this.scrollController.onScrollX(() => this.scheduleRender());
+    this.scrollController.onScrollY(this.onScrollRepaint);
+    this.scrollController.onScrollX(this.onScrollRepaint);
 
     // Expose horizontal scroll to header renderer for column drag auto-scroll
     this.headerRenderer.setScrollCallback(
@@ -1795,7 +1864,7 @@ export class GridRenderer {
     // Wire the Column Chooser: the column/group menu "Column Chooser…" item opens
     // a themed dialog built from the original (nested) column definitions, with
     // live visibility driven through the ColumnModel.
-    this.columnChooser = new ColumnChooser(this.columnModel, this.iconRenderer);
+    this.columnChooser = new ColumnChooser(this.columnModel, this.iconRenderer, this.containerEl);
     this.headerRenderer.setColumnChooserCallback(() => {
       this.columnChooser?.open(this.options.columns ?? []);
     });
@@ -2286,10 +2355,11 @@ export class GridRenderer {
       // centerBodyEl.clientWidth reflects the true center panel width.
       // Cached for the plugin render window: a plugin layer spans the whole
       // body, so anything that must line up with centre columns needs these.
-      this.lastLeftPanelWidth  = hasLeft  ? showCb + showSn + leftPinnedWidth : 0;
+      // Both carry their panel's divider allowance — see PINNED_DIVIDER_WIDTH.
+      this.lastLeftPanelWidth  = hasLeft  ? showCb + showSn + leftPinnedWidth + PINNED_DIVIDER_WIDTH : 0;
       this.lastRightPanelWidth = hasRight ? rightContentWidth + 2 : 0;
-      w.style.setProperty('--pg-left-panel-width',  hasLeft  ? `${showCb + showSn + leftPinnedWidth}px` : '0px');
-      w.style.setProperty('--pg-right-panel-width', hasRight ? `${rightContentWidth + 2}px`                 : '0px');
+      w.style.setProperty('--pg-left-panel-width',  `${this.lastLeftPanelWidth}px`);
+      w.style.setProperty('--pg-right-panel-width', `${this.lastRightPanelWidth}px`);
 
       // Show/hide left/right panels BEFORE the flex measurement below. A panel
       // toggling from display:none to visible (e.g. the first time a column is
@@ -2420,10 +2490,10 @@ export class GridRenderer {
       const hasRight = rightCols.length > 0;
       // Cached for the plugin render window: a plugin layer spans the whole
       // body, so anything that must line up with centre columns needs these.
-      this.lastLeftPanelWidth  = hasLeft  ? showCb + showSn + leftPinnedWidth : 0;
+      this.lastLeftPanelWidth  = hasLeft  ? showCb + showSn + leftPinnedWidth + PINNED_DIVIDER_WIDTH : 0;
       this.lastRightPanelWidth = hasRight ? rightContentWidth + 2 : 0;
-      w.style.setProperty('--pg-left-panel-width',  hasLeft  ? `${showCb + showSn + leftPinnedWidth}px` : '0px');
-      w.style.setProperty('--pg-right-panel-width', hasRight ? `${rightContentWidth + 2}px`             : '0px');
+      w.style.setProperty('--pg-left-panel-width',  `${this.lastLeftPanelWidth}px`);
+      w.style.setProperty('--pg-right-panel-width', `${this.lastRightPanelWidth}px`);
 
       const centerColIds = centerCols.map((c) => c.colId);
       const liveCenterW = Math.max(
@@ -3001,9 +3071,18 @@ export class GridRenderer {
         }
 
         // Hiding a column from the context menu, dropping one outside the grid,
-        // or re-pinning all move the survivors to new offsets in a single frame.
-        // Capturing the outgoing layout lets `performRender` FLIP them across
-        // that change on the same 180 ms curve the live drag shift uses.
+        // or showing one from the column chooser moves the survivors to new
+        // offsets in a single frame. Capturing the outgoing layout lets
+        // `performRender` FLIP them across that change on the same 180 ms curve
+        // the live drag shift uses.
+        //
+        // Pinning is deliberately excluded (`ColumnChangeKind.PIN`). A pinned
+        // column does not travel to its new home: it leaves the scrollable body
+        // and re-appears frozen against the grid's edge, at an offset that means
+        // something different in the new panel. FLIPping that sends the column —
+        // and every survivor it displaced — sliding the full width of the grid,
+        // which reads as the layout sloshing rather than as a column being
+        // pinned. The commit is silent instead, exactly like a drop commit.
         if (changeKind === ColumnChangeKind.STRUCTURAL && !isDropCommit) {
           this.columnAnimator.capture(this.lastColumnPositions, 'visibility');
         } else {

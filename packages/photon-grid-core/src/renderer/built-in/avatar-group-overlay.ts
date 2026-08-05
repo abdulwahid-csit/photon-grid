@@ -3,7 +3,7 @@ import type {
   AvatarGroupRendererOptions,
 } from '../../types/built-in-renderer.types';
 import { createDiv } from '../dom-utils';
-import { adoptGridTheme } from '../overlay-theme';
+import { portalHostFor } from '../../theme/overlay-portal';
 import { placeOverlay } from '../overlay-position';
 import { colorForText, initialsOf } from './shared';
 
@@ -73,7 +73,6 @@ function ensurePanel(): HTMLElement {
   list.setAttribute('role', 'list');
   panel.appendChild(list);
 
-  document.body.appendChild(panel);
   panelEl = panel;
   listEl = list;
   // Detached until an open supplies a title — attaching it empty would leave the
@@ -156,10 +155,11 @@ export function openAvatarGroupOverlay(request: AvatarGroupOverlayRequest): void
 
   closeAvatarGroupOverlay({ restoreFocus: false });
 
-  // The panel sits on `document.body`, outside the container the owning grid's
-  // token stylesheet is scoped to — without this it renders in light-mode
-  // fallbacks regardless of the grid's actual mode.
-  adoptGridTheme(panel, request.trigger);
+  // A module singleton shared by every grid on the page, so each open re-parents
+  // it into the triggering grid's portal host. Without that it sits outside the
+  // container the owning grid's token stylesheet is scoped to and renders in
+  // light-mode fallbacks regardless of the grid's actual mode.
+  portalHostFor(request.trigger).appendChild(panel);
 
   while (list.firstChild) list.removeChild(list.firstChild);
 

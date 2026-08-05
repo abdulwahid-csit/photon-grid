@@ -112,6 +112,8 @@ export async function runCellAction(request: CellActionRequest): Promise<boolean
           confirmLabel: confirmRequest.confirmLabel,
           cancelLabel: confirmRequest.cancelLabel,
           danger: confirmRequest.danger,
+          // Keeps the dialog on the theme of the grid the control lives in.
+          ownerEl: trigger,
         });
     if (!confirmed) return false;
   }

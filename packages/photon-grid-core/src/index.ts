@@ -221,6 +221,10 @@ export { KEEP_FOCUS_ATTR, isInsideGridUi, resolveGridRoot } from './cell-selecti
 
 export { ThemeManager } from './theme/theme-manager';
 export { CssVarInjector } from './theme/css-var-injector';
+// Overlay portalling: a custom cell renderer or plugin that appends a floating
+// panel to the page should append it into `portalHostFor(anchorEl)` rather than
+// `document.body`, so the panel resolves the theme of the grid it belongs to.
+export { portalHostFor, PORTAL_HOST_CLASS } from './theme/overlay-portal';
 export { lightTheme } from './theme/themes/light-theme';
 export { darkTheme } from './theme/themes/dark-theme';
 
@@ -275,6 +279,12 @@ export { FooterRenderer } from './renderer/footer-renderer';
 export { OverlayRenderer } from './renderer/overlay-renderer';
 export { VirtualScrollRenderer } from './renderer/virtual-scroll-renderer';
 export { CellRenderer } from './renderer/cell-renderer';
+// Wheel-input primitives, exported so a host can classify or replay gestures
+// against the same rules the grid scrolls by.
+export { SmoothScrollAnimator, approachFactor } from './renderer/smooth-scroll-animator';
+export type { SmoothScrollAxis, SmoothScrollAnimatorDeps } from './renderer/smooth-scroll-animator';
+export { WheelSourceDetector, classifyWheelSample, WheelInputType, WheelDeltaMode } from './renderer/wheel-source';
+export type { WheelSample } from './renderer/wheel-source';
 
 export { ChartEngine } from './chart/chart-engine';
 export { ChartRenderer } from './chart/chart-renderer';
@@ -498,6 +508,10 @@ export type {
 } from './toast/toast.types';
 
 export type { GridOptions, GridState, GridDimensions, SortConfig, PaginationConfig, SelectionConfig, EditingConfig, CellRange, ColumnGroupConfig, HeaderIconsConfig, FiltersToolPanelConfig } from './types/grid.types';
+// Wheel-scroll tuning: smoothing of notched mouse-wheel steps, notch distance,
+// and the reduced-motion opt-out. See `types/scroll.types.ts`.
+export { WheelScrollMode, resolveScrollConfig, DEFAULT_SMOOTH_WHEEL_DURATION_MS } from './types/scroll.types';
+export type { ScrollConfig, ResolvedScrollConfig } from './types/scroll.types';
 export type { ColumnDef, ColumnDefInput, Column, ColumnState, ColumnGroup, ColumnDropdownOption, ColumnDataType, ColumnPinPosition, AggFunc } from './types/column.types';
 export { HeaderIconDisplay } from './types/column.types';
 export { ColumnMenuSection, AggregateFunction } from './types/column-menu.types';

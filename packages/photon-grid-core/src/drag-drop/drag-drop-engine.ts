@@ -355,7 +355,10 @@ export class DragDropEngine {
   private beginDrag(session: DragSession): void {
     session.isDragging = true;
     session.sourceEl.classList.add('pg-dragging');
-    this.preview.create(this.previewOptionsByEl.get(session.sourceEl) ?? {});
+    this.preview.create(
+      this.previewOptionsByEl.get(session.sourceEl) ?? {},
+      session.sourceEl,
+    );
     this.captureTargets(session.item);
 
     // Anything that scrolls or resizes moves the captured rects; a drag is

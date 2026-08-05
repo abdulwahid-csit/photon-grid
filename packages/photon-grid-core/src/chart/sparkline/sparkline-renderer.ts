@@ -22,6 +22,7 @@ import type {
   OHLCPoint,
   SparklineType,
 } from './sparkline.types';
+import { portalHostFor } from '../../theme/overlay-portal';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Internal resolved configuration
@@ -66,16 +67,25 @@ interface ResolvedConfig {
 const SparklineTooltip = {
   _el: null as HTMLElement | null,
 
-  /** Returns the shared tooltip element, creating it on first access. */
-  get(): HTMLElement {
+  /**
+   * Returns the shared tooltip element, creating it on first access and
+   * re-parenting it into the hovered sparkline's portal host.
+   *
+   * The tooltip is one element shared by every grid on the page, so the host is
+   * resolved per show: that is what keeps it on the theme of the grid actually
+   * being hovered rather than whichever grid last wrote to the document root.
+   *
+   * @param origin - The hovered sparkline canvas, used to resolve the host.
+   */
+  get(origin: HTMLElement | null): HTMLElement {
     if (!SparklineTooltip._el) {
       const el = document.createElement('div');
       el.className = 'pg-sparkline-tooltip';
       el.setAttribute('role', 'tooltip');
       el.setAttribute('aria-live', 'polite');
-      document.body.appendChild(el);
       SparklineTooltip._el = el;
     }
+    portalHostFor(origin).appendChild(SparklineTooltip._el);
     return SparklineTooltip._el;
   },
 
@@ -88,6 +98,7 @@ const SparklineTooltip = {
    * @param label   - Optional x-axis label (only shown when `hasLabel` is true).
    * @param value   - Numeric y-value to display.
    * @param hasLabel - Whether a label row should be rendered.
+   * @param origin  - The hovered sparkline canvas; resolves the portal host.
    */
   show(
     clientX: number,
@@ -95,8 +106,9 @@ const SparklineTooltip = {
     label: string | undefined,
     value: number,
     hasLabel: boolean,
+    origin: HTMLElement | null,
   ): void {
-    const el = SparklineTooltip.get();
+    const el = SparklineTooltip.get(origin);
     el.innerHTML = '';
 
     if (hasLabel && label !== undefined) {
@@ -121,9 +133,16 @@ const SparklineTooltip = {
    * @param clientY - Cursor y in viewport coordinates.
    * @param pt      - Normalised OHLC data point.
    * @param hasLabel - Whether a label row should be rendered.
+   * @param origin  - The hovered sparkline canvas; resolves the portal host.
    */
-  showOHLC(clientX: number, clientY: number, pt: OHLCPoint, hasLabel: boolean): void {
-    const el = SparklineTooltip.get();
+  showOHLC(
+    clientX: number,
+    clientY: number,
+    pt: OHLCPoint,
+    hasLabel: boolean,
+    origin: HTMLElement | null,
+  ): void {
+    const el = SparklineTooltip.get(origin);
     el.innerHTML = '';
 
     if (hasLabel && pt.label !== undefined) {
@@ -1096,7 +1115,7 @@ export class SparklineRenderer {
 
     const pt = pts[idx];
     if (pt) {
-      SparklineTooltip.show(clientX, clientY, pt.label, pt.value, this.hasLabels);
+      SparklineTooltip.show(clientX, clientY, pt.label, pt.value, this.hasLabels, this.canvas);
     }
   }
 
@@ -1130,7 +1149,7 @@ export class SparklineRenderer {
 
     const pt = pts[idx];
     if (pt) {
-      SparklineTooltip.showOHLC(clientX, clientY, pt, this.hasLabels);
+      SparklineTooltip.showOHLC(clientX, clientY, pt, this.hasLabels, this.canvas);
     }
   }
 

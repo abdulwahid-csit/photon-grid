@@ -5,6 +5,7 @@ import type { EventBus } from '../event-bus/event-bus';
 import type { IconRenderer } from '../icons/icon-renderer';
 import { GridEventType } from '../types/event.types';
 import { createDiv } from './dom-utils';
+import { portalHostFor } from '../theme/overlay-portal';
 import { MenuKeyboardController } from './menu-keyboard-controller';
 import type { MenuKeyboardHost } from './menu-keyboard-controller';
 import {
@@ -315,7 +316,7 @@ export class ColumnMenu {
     anchorEl.classList.add('pg-th__menu-btn--active');
 
     const menu = this.buildMenu(colDef);
-    document.body.appendChild(menu);
+    portalHostFor(anchorEl).appendChild(menu);
     this.el = menu;
 
     this.positionMenu(anchorEl, clientX, clientY);
@@ -726,13 +727,16 @@ export class ColumnMenu {
   }
 
   /**
-   * Portal a submenu into document.body and position it in viewport
+   * Portal a submenu alongside its parent menu and position it in viewport
    * coordinates. Portaling (rather than nesting it under its parent item)
    * keeps it clear of the parent menu's `overflow-y: auto` clipping, so a
    * fly-out can render correctly even while the menu body is scrolled.
+   *
+   * `parentItem` already sits inside the owning grid's portal host, so resolving
+   * from it keeps the submenu on the same theme as the menu it flew out of.
    */
   private openSubmenu(submenu: HTMLElement, parentItem: HTMLElement): void {
-    document.body.appendChild(submenu);
+    portalHostFor(parentItem).appendChild(submenu);
     this.activeSubmenuEl = submenu;
     submenu.classList.add('pg-col-ctx-menu__submenu--open');
     parentItem.setAttribute('aria-expanded', 'true');

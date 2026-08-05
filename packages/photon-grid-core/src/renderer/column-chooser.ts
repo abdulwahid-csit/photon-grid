@@ -1,6 +1,7 @@
 import type { ColumnDef, ColumnDefInput } from '../types/column.types';
 import type { ColumnModel } from '../core/column-model';
 import type { IconRenderer } from '../icons/icon-renderer';
+import { portalHostFor } from '../theme/overlay-portal';
 
 /**
  * Modal "Choose Columns" dialog — the target of the column menu's
@@ -36,6 +37,15 @@ export class ColumnChooser {
   constructor(
     private readonly columnModel: ColumnModel,
     private readonly iconRenderer: IconRenderer,
+    /**
+     * The owning grid's container. Used only to resolve the portal host the
+     * dialog is appended to, so it wears its own grid's theme rather than
+     * whichever grid last wrote to the document root.
+     *
+     * Optional for standalone use; the dialog then mounts to `<body>` and
+     * resolves whatever palette is mirrored there.
+     */
+    private readonly ownerEl?: HTMLElement,
   ) {
     this.boundKeydown = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') this.close();
@@ -150,7 +160,7 @@ export class ColumnChooser {
 
     dialog.append(header, search, body);
     overlay.appendChild(dialog);
-    doc.body.appendChild(overlay);
+    portalHostFor(this.ownerEl).appendChild(overlay);
     this.overlayEl = overlay;
     this.dialogEl = dialog;
 

@@ -11,6 +11,7 @@ import type { CellChange } from '../engines/undo-redo/undo-redo-engine';
 import type { AutoFillEngine } from '../autofill/autofill-engine';
 import type { AutoFillValue } from '../autofill/types/autofill.types';
 import type { IconRenderer } from '../icons/icon-renderer';
+import { portalHostFor } from '../theme/overlay-portal';
 import type {
   RowMenuConfig,
   RowMenuConfirmOptions,
@@ -2160,7 +2161,9 @@ export class CellSelectionEngine {
     };
 
     const handler = this.rowMenuConfig?.confirmHandler;
-    return handler ? handler(request) : openConfirmDialog(request);
+    return handler
+      ? handler(request)
+      : openConfirmDialog({ ...request, ownerEl: this.gridRootEl ?? this.attachedEl });
   }
 
   /** Toggles the busy indicator on an item element. */
@@ -2765,7 +2768,10 @@ export class CellSelectionEngine {
       }
     });
 
-    document.body.appendChild(el);
+    // Portaled into the owning grid's host rather than straight onto <body>, so
+    // the menu wears this grid's mode and variant even when another grid on the
+    // page applied its theme more recently.
+    portalHostFor(this.gridRootEl ?? this.attachedEl).appendChild(el);
     this.contextMenuEl = el;
   }
 

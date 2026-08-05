@@ -75,7 +75,7 @@ export const headerCss = `/* ─────────────────
 .pg-th__content {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 4px;
   flex: 1;
   min-width: 0;
   padding: 0 10px 0 12px;

@@ -16,7 +16,7 @@ import { ColumnMenu } from './column-menu';
 import { GroupContextMenu } from './group-context-menu';
 import { ColumnStyleManager } from './column-style-manager';
 import { createDiv, toggleClass, reconcileChildren } from './dom-utils';
-import { adoptGridTheme } from './overlay-theme';
+import { portalHostFor } from '../theme/overlay-portal';
 import { resolveColumnRenderer } from './renderer-resolver';
 import {
   isTouchPointer,
@@ -1147,14 +1147,7 @@ export class HeaderRenderer {
    * @param colId - The column whose header cell should receive focus.
    */
   setRovingCell(colId: string): void {
-    this.rovingColId = colId;
-    const rows = [this.leftHeaderRowEl, this.centerHeaderRowEl, this.rightHeaderRowEl];
-    for (const row of rows) {
-      if (!row) continue;
-      for (const cell of Array.from(row.querySelectorAll<HTMLElement>('.pg-th[data-col-id]'))) {
-        cell.setAttribute('tabindex', cell.getAttribute('data-col-id') === colId ? '0' : '-1');
-      }
-    }
+    this.syncRovingTabindex(colId);
 
     const target = this.findHeaderCell(colId);
     if (target) {
@@ -1170,6 +1163,31 @@ export class HeaderRenderer {
         revealed.focus();
       }
     });
+  }
+
+  /**
+   * Make `colId` the single header tab stop, without moving DOM focus.
+   *
+   * Split out of {@link setRovingCell} because the two callers need different
+   * halves: arrow-key navigation wants the tabindex swap *and* the focus move,
+   * while the `focusin` handler is already inside the focus it would otherwise
+   * re-issue. Both must do the attribute swap, though — recording
+   * {@link rovingColId} alone leaves `tabindex="0"` on the previously roving
+   * cell, so tabbing out of the header and back returns to that stale cell
+   * instead of the one the user last used.
+   *
+   * The sweep spans all three panel rows, so a column that moved between panels
+   * (pinning) is still found.
+   */
+  private syncRovingTabindex(colId: string): void {
+    this.rovingColId = colId;
+    const rows = [this.leftHeaderRowEl, this.centerHeaderRowEl, this.rightHeaderRowEl];
+    for (const row of rows) {
+      if (!row) continue;
+      for (const cell of Array.from(row.querySelectorAll<HTMLElement>('.pg-th[data-col-id]'))) {
+        cell.setAttribute('tabindex', cell.getAttribute('data-col-id') === colId ? '0' : '-1');
+      }
+    }
   }
 
   /** Locate a rendered header cell by column id across all three panels. */
@@ -1408,8 +1426,9 @@ export class HeaderRenderer {
     // Keyboard navigation is delegated at the panel-row level (see
     // attachHeaderKeydown). `focusin` keeps the roving cell in sync when the user
     // Tabs into a header cell or clicks it, so a subsequent Arrow key moves from
-    // the right place.
-    th.addEventListener('focusin', () => { this.rovingColId = col.colId; });
+    // the right place — and the tab stop moves with it, so leaving the header
+    // and tabbing back returns here rather than to the previously roving cell.
+    th.addEventListener('focusin', () => { this.syncRovingTabindex(col.colId); });
 
     this.attachColumnDragListeners(th, col, panelColumns, panelRowEl);
     return th;
@@ -1631,11 +1650,10 @@ export class HeaderRenderer {
     ghostLabel.textContent = col.header;
     ghost.appendChild(ghostLabel);
     ghost.appendChild(mkIcon('pg-col-drag-ghost__icon--arrow-right', 'chevronRight'));
-    // The ghost lives on `document.body`, outside the container the grid's token
-    // stylesheet is scoped to, so without this every `var(--pg-…, fallback)` on
-    // it collapses to its light-mode fallback — a white chip over a dark grid.
-    adoptGridTheme(ghost, panelRowEl);
-    document.body.appendChild(ghost);
+    // The ghost lives outside the container the grid's token stylesheet is
+    // scoped to, so without the portal host every `var(--pg-…, fallback)` on it
+    // collapses to its light-mode fallback — a white chip over a dark grid.
+    portalHostFor(panelRowEl).appendChild(ghost);
     // 14 px to the right of the cursor, vertically level with it. From here the
     // chip is moved by transform only — no layout, no paint.
     this.dragGhost.attach(ghost, 14, 0);

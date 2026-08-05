@@ -5,9 +5,34 @@ import {
   MOMENTUM_MIN_VELOCITY,
   PAN_EXCLUDE_SELECTOR,
 } from '../core/pointer-utils';
+import type { ResolvedScrollConfig, ScrollConfig } from '../types/scroll.types';
+import { resolveScrollConfig, WheelScrollMode } from '../types/scroll.types';
 import { contentToTrack, trackHeightFor, trackToContent } from './scroll-track';
+import { SmoothScrollAnimator } from './smooth-scroll-animator';
+import { WheelInputType, WheelSourceDetector } from './wheel-source';
 
 export type ScrollYCallback = (scrollTop: number) => void;
+
+/**
+ * Pixels one line of `deltaMode: DOM_DELTA_LINE` is worth.
+ *
+ * Gecko reports mouse-wheel gestures in lines (three per detent by default);
+ * this is the conversion into the pixel space every other engine — and this
+ * controller — works in.
+ */
+const LINE_HEIGHT_PX = 32;
+
+/**
+ * `WheelEvent` plus the legacy tick field Blink and WebKit still expose.
+ *
+ * Non-standard, hence absent from `lib.dom`, but the single most reliable
+ * mouse-vs-touchpad signal those engines give us — see
+ * {@link WheelSample.legacyWheelDelta}.
+ */
+interface LegacyWheelEvent extends WheelEvent {
+  readonly wheelDeltaY?: number;
+  readonly wheelDeltaX?: number;
+}
 
 export class ScrollController {
   private scrollTop = 0;
@@ -19,14 +44,29 @@ export class ScrollController {
   /** Height actually given to the vertical scrollbar spacer — see `scroll-track.ts`. */
   private trackHeight = 0;
   /**
-   * Track offset this controller last wrote to the native scrollbar. The write
-   * echoes back as a `scroll` event; the browser may have rounded it to a
-   * device pixel, which — once scaled back into content space — is no longer
-   * the value we asked for and would fight the gesture that caused it. Cleared
-   * as soon as one event is matched against it, so a genuine user scroll is
+   * The last few track offsets this controller wrote to the native scrollbar,
+   * as a fixed-size ring.
+   *
+   * Every write echoes back as a `scroll` event; the browser may have rounded
+   * it to a device pixel, which — once scaled back into content space — is no
+   * longer the value we asked for and would fight the gesture that caused it.
+   * Matched entries are cleared, so a genuine user scroll to the same offset is
    * never swallowed twice.
+   *
+   * A ring rather than a single slot because a wheel glide writes on *every*
+   * animation frame: `scroll` events are dispatched asynchronously and the
+   * browser is free to coalesce or lag them, so an echo can arrive after a
+   * newer write has already been recorded. Against one slot that echo reads as
+   * a user gesture — which would cancel the glide and yank the view back a
+   * frame. Four entries cover any realistic dispatch delay while keeping the
+   * scan a handful of comparisons on the scroll path.
+   *
+   * Slots hold `NaN` when empty; `NaN` never compares within tolerance of a
+   * real offset, so no emptiness check is needed in the scan.
    */
-  private pendingTrackWrite: number | null = null;
+  private readonly recentTrackWrites = [NaN, NaN, NaN, NaN];
+  /** Next slot in {@link recentTrackWrites} to overwrite. */
+  private trackWriteCursor = 0;
   /**
    * Pixel offset that rendered rows are positioned relative to. Written by
    * `GridRenderer` alongside the row position stylesheet; see
@@ -83,6 +123,85 @@ export class ScrollController {
    * toggle. Reserving it unconditionally makes that a non-event.
    */
   private reserveVerticalGutter = false;
+
+  // ── Wheel smoothing ───────────────────────────────────────────────────────
+  /** Resolved wheel behaviour; see {@link ScrollConfig}. */
+  private readonly config: ResolvedScrollConfig;
+  /** Per-gesture mouse-vs-touchpad classifier. */
+  private readonly wheelSource = new WheelSourceDetector();
+  /** Eases a notched wheel's discrete steps into continuous motion. */
+  private readonly wheelGlide: SmoothScrollAnimator;
+  /**
+   * Live `prefers-reduced-motion` state, kept current by a media-query
+   * listener rather than polled per wheel event.
+   */
+  private reducedMotion = false;
+  /**
+   * `true` while a scroll offset is being written from inside an animation
+   * frame — the wheel glide or the touch-momentum glide. See
+   * {@link isInAnimationFrame}.
+   */
+  private inAnimationFrame = false;
+
+  /**
+   * @param config - Wheel-scrolling options. Defaults smooth a notched mouse
+   *   wheel and leave touchpad gestures untouched.
+   */
+  constructor(config: ScrollConfig = {}) {
+    this.config = resolveScrollConfig(config);
+    // Axes are wired to the *raw* setters: the public `scrollToX/Y` cancel any
+    // glide in flight (so an unrelated scroll always wins), which would make
+    // the animation abort itself on its very first frame.
+    this.wheelGlide = new SmoothScrollAnimator(
+      {
+        x: {
+          get: () => this.scrollLeft,
+          set: (v) => this.applyAnimatedScroll(v, false),
+          clamp: (v) => Math.max(0, Math.min(v, this.maxScrollX)),
+        },
+        y: {
+          get: () => this.scrollTop,
+          set: (v) => this.applyAnimatedScroll(v, true),
+          clamp: (v) => Math.max(0, Math.min(v, this.maxScrollY)),
+        },
+      },
+      this.config.smoothWheelDuration,
+    );
+  }
+
+  /**
+   * `true` while a scroll offset is being written from inside an animation
+   * frame, i.e. during the current synchronous notification of scroll
+   * subscribers.
+   *
+   * Subscribers use this to decide *when* to repaint. A `requestAnimationFrame`
+   * booked from inside a frame callback does not run until the **next** frame,
+   * so a subscriber that always defers would paint its new state one frame
+   * behind the offsets published here — visible on a fast glide as the row
+   * window trailing the panel translate. Seeing `true`, a subscriber should do
+   * its work inline instead: it is already on the frame that will paint.
+   */
+  isInAnimationFrame(): boolean {
+    return this.inAnimationFrame;
+  }
+
+  /**
+   * Writes an animated scroll offset with {@link inAnimationFrame} raised for
+   * the duration of the subscriber notification it triggers.
+   *
+   * @param value    - The new offset in content pixels.
+   * @param vertical - `true` for the Y axis, `false` for X.
+   */
+  private applyAnimatedScroll(value: number, vertical: boolean): void {
+    const wasInFrame = this.inAnimationFrame;
+    this.inAnimationFrame = true;
+    try {
+      if (vertical) this.applyScrollY(value);
+      else this.applyScrollX(value);
+    } finally {
+      this.inAnimationFrame = wasInFrame;
+    }
+  }
 
   /**
    * Subscribes to vertical scroll. **Multicast** — every registered callback
@@ -198,6 +317,8 @@ export class ScrollController {
     sbVNativeEl.addEventListener('scroll', this.onVNativeScroll, { signal: sig });
     sbHNativeEl.addEventListener('scroll', this.onHNativeScroll, { signal: sig });
 
+    this.watchReducedMotion(sig);
+
     this.resizeObs = new ResizeObserver(() => {
       this.viewportHeight = bodyEl.clientHeight;
       this.centerViewportWidth = centerBodyEl.clientWidth;
@@ -268,13 +389,31 @@ export class ScrollController {
   /** Returns the current visible width of the center body viewport in pixels. */
   getCenterViewportWidth(): number { return this.centerViewportWidth; }
   canScrollLeft(): boolean { return this.scrollLeft > 0; }
-  canScrollRight(): boolean { return this.scrollLeft < Math.max(0, this.totalCenterWidth - this.centerViewportWidth); }
+  canScrollRight(): boolean { return this.scrollLeft < this.maxScrollX; }
   canScrollUp(): boolean { return this.scrollTop > 0; }
-  canScrollDown(): boolean { return this.scrollTop < Math.max(0, this.totalHeight - this.viewportHeight); }
+  canScrollDown(): boolean { return this.scrollTop < this.maxScrollY; }
 
   scrollToY(y: number): void {
-    const max = Math.max(0, this.totalHeight - this.viewportHeight);
-    const next = Math.max(0, Math.min(y, max));
+    // Any scroll that is not the wheel glide itself supersedes it.
+    this.wheelGlide.cancel();
+    this.applyScrollY(y);
+  }
+
+  scrollToX(x: number): void {
+    this.wheelGlide.cancel();
+    this.applyScrollX(x);
+  }
+
+  /**
+   * Writes a vertical scroll offset without touching the wheel glide.
+   *
+   * The single funnel every vertical scroll passes through — clamping,
+   * CSS-var publication, scrollbar sync and subscriber notification all happen
+   * here exactly once. {@link scrollToY} is this plus glide cancellation; the
+   * animator calls this directly so its own writes do not abort it.
+   */
+  private applyScrollY(y: number): void {
+    const next = Math.max(0, Math.min(y, this.maxScrollY));
     if (next === this.scrollTop) return;
     this.scrollTop = next;
     this.syncCSSVars();
@@ -283,9 +422,9 @@ export class ScrollController {
     this.fireScrollY(this.scrollTop);
   }
 
-  scrollToX(x: number): void {
-    const max = Math.max(0, this.totalCenterWidth - this.centerViewportWidth);
-    const next = Math.max(0, Math.min(x, max));
+  /** Horizontal counterpart of {@link applyScrollY}. */
+  private applyScrollX(x: number): void {
+    const next = Math.max(0, Math.min(x, this.maxScrollX));
     if (next === this.scrollLeft) return;
     this.scrollLeft = next;
     this.syncCSSVars();
@@ -302,6 +441,7 @@ export class ScrollController {
 
   destroy(): void {
     this.stopMomentum();
+    this.wheelGlide.destroy();
     this.abortCtrl?.abort();
     this.abortCtrl = null;
     this.resizeObs?.disconnect();
@@ -314,8 +454,8 @@ export class ScrollController {
   }
 
   private clampScroll(): void {
-    this.scrollTop  = Math.max(0, Math.min(this.scrollTop,  Math.max(0, this.totalHeight      - this.viewportHeight)));
-    this.scrollLeft = Math.max(0, Math.min(this.scrollLeft, Math.max(0, this.totalCenterWidth - this.centerViewportWidth)));
+    this.scrollTop  = Math.max(0, Math.min(this.scrollTop,  this.maxScrollY));
+    this.scrollLeft = Math.max(0, Math.min(this.scrollLeft, this.maxScrollX));
   }
 
   private syncCSSVars(): void {
@@ -369,6 +509,9 @@ export class ScrollController {
   /** Furthest the content can scroll, in content pixels. */
   private get maxScrollY(): number { return Math.max(0, this.totalHeight - this.viewportHeight); }
 
+  /** Furthest the center panel can scroll horizontally, in content pixels. */
+  private get maxScrollX(): number { return Math.max(0, this.totalCenterWidth - this.centerViewportWidth); }
+
   /** Furthest the native scrollbar can scroll, in track pixels. */
   private get maxTrackY(): number { return Math.max(0, this.trackHeight - this.viewportHeight); }
 
@@ -384,8 +527,29 @@ export class ScrollController {
   private writeTrackY(): void {
     if (!this.sbVNativeEl) return;
     const track = this.toTrackY(this.scrollTop);
-    this.pendingTrackWrite = track;
+    this.recentTrackWrites[this.trackWriteCursor] = track;
+    this.trackWriteCursor = (this.trackWriteCursor + 1) % this.recentTrackWrites.length;
     this.sbVNativeEl.scrollTop = track;
+  }
+
+  /**
+   * Whether a `scroll` event's track offset is the echo of one of our own
+   * writes, rather than a user gesture on the scrollbar.
+   *
+   * Consumes the matching entry, so two events at the same offset — our echo
+   * and a later user scroll back to it — are told apart.
+   *
+   * @param track - The offset the native scrollbar now reports.
+   * @returns `true` when the event should be ignored.
+   */
+  private isTrackEcho(track: number): boolean {
+    for (let i = 0; i < this.recentTrackWrites.length; i++) {
+      if (Math.abs(track - this.recentTrackWrites[i]) < 1) {
+        this.recentTrackWrites[i] = NaN;
+        return true;
+      }
+    }
+    return false;
   }
 
   private syncScrollbars(): void {
@@ -411,16 +575,18 @@ export class ScrollController {
   private readonly onVNativeScroll = (): void => {
     const track = this.sbVNativeEl!.scrollTop;
 
-    // Swallow the echo of our own write exactly once. Unscaled the `< 0.5`
-    // check below already absorbed it; once the track is scaled, the browser's
-    // sub-pixel rounding of that write maps back to a content offset several
-    // pixels off, which would yank the view away from the gesture that set it.
-    const expected = this.pendingTrackWrite;
-    this.pendingTrackWrite = null;
-    if (expected !== null && Math.abs(track - expected) < 1) return;
+    // Swallow the echo of our own write. Unscaled the `< 0.5` check below
+    // already absorbed it; once the track is scaled, the browser's sub-pixel
+    // rounding of that write maps back to a content offset several pixels off,
+    // which would yank the view away from the gesture that set it.
+    if (this.isTrackEcho(track)) return;
 
     const st = this.fromTrackY(track);
     if (Math.abs(st - this.scrollTop) < 0.5) return;
+    // Past both guards this is a real user gesture on the scrollbar — a thumb
+    // drag or a track click — so it takes the view over from any wheel glide
+    // still in flight rather than being fought by it for the next few frames.
+    this.wheelGlide.cancel();
     this.scrollTop = st;
     this.syncCSSVars();
     this.fireScrollY(st);
@@ -429,6 +595,7 @@ export class ScrollController {
   private readonly onHNativeScroll = (): void => {
     const sl = this.sbHNativeEl!.scrollLeft;
     if (Math.abs(sl - this.scrollLeft) < 0.5) return;
+    this.wheelGlide.cancel();
     this.scrollLeft = sl;
     this.syncCSSVars();
     this.fireScrollX();
@@ -444,10 +611,12 @@ export class ScrollController {
     // the grid underneath it instead — bail out here so the panel scrolls itself.
     if ((e.target as HTMLElement | null)?.closest('.pg-ai-panel')) return;
 
-    let dx = e.deltaX;
-    let dy = e.deltaY;
-    if (e.deltaMode === 1 /* DOM_DELTA_LINE */) { dx *= 32; dy *= 32; }
-    else if (e.deltaMode === 2 /* DOM_DELTA_PAGE */) { dx *= this.centerViewportWidth; dy *= this.viewportHeight; }
+    // Classified before the boundary test below, so the detector sees every
+    // event of a gesture — including the ones this grid declines to consume —
+    // and its per-gesture latching stays coherent.
+    const smooth = this.classifyWheel(e);
+
+    const { dx, dy } = this.toPixelDeltas(e, smooth);
 
     // Which axis this gesture drives, and the signed delta applied to it. A
     // shift-wheel or horizontal-dominant gesture maps onto X; a plain wheel
@@ -461,10 +630,12 @@ export class ScrollController {
     // the browser's native scroll on any outer container — picks it up instead
     // of the gesture dead-ending here. This is what lets an at-boundary scroll
     // hand off to the surrounding page.
-    const canConsume = horizontal
-      ? (delta > 0 ? this.canScrollRight() : delta < 0 ? this.canScrollLeft() : false)
-      : (delta > 0 ? this.canScrollDown()  : delta < 0 ? this.canScrollUp()   : false);
-    if (!canConsume) return;
+    //
+    // Measured against where the view is *heading* rather than where it is:
+    // mid-glide the remaining distance is already committed, and testing the
+    // live offset would let the last notches of a fast spin escape to the page
+    // (scrolling it behind the grid) while the grid was still visibly moving.
+    if (!this.canConsumeWheel(horizontal, delta)) return;
 
     e.preventDefault();
     // A nested Master/Detail grid's body sits inside the parent grid's own
@@ -478,12 +649,115 @@ export class ScrollController {
     // consuming the gesture, so stopping propagation is safe — an at-boundary
     // gesture bailed out above and is intentionally left to bubble.
     e.stopPropagation();
-    if (horizontal) {
+    this.applyWheelDelta(horizontal, delta, smooth);
+  };
+
+  /**
+   * Applies a wheel gesture's vertical delta to this grid's scroll.
+   *
+   * The entry point for gestures this controller does not receive directly:
+   * a nested Master/Detail grid forwards its over-scroll here so the parent
+   * continues the motion (see `DetailRowRenderer.attachWheelForwarding`).
+   * Routed through the same classification and smoothing as a gesture over the
+   * grid's own body, so the hand-off is invisible — the parent picks up with
+   * the same feel the nested grid just had.
+   *
+   * @param e - The original wheel event, forwarded unmodified.
+   */
+  scrollByWheelEvent(e: WheelEvent): void {
+    const smooth = this.classifyWheel(e);
+    const { dy } = this.toPixelDeltas(e, smooth);
+    if (dy === 0) return;
+    this.applyWheelDelta(false, dy, smooth);
+  }
+
+  /**
+   * Decides whether this wheel event should be smoothed, and feeds the
+   * per-gesture device classifier either way.
+   *
+   * @returns `true` when the gesture is a notched wheel that smoothing should
+   *   be applied to, under the configured {@link WheelScrollMode}.
+   */
+  private classifyWheel(e: WheelEvent): boolean {
+    const legacy = e as LegacyWheelEvent;
+    // Whichever axis actually carries ticks: a purely horizontal gesture
+    // reports `wheelDeltaY` as 0, and reading only that would throw away the
+    // signal instead of using the axis that has it.
+    const ticks = Math.abs(legacy.wheelDeltaY ?? 0) || Math.abs(legacy.wheelDeltaX ?? 0);
+    const source = this.wheelSource.classify({
+      deltaX: e.deltaX,
+      deltaY: e.deltaY,
+      deltaMode: e.deltaMode,
+      timeStamp: e.timeStamp,
+      legacyWheelDelta: ticks,
+    });
+
+    if (this.config.wheelMode === WheelScrollMode.Instant) return false;
+    if (this.config.smoothWheelDuration <= 0) return false;
+    if (this.config.wheelMode === WheelScrollMode.Smooth) return true;
+    // Auto: a touchpad is already continuous, and an OS-level reduced-motion
+    // preference opts out of animated scrolling the same way it does natively.
+    if (this.reducedMotion && this.config.respectReducedMotion) return false;
+    return source === WheelInputType.Stepped;
+  }
+
+  /**
+   * Normalizes an event's deltas into content pixels.
+   *
+   * `deltaMode` conversion first — line and page deltas are as real as pixel
+   * ones — then {@link ScrollConfig.wheelStepScale}, which applies to notched
+   * gestures only: a touchpad delta is the user's own finger movement and
+   * scaling it would desynchronize the content from the gesture driving it.
+   */
+  private toPixelDeltas(e: WheelEvent, stepped: boolean): { dx: number; dy: number } {
+    let dx = e.deltaX;
+    let dy = e.deltaY;
+    if (e.deltaMode === 1 /* DOM_DELTA_LINE */) { dx *= LINE_HEIGHT_PX; dy *= LINE_HEIGHT_PX; }
+    else if (e.deltaMode === 2 /* DOM_DELTA_PAGE */) { dx *= this.centerViewportWidth; dy *= this.viewportHeight; }
+
+    const scale = this.config.wheelStepScale;
+    if (stepped && scale !== 1) { dx *= scale; dy *= scale; }
+    return { dx, dy };
+  }
+
+  /**
+   * Whether this grid can still absorb `delta` on the given axis.
+   *
+   * Compares against the glide target rather than the live offset — see the
+   * call site in {@link onWheel}.
+   */
+  private canConsumeWheel(horizontal: boolean, delta: number): boolean {
+    if (delta === 0) return false;
+    const target = horizontal ? this.wheelGlide.getTargetX() : this.wheelGlide.getTargetY();
+    const max = horizontal ? this.maxScrollX : this.maxScrollY;
+    return delta > 0 ? target < max : target > 0;
+  }
+
+  /** Routes a normalized wheel delta to the glide or straight to the offset. */
+  private applyWheelDelta(horizontal: boolean, delta: number, smooth: boolean): void {
+    if (smooth) {
+      this.wheelGlide.glideBy(horizontal ? delta : 0, horizontal ? 0 : delta);
+    } else if (horizontal) {
       this.scrollToX(this.scrollLeft + delta);
     } else {
       this.scrollToY(this.scrollTop + delta);
     }
-  };
+  }
+
+  /**
+   * Tracks `prefers-reduced-motion` for the lifetime of the mount.
+   *
+   * Read from a listener-maintained field rather than queried per event:
+   * `matchMedia` is comparatively expensive and the wheel handler is on the
+   * 60fps path. Registered with the mount's abort signal, so it is released
+   * with every other listener on `destroy()`.
+   */
+  private watchReducedMotion(signal: AbortSignal): void {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const query = window.matchMedia('(prefers-reduced-motion: reduce)');
+    this.reducedMotion = query.matches;
+    query.addEventListener('change', (ev) => { this.reducedMotion = ev.matches; }, { signal });
+  }
 
   // ── Touch panning ───────────────────────────────────────────────────────────
 
@@ -498,6 +772,9 @@ export class ScrollController {
     if ((e.target as HTMLElement | null)?.closest(PAN_EXCLUDE_SELECTOR)) return;
 
     this.stopMomentum();
+    // A finger on the glass takes the view over from any wheel glide still
+    // settling (hybrid laptops carry both inputs, often used seconds apart).
+    this.wheelGlide.cancel();
     // A nested Master/Detail grid's body sits inside the parent grid's own body,
     // so this pointerdown also bubbles to the parent's pan listener. Claim the
     // gesture here so only the innermost grid pans (mirrors `onWheel`).
@@ -582,8 +859,10 @@ export class ScrollController {
       if (Math.abs(vx) < MOMENTUM_MIN_VELOCITY && Math.abs(vy) < MOMENTUM_MIN_VELOCITY) return;
       const beforeL = this.scrollLeft;
       const beforeT = this.scrollTop;
-      this.scrollToX(this.scrollLeft + vx * FRAME_MS);
-      this.scrollToY(this.scrollTop + vy * FRAME_MS);
+      // Written through the animation-frame path for the same reason the wheel
+      // glide is: subscribers must repaint on this frame, not the next one.
+      this.applyAnimatedScroll(this.scrollLeft + vx * FRAME_MS, false);
+      this.applyAnimatedScroll(this.scrollTop + vy * FRAME_MS, true);
       // Both axes clamped at their edge → nothing left to glide into.
       if (this.scrollLeft === beforeL && this.scrollTop === beforeT) return;
       this.momentumRAF = requestAnimationFrame(step);

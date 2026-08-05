@@ -3,6 +3,7 @@ import type { GridStore } from '../core/grid-store';
 import type { IconRenderer } from '../icons/icon-renderer';
 import type { GroupingEngine } from '../engines/grouping/grouping-engine';
 import { createDiv } from './dom-utils';
+import { portalHostFor } from '../theme/overlay-portal';
 
 type DockPosition = 'top' | 'left' | 'right';
 
@@ -215,7 +216,7 @@ export class GroupDropZone {
     this.dockIndicatorEl = document.createElement('div');
     this.dockIndicatorEl.style.cssText =
       'position:fixed;pointer-events:none;z-index:99999;border:2px dashed var(--pg-colors-primary,#2563eb);background:var(--pg-colors-group-zone-over,rgba(37,99,235,0.1));border-radius:var(--pg-borders-radius-sm,4px);';
-    document.body.appendChild(this.dockIndicatorEl);
+    portalHostFor(this.el).appendChild(this.dockIndicatorEl);
 
     this._onDockMove = (ev) => this.onDockMove(ev);
     this._onDockUp = (ev) => this.onDockUp(ev);
@@ -305,7 +306,7 @@ export class GroupDropZone {
     ghostLabel.textContent = col?.header ?? colId;
     ghost.appendChild(ghostLabel);
     ghost.style.cssText = `position:fixed;pointer-events:none;z-index:99999;opacity:0.85;left:${e.clientX + 8}px;top:${e.clientY - 14}px;`;
-    document.body.appendChild(ghost);
+    portalHostFor(this.el).appendChild(ghost);
     this.chipGhostEl = ghost;
 
     this._onChipMove = (ev) => this.onChipMove(ev);

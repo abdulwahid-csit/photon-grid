@@ -79,8 +79,12 @@ export const themeNeonCss = `
   --pg-chart-series-6: #f43f5e;
 }
 
-/* Dark mode has a dark field for the bloom to sit on, so it can open up. */
-[data-pg-mode="dark"] .pg-neon-theme .pg-grid,
+/* Dark mode has a dark field for the bloom to sit on, so it can open up.
+
+   Matched on the container itself, not an ancestor: the mode attribute and the
+   variant class both land on it, and an ancestor-rooted form would also catch a
+   light neon grid nested inside a dark one. */
+.pg-neon-theme[data-pg-mode="dark"] .pg-grid,
 [data-pg-mode="dark"][data-pg-variant="neon"] .pg-context-menu,
 [data-pg-mode="dark"][data-pg-variant="neon"] .pg-column-context-menu {
   --pg-neon-bloom: color-mix(in srgb, #06b6d4 45%, transparent);

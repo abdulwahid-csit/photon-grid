@@ -117,8 +117,8 @@ export class DetailRowRenderer {
   private parentApi: GridApi | null = null;
   /** Shared collaborator bundle handed to every {@link DetailComponentHost}. Built once `parentApi` arrives, since a host cannot exist without it. */
   private componentHostDeps: DetailComponentHostDeps | null = null;
-  /** Forwards a wheel delta to the parent grid's own vertical scroll. Set by `GridRenderer` so nested grids never capture wheel gestures for themselves. */
-  private parentScrollForwarder: ((delta: number) => void) | null = null;
+  /** Forwards a wheel gesture to the parent grid's own vertical scroll. Set by `GridRenderer` so nested grids never capture wheel gestures for themselves. */
+  private parentScrollForwarder: ((event: WheelEvent) => void) | null = null;
 
   /** Mounts the full-width overlay layer as a sibling of the left/center/right body panels. */
   mount(bodyWrapEl: HTMLElement): void {
@@ -145,7 +145,7 @@ export class DetailRowRenderer {
    * Wires the callback used to redirect wheel gestures over any nested grid
    * to the parent's own vertical scroll — see `attachWheelForwarding`.
    */
-  setParentScrollForwarder(fn: (delta: number) => void): void {
+  setParentScrollForwarder(fn: (event: WheelEvent) => void): void {
     this.parentScrollForwarder = fn;
   }
 
@@ -478,7 +478,7 @@ export class DetailRowRenderer {
       if (nestedCanContinue) return; // let the nested grid's own scroll handle it
       e.preventDefault();
       e.stopPropagation();
-      this.parentScrollForwarder?.(e.deltaY);
+      this.parentScrollForwarder?.(e);
     };
     entry.containerEl.addEventListener('wheel', handler, { capture: true, passive: false });
     entry.cleanupFns.push(() => entry.containerEl.removeEventListener('wheel', handler, { capture: true }));

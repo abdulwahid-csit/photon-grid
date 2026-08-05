@@ -4,6 +4,7 @@ import type { ColumnDef } from '../../types/column.types';
 import type { GridStore } from '../../core/grid-store';
 import type { EventBus } from '../../event-bus/event-bus';
 import { GridEventType } from '../../types/event.types';
+import { compileDisplayText, type DisplayTextFn } from '../../renderer/renderer-resolver';
 import {
   evaluateStringCondition,
   evaluateNumberCondition,
@@ -20,6 +21,60 @@ function resolveValue(obj: Record<string, unknown>, path: string): unknown {
     current = (current as Record<string, unknown>)[part];
   }
   return current;
+}
+
+/**
+ * The per-column work that is identical for every row, hoisted out of the row
+ * loop.
+ *
+ * `matchesRow` used to build a fresh `Map` of every column on each call, so
+ * filtering N rows allocated N maps and walked the column list N times. It now
+ * takes one of these instead, built once per pipeline run. Compiling the
+ * display-text resolvers here rather than per cell is what keeps the new
+ * "filter on what the cell shows" behaviour free for columns that do not use it.
+ */
+interface FilterContext {
+  /** Every column by `colId`, for resolving a filter entry to its definition. */
+  readonly byId: ReadonlyMap<string, ColumnDef>;
+  /**
+   * Display-text resolvers by `colId`, present only for columns whose renderer
+   * transforms its value. Absent for everything else, so an ordinary column's
+   * filtering path is exactly what it was.
+   *
+   * @see BuiltInRendererDefinition.toText
+   */
+  readonly text: ReadonlyMap<string, DisplayTextFn>;
+  /** Fields the quick filter scans, paired with their display-text resolver. */
+  readonly quickFields: ReadonlyArray<{ field: string; toText: DisplayTextFn | null }>;
+}
+
+/**
+ * Compiles the per-column state {@link FilterContext} describes.
+ *
+ * @param columns - The columns filtering runs against.
+ * @param quickFields - Explicit `QuickFilterConfig.fields`, when set; otherwise
+ *   every column's field is scanned.
+ */
+function buildFilterContext(columns: ColumnDef[], quickFields?: readonly string[]): FilterContext {
+  const byId = new Map<string, ColumnDef>();
+  const text = new Map<string, DisplayTextFn>();
+  const byField = new Map<string, DisplayTextFn>();
+
+  for (const col of columns) {
+    byId.set(col.colId, col);
+    const toText = compileDisplayText(col);
+    if (toText) {
+      text.set(col.colId, toText);
+      byField.set(col.field, toText);
+    }
+  }
+
+  const fields = quickFields ?? columns.map((c) => c.field);
+  return {
+    byId,
+    text,
+    quickFields: fields.map((field) => ({ field, toText: byField.get(field) ?? null })),
+  };
 }
 
 export class FilterEngine {

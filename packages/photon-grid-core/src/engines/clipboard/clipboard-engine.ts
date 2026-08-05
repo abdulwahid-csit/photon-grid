@@ -1,6 +1,7 @@
 import type { CellRange } from '../../types/grid.types';
 import type { RowNode } from '../../types/row.types';
 import type { ColumnDef } from '../../types/column.types';
+import { compileDisplayText, type DisplayTextFn } from '../../renderer/renderer-resolver';
 
 // ── Column descriptor ─────────────────────────────────────────────────────────
 
@@ -23,6 +24,14 @@ interface ColDesc {
    * Built once per column so each cell lookup is O(1) instead of O(options).
    */
   dropdownMap: Map<string, string> | null;
+  /**
+   * The column's rendered text, when its renderer transforms the value (a
+   * `country` column showing "United States" for a stored `"US"`).
+   *
+   * `null` for every other column, so the common case pays one property read
+   * rather than a function call. See {@link compileDisplayText}.
+   */
+  toText: DisplayTextFn | null;
 }
 
 // ── Fast clipboard formatter ──────────────────────────────────────────────────
@@ -34,9 +43,18 @@ interface ColDesc {
  * which is ~50–100× slower than `String(n)` for a clipboard dump.
  *
  * Numbers/dates land correctly in spreadsheets as plain strings.
+ *
+ * A renderer that transforms its value wins over the type switch below: what
+ * the user selected on screen is what lands on the clipboard, so pasting a
+ * country column into a spreadsheet gives country names rather than the ISO
+ * codes the grid happens to store.
  */
 function fmt(val: unknown, desc: ColDesc): string {
   if (val == null) return '';
+  if (desc.toText) {
+    const text = desc.toText(val);
+    if (text != null) return text;
+  }
   switch (desc.type) {
     case 'number':
     case 'currency':
@@ -355,6 +373,7 @@ export class ClipboardEngine {
         nested:      col.field.includes('.'),
         type:        col.type ?? 'string',
         dropdownMap,
+        toText:      compileDisplayText(col),
       });
     }
     return descs;

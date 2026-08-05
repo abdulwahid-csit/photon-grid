@@ -18,7 +18,7 @@ export const rowDragCss = `/* ────────────────�
   cursor: grab;
   opacity: 0.35;
   color: var(--pg-colors-text-secondary, #475569);
-  margin-right: 4px;
+  margin-right: 8px;
 }
 .pg-row-drag-handle:hover { opacity: 0.7; }
 .pg-row-drag-handle:active { cursor: grabbing; }

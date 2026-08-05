@@ -47,4 +47,18 @@ export const classicIcons: IconSet = {
    * box's centre line, 5px apart, so it stays on the family's optical weight.
    */
   menuHorizontal: `<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="8" cy="3" r="1.5" fill="currentColor"/><circle cx="8" cy="8" r="1.5" fill="currentColor"/><circle cx="8" cy="13" r="1.5" fill="currentColor"/></svg>`,
+  filterActive: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <rect width="16" height="16" rx="3"/>
+                  <path d="M2 4H14M5 8H11M7 12H9" stroke="#2563EB" stroke-width="2" stroke-linecap="round"/>
+                  <circle cx="12" cy="4" r="3" fill="#2563EB"/>
+                  </svg>`,
+
+  drag: `<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="4" cy="4" r="1.5" fill="currentColor"/>
+            <circle cx="8" cy="4" r="1.5" fill="currentColor"/>
+            <circle cx="12" cy="4" r="1.5" fill="currentColor"/>
+            <circle cx="4" cy="10" r="1.5" fill="currentColor"/>
+            <circle cx="8" cy="10" r="1.5" fill="currentColor"/>
+            <circle cx="12" cy="10" r="1.5" fill="currentColor"/>
+            </svg>`,
 };

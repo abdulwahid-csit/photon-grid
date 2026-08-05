@@ -174,7 +174,6 @@ export class AppComponent implements OnInit {
         rowHeight: 40,
         headerRowHeight: 48,
         showFooter: true,
-        mode: 'dark',
         showColumnMenu: true,
         showVerticalBorders: false,
         enableRangeSelection: true,

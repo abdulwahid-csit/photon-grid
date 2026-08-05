@@ -435,6 +435,7 @@ export const themeClassicCss = `
 .pg-classic-theme .pg-th__filter-btn--active,
 .pg-classic-theme .pg-filter-cell__icon--active {
   color: var(--pg-colors-text-secondary);
+  background: #DBEAFE;
 }
 
 /* ── Header affordances: the funnel and the overflow button ─────────────────
@@ -499,7 +500,6 @@ export const themeClassicCss = `
 .pg-classic-theme .pg-th__menu-btn--active {
   opacity: 1;
   color: var(--pg-colors-text-primary);
-  background: var(--pg-classic-control-pressed);
 }
 
 /* ── Rows and cells ───────────────────────────────────────────────────────── */
@@ -862,4 +862,8 @@ export const themeClassicCss = `
 .pg-scrollbar-h-row{
   border-top: none;
 }
+  .pg-row-drag-ghost {
+  // set the body text color to it
+   color: var(--pg-classic-fg);
+  }
 `;

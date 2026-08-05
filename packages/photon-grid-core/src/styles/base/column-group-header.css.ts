@@ -265,6 +265,7 @@ export const columnGroupHeaderCss = `/* ─────────────�
 .pg-col-drag-ghost__label {
   flex: 1;
   min-width: 0;
+  margin-top: -4px
 }
 
 /* Default icon visibility */

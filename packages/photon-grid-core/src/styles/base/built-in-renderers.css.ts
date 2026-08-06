@@ -428,6 +428,70 @@ export const builtInRenderersCss = `
   font-variant-numeric: tabular-nums;
 }
 
+/* ── Colour ───────────────────────────────────────────────────────────────── */
+/* The colour itself arrives as --pg-cell-color, written by the renderer; every
+   other value here is a theme token. That split is what lets a theme restyle
+   the swatch — its size, radius, border, the checkerboard — without knowing
+   anything about the data, and it is what makes a repaint a two-property write
+   rather than a rebuilt cell. */
+.pg-cell__value--color {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pg-spacing-xs, 4px);
+  min-width: 0;
+}
+.pg-cell-color__swatch {
+  flex: 0 0 auto;
+  width: var(--pg-cell-swatch-size, 14px);
+  height: var(--pg-cell-swatch-size, 14px);
+  background-color: var(--pg-cell-color, transparent);
+  /* An inset ring rather than a border: it cannot shift the swatch's box, so a
+     column of swatches stays on one baseline whatever the theme sets it to.
+     A ring is also what keeps a white or transparent swatch visible at all. */
+  box-shadow: inset 0 0 0 1px var(--pg-colors-border-strong, #cbd5e1);
+}
+.pg-cell-color__swatch--square { border-radius: 0; }
+.pg-cell-color__swatch--rounded { border-radius: var(--pg-borders-radius-sm, 4px); }
+.pg-cell-color__swatch--circle { border-radius: var(--pg-borders-radius-pill, 9999px); }
+.pg-cell-color__swatch--bar {
+  width: var(--pg-cell-swatch-bar-width, 22px);
+  height: var(--pg-cell-swatch-bar-height, 6px);
+  border-radius: var(--pg-borders-radius-pill, 9999px);
+}
+/* Translucent colours only. The colour is painted as a gradient layer *over*
+   the checkerboard so it composites against it exactly as it would against the
+   cell, which is the whole point of showing the checks. */
+.pg-cell-color__swatch--alpha {
+  background-image:
+    linear-gradient(var(--pg-cell-color, transparent), var(--pg-cell-color, transparent)),
+    conic-gradient(
+      var(--pg-cell-checker-color, rgba(15, 23, 42, 0.18)) 0deg 90deg,
+      transparent 90deg 180deg,
+      var(--pg-cell-checker-color, rgba(15, 23, 42, 0.18)) 180deg 270deg,
+      transparent 270deg 360deg
+    );
+  background-size: 100% 100%, var(--pg-cell-checker-size, 6px) var(--pg-cell-checker-size, 6px);
+  background-color: var(--pg-colors-surface, #ffffff);
+}
+.pg-cell-color__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+/* Filled variant: the label sits on the colour, in whichever of black or white
+   the renderer measured as readable against it. */
+.pg-cell-color--fill .pg-cell-color__text {
+  min-width: var(--pg-cell-swatch-size, 14px);
+  padding: var(--pg-cell-color-pill-padding-y, 2px) var(--pg-spacing-sm, 8px);
+  border-radius: var(--pg-borders-radius-pill, 9999px);
+  background: var(--pg-cell-color, transparent);
+  color: var(--pg-cell-color-contrast, var(--pg-colors-text-primary, #0f172a));
+  box-shadow: inset 0 0 0 1px var(--pg-colors-border-strong, #cbd5e1);
+  font-size: var(--pg-typography-font-size-xs, 11px);
+  line-height: var(--pg-typography-line-height-tight, 1.3);
+}
+
 /* ── Avatar group ─────────────────────────────────────────────────────────── */
 /* Sizes are a named scale, set once as custom properties and consumed by every
    rule below, so a variant retunes the whole component by overriding two

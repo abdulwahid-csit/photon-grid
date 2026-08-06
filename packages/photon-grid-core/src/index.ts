@@ -27,7 +27,18 @@ export { PaginationEngine } from './engines/pagination/pagination-engine';
 export { GroupingEngine } from './engines/grouping/grouping-engine';
 export { AggregationEngine } from './engines/aggregation/aggregation-engine';
 export { RowSelectionEngine } from './engines/selection/row-selection-engine';
+/**
+ * @deprecated Facade over the editing system. Use `GridContext.editorManager`
+ * and the exports from `./editing` below.
+ */
 export { CellEditorEngine } from './engines/editing/cell-editor-engine';
+
+// ─── Editing system ──────────────────────────────────────────────────────────
+// The framework-agnostic cell editing architecture: editor registry, resolution
+// chain, validation engine, built-in editors, and the services that mount and
+// drive them. See `src/editing/index.ts` for the guided tour.
+export * from './editing';
+
 export { SummaryEngine } from './engines/summary/summary-engine';
 export { ExportEngine } from './engines/export/export-engine';
 
@@ -576,6 +587,28 @@ export {
   FLAG_CDN_HOST,
   DEFAULT_FLAG_SIZE,
 } from './renderer/built-in/country/country-registry';
+
+// ── Colour support ───────────────────────────────────────────────────────────
+// Parsing, formatting, naming and contrast for CSS colours — what the `color`
+// cell renderer and the colour editor both read values through. Framework- and
+// DOM-independent, so application code can share one definition of what a
+// colour value means.
+export type { ColorNotation, ParsedColor } from './color';
+export {
+  parseColor,
+  formatColor,
+  isColor,
+  toHsl,
+  composite,
+  contrastColor,
+  relativeLuminance,
+  clearColorParseCache,
+  colorNames,
+  hexForName,
+  nameForHex,
+  isColorName,
+} from './color';
+
 export type {
   BuiltInRenderer,
   BuiltInRendererSpec,
@@ -586,6 +619,10 @@ export type {
   BaseRendererOptions,
   CountryEntry,
   CountryRendererOptions,
+  ColorRendererOptions,
+  ColorRendererVariant,
+  ColorSwatchShape,
+  ColorTextFormat,
   TextRendererOptions,
   MultilineRendererOptions,
   LongTextRendererOptions,

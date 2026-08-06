@@ -34,6 +34,7 @@ export const DEFAULT_RENDERER_BY_TYPE: Record<ColumnDataType, BuiltInRenderer> =
   email: 'email',
   phone: 'phone',
   url: 'link',
+  color: 'color',
   sparkline: 'sparkline',
   // `custom` means "the author is supplying a renderer"; text is the honest
   // fallback for the case where they have not (yet).

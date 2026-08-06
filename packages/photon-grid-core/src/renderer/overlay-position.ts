@@ -10,7 +10,9 @@
  * @packageDocumentation
  */
 
-/** Which side of the anchor the panel was ultimately placed on. */
+/**
+ * Which side of the anchor the panel was ultimately placed on.
+ */
 export type OverlayPlacement = 'below' | 'above';
 
 /** A resolved position, in viewport coordinates. */
@@ -35,6 +37,37 @@ export interface OverlayPlacementOptions {
    * @default 'start'
    */
   readonly align?: 'start' | 'center' | 'end';
+  /**
+   * Smallest height at which this panel is worth showing, in px.
+   *
+   * When set, a side is judged by this and not by {@link height}: a searchable
+   * list squeezed into 90px is technically "placed" and practically unusable,
+   * and the measured height cannot tell the two apart — a panel whose content
+   * has not laid out yet, or that the user has just filtered down to one row,
+   * measures short and takes a sliver it will immediately overflow.
+   *
+   * Reserving the space a *full* panel needs also makes placement stable: the
+   * panel does not migrate from below to above as its contents change.
+   *
+   * @default undefined — the panel's own height is the requirement, which is
+   *   the right rule for a panel of fixed content.
+   */
+  readonly minHeight?: number;
+  /**
+   * What to do when the preferred side cannot host the panel.
+   *
+   * - `'largest-side'` — take whichever side has more room, which may still be
+   *   the preferred one. Right for a menu, where a cramped panel that stays
+   *   attached to its trigger beats one that jumps.
+   * - `'opposite'` — flip to the other side, whatever room it has. Right for a
+   *   dropdown: a list that opens *downwards* off the bottom of the screen is
+   *   unusable no matter how it is clamped, and flipping is what the user
+   *   expects a dropdown near the bottom edge to do.
+   *
+   * @default 'largest-side' — the historical behaviour, so an existing caller
+   *   that has not thought about the cramped case keeps the placement it had.
+   */
+  readonly fallback?: 'largest-side' | 'opposite';
 }
 
 const DEFAULT_GAP = 4;
@@ -42,9 +75,13 @@ const DEFAULT_GAP = 4;
 /**
  * Places a panel beside its anchor, flipping and clamping to stay on screen.
  *
- * Prefers below. Flips above only when below genuinely cannot fit *and* above
- * has more room — flipping into an equally cramped space just moves the problem
- * and makes the panel jump for no benefit.
+ * Prefers below. When below cannot host the panel it flips above — always, for
+ * a caller that asked for `fallback: 'opposite'`; only when above is roomier
+ * otherwise, because flipping a menu into an equally cramped space just moves
+ * the problem and makes it jump for no benefit.
+ *
+ * "Cannot host" means {@link OverlayPlacementOptions.minHeight} where one is
+ * given, not the panel's measured height — see that option for why.
  *
  * Coordinates are viewport-relative, for a `position: fixed` panel. Fixed
  * rather than absolute deliberately: an absolutely-positioned panel inside the
@@ -62,7 +99,21 @@ export function placeOverlay(options: OverlayPlacementOptions): OverlayPosition 
   const roomBelow = viewportH - anchor.bottom - gap;
   const roomAbove = anchor.top - gap;
 
-  const flip = height > roomBelow && roomAbove > roomBelow;
+  // What a side has to offer to be usable. With no minimum asked for it is the
+  // panel's own height — the historical rule. With one, it is the minimum
+  // itself, whatever the panel currently measures: a list that measures 60px
+  // because its options have not laid out yet, or because the user has filtered
+  // it down to one, is about to be 260px again, and a placement that has to be
+  // redone the moment the content changes is not a placement.
+  const required = options.minHeight ?? height;
+
+  // Flip when below cannot host the panel — unconditionally for a caller that
+  // asked for the opposite side, and only for a genuine improvement otherwise.
+  const flip =
+    roomBelow >= required
+      ? false
+      : options.fallback === 'opposite' || roomAbove > roomBelow;
+
   const placement: OverlayPlacement = flip ? 'above' : 'below';
   const maxHeight = Math.max(0, flip ? roomAbove : roomBelow);
 

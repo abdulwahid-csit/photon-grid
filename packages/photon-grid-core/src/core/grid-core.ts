@@ -59,6 +59,7 @@ import { GroupingEngine } from '../engines/grouping/grouping-engine';
 import { AggregationEngine } from '../engines/aggregation/aggregation-engine';
 import { RowSelectionEngine } from '../engines/selection/row-selection-engine';
 import { CellEditorEngine } from '../engines/editing/cell-editor-engine';
+import { createEditingServices } from '../editing/create-editing-services';
 import { SummaryEngine } from '../engines/summary/summary-engine';
 import { SummaryAggregationEngine } from '../summary/aggregation-engine';
 import { SummaryModel } from '../summary/summary-model';
@@ -117,6 +118,27 @@ function collectLeaves(cols: ColumnDef[]): ColumnDef[] {
     }
   }
   return result;
+}
+
+/**
+ * Renderers that draw a *live*, directly-operable control into the cell.
+ *
+ * A cell drawn by one of these is already its own editor — clicking it toggles
+ * the value in place — so the click must not also open an editor on top of it.
+ */
+const LIVE_TOGGLE_RENDERERS: ReadonlySet<string> = new Set(['checkbox', 'switch']);
+
+/**
+ * `true` when this column's cells render an interactive toggle.
+ *
+ * Deliberately keyed on the resolved *renderer* rather than on
+ * `type === 'boolean'`: a boolean column that opts into the textual `boolean`
+ * renderer draws no control, so nothing would be double-mounted and it should
+ * open a real editor like any other column.
+ */
+function rendersLiveToggle(colDef: ColumnDef): boolean {
+  const name = resolveDisplayRenderer(colDef).builtIn?.name;
+  return name !== undefined && LIVE_TOGGLE_RENDERERS.has(name);
 }
 
 export class GridCore {
@@ -184,6 +206,27 @@ export class GridCore {
     const groupingEngine = new GroupingEngine(store, eventBus, aggregationEngine);
     const rowSelectionEngine = new RowSelectionEngine(store, eventBus);
     const cellEditorEngine = new CellEditorEngine(store, eventBus);
+    // The editing subsystem: registry, adapters, resolver, validation, host,
+    // keyboard and the manager that orchestrates them. `getApi` is a thunk
+    // because `this.api` is assigned later in this constructor.
+    const editingServices = createEditingServices({
+      store,
+      eventBus,
+      getApi: () => this.api,
+      // A rejected value is reported as a toast rather than as chrome inside the
+      // cell: the message is often longer than a column is wide, and an inline
+      // banner competed with the editor for the same few pixels. The cell still
+      // pulses red, so the *location* of the problem stays obvious while its
+      // *explanation* goes somewhere it fits.
+      //
+      // `toastService` is declared further down this constructor; the closure is
+      // only ever called during an edit, which cannot happen before construction
+      // finishes.
+      reportInvalid: (result) => {
+        toastService.error(result.message, { title: 'Invalid value' });
+      },
+    });
+    cellEditorEngine.delegateTo(editingServices.editorManager);
     const summaryEngine = new SummaryEngine();
 
     // ── Summary Rows ────────────────────────────────────────────────────────
@@ -372,6 +415,10 @@ export class GridCore {
       aggregationEngine,
       rowSelectionEngine,
       cellEditorEngine,
+      editorManager: editingServices.editorManager,
+      editorRegistry: editingServices.editorRegistry,
+      editorAdapters: editingServices.editorAdapters,
+      validationEngine: editingServices.validationEngine,
       summaryEngine,
       summaryModel,
       summaryService,
@@ -477,6 +524,10 @@ export class GridCore {
     });
 
     if (options.editing) {
+      // Both, deliberately: the manager is what actually runs editing, and the
+      // deprecated facade keeps reporting the same config to anything still
+      // reading it through `cellEditorEngine.getConfig()`.
+      ctx.editorManager.configure(options.editing);
       ctx.cellEditorEngine.configure(options.editing);
     }
 
@@ -910,133 +961,127 @@ export class GridCore {
   private wireEditing(ctx: GridContext): void {
     if (ctx.options.editing?.mode === 'none') return;
 
+    // While an editor is open it owns every keystroke — arrows move the caret or
+    // the highlighted option, Enter commits, Escape cancels. Without this the
+    // document-level navigation handler also acts on them.
+    ctx.cellSelectionEngine.setEditingPredicate(() => ctx.editorManager.isEditing());
+
     let activeInnerEl:  HTMLElement | null          = null;
     let activeRow:      RowNode     | null          = null;
     let activeColDef:   ColumnDef   | null          = null;
-    let activeDropdown: CustomDropdownEditor | null = null;
 
-    const startCellEdit = (payload: unknown) => {
+    /**
+     * Opens an editor on the clicked (or Enter-ed) cell.
+     *
+     * @returns `true` when a session actually opened, so a keyboard caller can
+     *   fall through to navigation when the cell turned out to be read-only.
+     */
+    const startCellEdit = (payload: unknown): boolean => {
       const p = payload as CellClickedEvent;
       const { row, colDef } = p;
 
-      // Aggregate cells in group rows are read-only â€” never start an editor on them.
-      if (row.type !== 'data') return;
-      if (!colDef.editable) return;
-      // A boolean cell's checkbox *is* its editor: it is rendered live in the
-      // cell and toggles on click (see `wireBooleanCellToggle`). Opening a second
-      // checkbox on top of it would replace the one the user just clicked and
-      // swallow the gesture that opened it.
-      if (colDef.type === 'boolean') return;
-      if (ctx.cellEditorEngine.isCellEditing(row.nodeId, colDef.colId)) return;
+      // Aggregate cells in group rows are read-only — never start an editor on them.
+      if (row.type !== 'data') return false;
+      // A cell that renders a *live* toggle already is its own editor: it
+      // toggles on click (see `wireBooleanCellToggle`), and opening a second
+      // control on top would replace the one the user just clicked and swallow
+      // the gesture that opened it.
+      //
+      // Scoped to the interactive renderers rather than to `type === 'boolean'`:
+      // a boolean column that opts into the textual `boolean` renderer shows no
+      // control at all, so it has every right to open a real editor.
+      if (rendersLiveToggle(colDef)) return false;
+      if (ctx.editorManager.isCellEditing(row.nodeId, colDef.colId)) return true;
 
       // Find the cell and its inner element in the DOM
       const cellEl = ctx.containerEl.querySelector<HTMLElement>(
         `[data-node-id="${row.nodeId}"] [data-col-id="${colDef.colId}"]`,
       );
-      if (!cellEl) return;
+      if (!cellEl) return false;
 
       const innerEl = cellEl.querySelector<HTMLElement>('.pg-cell__inner');
-      if (!innerEl) return;
+      if (!innerEl) return false;
 
       // Commit any currently active edit; CELL_EDIT_STOP fires synchronously
-      // and its handler restores that cell's DOM + clears activeDropdown
-      if (ctx.cellEditorEngine.isEditing()) {
-        ctx.cellEditorEngine.stopEditing(false);
-      }
+      // and its handler restores that cell's DOM. 'navigate', because opening an
+      // editor here means the user has moved to a different cell — the previous
+      // one must close now rather than outliving an async validation rule.
+      if (ctx.editorManager.isEditing()) ctx.editorManager.commit('navigate');
 
+      // ── Formula columns ──────────────────────────────────────────────────
+      // The grid stores the computed result, but the editor must show the
+      // *source* (`=A1+B1`) or editing a formula would silently replace it with
+      // its own output. `resolveAs` additionally forces a text editor, so a
+      // leading `=` can be typed even on a number column; the commit path still
+      // parses against the real column type.
+      const isFormulaCell = colDef.allowFormula === true && ctx.formulaEngine.isEnabled();
+      const formulaSource = isFormulaCell
+        ? ctx.formulaEngine.getFormula(row.nodeId, colDef.colId)
+        : null;
+
+      const started = ctx.editorManager.startEdit({
+        rowNode: row,
+        colDef,
+        cellEl,
+        innerEl,
+        trigger: 'click',
+        ...(formulaSource !== null ? { editValue: formulaSource } : {}),
+        ...(isFormulaCell ? { resolveAs: { ...colDef, type: 'string' } } : {}),
+      });
+      if (!started) return false;
+
+      // The press that opened this editor is a `pointerdown` — that is the
+      // event `CELL_CLICKED` is emitted from — and focusing the pressed cell is
+      // its *default action*, which the browser runs after this handler
+      // returns. Left alone it lands on top of the editor just mounted, pulls
+      // the caret out of it, and the resulting focus-out closes the session a
+      // task later under `stopEditingWhenCellsLoseFocus`: with
+      // `singleClickEdit` on, a cell flashed into edit mode and straight back
+      // out, which is exactly what it looked like.
+      //
+      // Cancelled only once an editor is actually open, so a press on a
+      // read-only cell keeps the grid's ordinary focus behaviour. Double-click
+      // editing is unaffected: its `dblclick` arrives long after the focus has
+      // settled, and cancelling it would only suppress word selection.
+      const source = p.event;
+      if (source?.cancelable && source.type.startsWith('pointer')) source.preventDefault();
+
+      // Remembered so CELL_EDIT_STOP can repaint exactly this cell rather than
+      // asking the renderer for a full pass.
       activeInnerEl = innerEl;
       activeRow     = row;
       activeColDef  = colDef;
-
-      innerEl.innerHTML = '';
-      const started = ctx.cellEditorEngine.startEditing(row, colDef, cellEl);
-      if (!started) {
-        this.renderCellValue(innerEl, row, colDef);
-        activeInnerEl = activeRow = activeColDef = null;
-        return;
-      }
-
-      const value = getCellValue(row.data, colDef, this.api);
-      // When the cell holds a formula, the editor shows its source (`=A1+B1`)
-      // rather than the computed value; committing re-stores/updates the formula.
-      const editValue = colDef.allowFormula && ctx.formulaEngine.isEnabled()
-        ? ctx.formulaEngine.getFormula(row.nodeId, colDef.colId) ?? value
-        : value;
-
-      // Column-supplied custom editor takes priority over every built-in editor.
-      const customEditorFn = resolveColumnRenderer(colDef, 'editor');
-      if (customEditorFn) {
-        const params: EditorRendererParams = {
-          value: editValue,
-          row: row.data,
-          colDef,
-          rowIndex: row.rowIndex,
-          onValueChange: (v) => ctx.cellEditorEngine.updateValue(v),
-          onEditStop: () => ctx.cellEditorEngine.stopEditing(false),
-        };
-        const editorEl = customEditorFn(params);
-        innerEl.appendChild(editorEl);
-        const session = ctx.cellEditorEngine.getActiveSession();
-        if (session) session.editorEl = editorEl;
-      } else if (colDef.allowFormula && ctx.formulaEngine.isEnabled()) {
-        // Formula-enabled columns always use a text editor so the user can type a
-        // leading `=` (even on a number column) and see an existing formula's
-        // source. Literal entries are still parsed against the column's real type
-        // at commit time (stopEditing reads the original colDef).
-        ctx.cellEditorEngine.buildNativeEditor({ ...colDef, type: 'string' }, editValue, innerEl);
-      } else if (colDef.type === 'dropdown' || colDef.type === 'object') {
-        // dropdown / object â†’ custom accessible dropdown with virtual scrolling
-        // Prefer explicit dropdownOptions; fall back to enumOptions (string array â†’ ColumnDropdownOption[])
-        const resolvedOpts: ColumnDropdownOption[] =
-          colDef.dropdownOptions ??
-          (colDef.enumOptions?.map((v) => ({ value: v, label: v })) ?? []);
-
-        const renderOption = resolveColumnRenderer(colDef, 'option');
-
-        activeDropdown = new CustomDropdownEditor(
-          innerEl,
-          cellEl,
-          resolvedOpts,
-          value,
-          {
-            onSelect: (opt) => {
-              // For 'object' columns store the full option; for 'dropdown' store just the value
-              ctx.cellEditorEngine.updateValue(
-                colDef.type === 'object' ? opt : opt.value,
-              );
-            },
-            onStop: (commit) => {
-              // commit=true â†’ stopEditing(false/cancel=false); commit=false â†’ cancel=true
-              ctx.cellEditorEngine.stopEditing(!commit);
-            },
-            onTab: handleTabEdit,
-            ...(renderOption
-              ? {
-                  renderOption: (option, index, selected, highlighted) =>
-                    renderOption({ option, index, selected, highlighted, colDef, api: this.api }),
-                }
-              : {}),
-          },
-        );
-      } else {
-        // All other types (text, number, date, time, boolean, array, â€¦) use native editors
-        ctx.cellEditorEngine.buildNativeEditor(colDef, value, innerEl);
-      }
+      return true;
     };
+
+    // Clicking a *different* cell while one is open commits the open editor.
+    //
+    // The editor's own focus-out handler covers most of this, but not a click
+    // that lands on a cell whose renderer swallows focus (a button, a link, a
+    // live checkbox) — there the editor never loses focus and would stay open
+    // over a cell the user has visibly moved away from. Registered on
+    // CELL_CLICKED regardless of `singleClickEdit`, because it closes an editor
+    // rather than opening one.
+    ctx.eventBus.on(GridEventType.CELL_CLICKED, (payload: unknown) => {
+      const { row, colDef } = payload as CellClickedEvent;
+      if (!ctx.editorManager.isEditing()) return;
+      if (ctx.editorManager.isCellEditing(row.nodeId, colDef.colId)) return;
+      ctx.editorManager.commit('navigate');
+    });
 
     // Close the active editor immediately when a column is resized or moved so
     // the floating panel does not drift away from its anchor cell.
     const closeEditorOnColumnChange = () => {
-      if (ctx.cellEditorEngine.isEditing()) ctx.cellEditorEngine.stopEditing(false);
+      if (ctx.editorManager.isEditing()) ctx.editorManager.commit('navigate');
     };
     ctx.eventBus.on(GridEventType.COLUMN_RESIZED, closeEditorOnColumnChange);
     ctx.eventBus.on(GridEventType.COLUMN_MOVED, closeEditorOnColumnChange);
 
-    // On edit stop: destroy any open dropdown panel, then restore the cell's display value
+    // On edit stop: repaint the cell with its committed (or restored) value.
+    // The editor itself is unmounted by `EditorHost`, which also puts back the
+    // rendered content it hid — this only has to refresh the *value*, and only
+    // for the one cell that was edited.
     ctx.eventBus.on(GridEventType.CELL_EDIT_STOP, () => {
-      activeDropdown?.destroy();
-      activeDropdown = null;
-
       if (!activeInnerEl || !activeRow || !activeColDef) return;
       const innerEl = activeInnerEl;
       const row     = activeRow;
@@ -1091,7 +1136,7 @@ export class GridCore {
     // as a formula. A fresh row-data object is installed *before* setFormula so
     // the engine's write of the computed value lands on the new reference
     // (preserving the immutable-update contract), then dependents recompute.
-    ctx.cellEditorEngine.setFormulaCommitHandler((rowNode: RowNode, colDef: ColumnDef, source: string): boolean => {
+    ctx.editorManager.setFormulaCommitHandler((rowNode: RowNode, colDef: ColumnDef, source: string): boolean => {
       const oldValue = getCellValue(rowNode.data, colDef, this.api);
       const oldFormula = ctx.formulaEngine.getFormula(rowNode.nodeId, colDef.colId);
       const nextData = { ...rowNode.data };
@@ -1166,7 +1211,7 @@ export class GridCore {
       startCellEdit({ row, colDef: col });
     };
 
-    ctx.cellEditorEngine.setTabHandler(handleTabEdit);
+    ctx.editorManager.setTabHandler(handleTabEdit);
 
     const trigger = ctx.options.editing?.singleClickEdit
       ? GridEventType.CELL_CLICKED
@@ -1180,18 +1225,22 @@ export class GridCore {
     this.wireAvatarGroups(ctx);
     this.wireLongText(ctx);
 
-    // Enter key on a focused cell â†’ start editing instead of navigating down.
+    // Enter key on a focused cell → start editing instead of navigating down.
     // Returns true to absorb the event; false to let the selection engine navigate.
+    //
+    // Editability is decided by `startCellEdit`'s resolver rather than re-tested
+    // here: a column may declare `editable` as a per-row predicate, and a second
+    // opinion in this handler would eventually disagree with the one that
+    // actually opens the editor. A cell that declines simply falls through to
+    // navigation, which is what Enter does on a read-only cell.
     ctx.cellSelectionEngine.setEnterEditHandler((rowIndex, colIndex) => {
-      if (ctx.cellEditorEngine.isEditing()) return false;
+      if (ctx.editorManager.isEditing()) return false;
       const rows = ctx.store.get('visibleRows') as RowNode[];
       const cols = ctx.columnModel.getVisibleColumns();
       const row = rows[rowIndex];
       const colDef = cols[colIndex];
-      // Group rows are read-only â€” fall through to down-navigation.
-      if (!row || row.type !== 'data' || !colDef || !colDef.editable) return false;
-      startCellEdit({ row, colDef });
-      return true;
+      if (!row || row.type !== 'data' || !colDef) return false;
+      return startCellEdit({ row, colDef });
     });
   }
 
@@ -1665,10 +1714,11 @@ export class GridCore {
       }
 
       const next = box.checked;
-      if (ctx.cellEditorEngine.startEditing(row, colDef, cellEl)) {
-        ctx.cellEditorEngine.updateValue(next);
-        ctx.cellEditorEngine.stopEditing(false);
-      }
+      // A toggle is an edit: routed through the manager so it gets the same
+      // `editable`/`locked` enforcement, parsing, validation, valueSetter,
+      // events and flash a typed edit gets — without mounting a second
+      // checkbox on top of the one the user just clicked.
+      ctx.editorManager.commitValue(row, colDef, next, cellEl);
 
       // Whatever the commit decided is now the truth; the DOM follows it.
       box.checked = !!getCellValue(row.data, colDef, this.api);

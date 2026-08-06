@@ -8,7 +8,6 @@
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "browser": "./dist/photon-grid.min.js",
   "unpkg": "./dist/photon-grid.min.js",
   "jsdelivr": "./dist/photon-grid.min.js",
   "exports": {
@@ -16,7 +15,6 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs",
-      "browser": "./dist/photon-grid.min.js",
       "default": "./dist/index.js"
     },
     "./import/sheetjs": {

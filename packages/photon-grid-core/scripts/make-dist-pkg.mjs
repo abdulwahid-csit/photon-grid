@@ -38,7 +38,15 @@ delete distPkg.devDependencies;
 delete distPkg.files; // publishing from dist/: ship everything in dist/
 
 // Rewrite entry-point paths (they were relative to the package root).
-for (const field of ['main', 'module', 'types', 'typings', 'browser', 'unpkg', 'jsdelivr']) {
+//
+// Deliberately no "browser" field or condition. `photon-grid.min.js` is an IIFE
+// that assigns to a `PhotonGrid` global and has no ESM exports, so advertising
+// it as the browser entry makes every named import resolve to `undefined` in any
+// bundler that honours `browser` — Angular's esbuild builder does. That is what
+// produced "Cannot read properties of undefined (reading 'TopRight')" from
+// `ToastPosition.TopRight`. The IIFE is for `<script>` tags only, which is
+// exactly what `unpkg`/`jsdelivr` are for.
+for (const field of ['main', 'module', 'types', 'typings', 'unpkg', 'jsdelivr']) {
   if (distPkg[field]) distPkg[field] = stripDist(distPkg[field]);
 }
 if (distPkg.exports) distPkg.exports = rewriteExports(distPkg.exports);

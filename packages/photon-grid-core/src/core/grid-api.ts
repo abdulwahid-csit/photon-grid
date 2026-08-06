@@ -1,4 +1,11 @@
 import type { GridContext } from './grid-context';
+import type {
+  CellEditorConstructor,
+  CellEditorFactory,
+  FrameworkEditorAdapter,
+} from '../editing/types/cell-editor.types';
+import type { ValidationResult, ValidatorFactory } from '../editing/types/validation.types';
+import { getCellValue } from '../engines/editing/value-accessor';
 import type { ColumnDef, ColumnDefInput, ColumnState, ColumnPinPosition } from '../types/column.types';
 import type { RowNode } from '../types/row.types';
 import type { FilterModel, ColumnFilter } from '../types/filter.types';
@@ -690,6 +697,16 @@ export class GridApi {
 
   // ──────────────────── Editing ────────────────────
 
+  /**
+   * Opens the editor on a cell, as a double-click would.
+   *
+   * No-op when the row or column does not exist, the cell is not currently
+   * rendered, or the column resolves to no editor (`editable: false`, `locked`,
+   * or a per-row `editable` predicate returning `false`).
+   *
+   * @param rowNodeId - Stable row identity.
+   * @param colId - Column identity.
+   */
   startCellEditing(rowNodeId: string, colId: string): void {
     const row = this.ctx.rowModel.getRowNode(rowNodeId);
     const col = this.ctx.columnModel.getColumn(colId);
@@ -697,11 +714,127 @@ export class GridApi {
     const cellEl = this.ctx.containerEl.querySelector<HTMLElement>(
       `[data-node-id="${rowNodeId}"] [data-col-id="${colId}"]`,
     );
-    if (cellEl) this.ctx.cellEditorEngine.startEditing(row, col, cellEl);
+    if (cellEl) this.ctx.editorManager.startEdit({ rowNode: row, colDef: col, cellEl, trigger: 'api' });
   }
 
+  /**
+   * Closes the open editor.
+   *
+   * @param cancel - `true` restores the original value; `false` (default)
+   *   validates and commits, exactly as pressing Enter would.
+   */
   stopEditing(cancel = false): void {
-    this.ctx.cellEditorEngine.stopEditing(cancel);
+    this.ctx.editorManager.stopEditing(cancel);
+  }
+
+  /**
+   * Registers a cell editor under a key, so columns can select it by name.
+   *
+   * Registering a key that already exists replaces it — which is how an
+   * application restyles a built-in (`registerEditor('text', MyTextEditor)`)
+   * without the grid needing an override mechanism.
+   *
+   * Callable at any time: a column already declaring the key picks the editor up
+   * on its next edit, which is the hook a lazily-loaded editor bundle uses.
+   *
+   * @param name - Key used by `ColumnDef.cellEditor`.
+   * @param editor - An editor class, or a factory returning a fresh instance.
+   *
+   * @example
+   * ```ts
+   * gridApi.registerEditor('currency', CurrencyEditor);
+   * // then:  { field: 'total', editable: true, cellEditor: 'currency' }
+   * ```
+   */
+  registerEditor<
+    TValue = unknown,
+    TData = Record<string, unknown>,
+    TParams = Record<string, unknown>,
+  >(
+    name: string,
+    editor: CellEditorConstructor<TValue, TData, TParams> | CellEditorFactory<TValue, TData, TParams>,
+  ): void {
+    this.ctx.editorRegistry.register(name, editor);
+  }
+
+  /**
+   * Registers a framework adapter, teaching the grid to build editors out of
+   * components it otherwise knows nothing about.
+   *
+   * The Angular, React and Vue wrappers each call this during setup; a plain
+   * application never needs it.
+   *
+   * @returns Unregister function.
+   */
+  registerEditorAdapter(adapter: FrameworkEditorAdapter): () => void {
+    return this.ctx.editorAdapters.register(adapter);
+  }
+
+  /**
+   * Registers a named validation rule, usable as `validation: { <name>: config }`
+   * on any column.
+   *
+   * @param name - Rule name.
+   * @param factory - Builds the validator from whatever the column declared;
+   *   return `null` to mean "this config disables the rule".
+   *
+   * @example
+   * ```ts
+   * gridApi.registerValidator('iban', (enabled) =>
+   *   enabled === false ? null : ({ value, label }) =>
+   *     isValidIban(String(value))
+   *       ? { valid: true }
+   *       : { valid: false, message: `${label} is not a valid IBAN`, code: 'iban' });
+   * // then:  { field: 'account', editable: true, validation: { iban: true } }
+   * ```
+   */
+  registerValidator(name: string, factory: ValidatorFactory): void {
+    this.ctx.validationEngine.registerValidator(name, factory);
+  }
+
+  /**
+   * Runs a column's validation rules against a value without opening an editor.
+   *
+   * The same engine, rules and ordering a real commit uses, so an API check and
+   * an edit can never disagree. Returns a promise only when the column declares
+   * an asynchronous rule.
+   *
+   * @param rowNodeId - Row to validate against (rules may read sibling fields).
+   * @param colId - Column whose rules to run.
+   * @param value - Candidate value. Defaults to the cell's current value.
+   */
+  validateCell(
+    rowNodeId: string,
+    colId: string,
+    value?: unknown,
+  ): ValidationResult | Promise<ValidationResult> {
+    const row = this.ctx.rowModel.getRowNode(rowNodeId);
+    const col = this.ctx.columnModel.getColumn(colId);
+    if (!row || !col) {
+      return { valid: false, message: `Unknown cell ${rowNodeId}/${colId}`, code: 'unknown-cell' };
+    }
+    const candidate = value === undefined ? getCellValue(row.data, col, this) : value;
+    return this.ctx.editorManager.validateValue(row, col, candidate);
+  }
+
+  /**
+   * Runs the configured row validator (`GridOptions.editing.rowValidator`)
+   * against a row.
+   *
+   * For cross-field rules no single column can express — "end date must be after
+   * start date". Returns `{ valid: true }` when no row validator is configured.
+   *
+   * @param rowNodeId - Row to validate.
+   */
+  validateRow(
+    rowNodeId: string,
+  ): ValidationResult | Readonly<Record<string, ValidationResult>>
+    | Promise<ValidationResult | Readonly<Record<string, ValidationResult>>> {
+    const row = this.ctx.rowModel.getRowNode(rowNodeId);
+    if (!row) return { valid: false, message: `Unknown row ${rowNodeId}`, code: 'unknown-row' };
+    const validator = this.ctx.editorManager.getConfig().rowValidator;
+    if (!validator) return { valid: true };
+    return this.ctx.validationEngine.validateRow(row.data, row, validator);
   }
 
   // ──────────────────── Pagination ────────────────────

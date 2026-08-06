@@ -516,7 +516,7 @@ export const themeClassicCss = `
 
 /* Quartz's cell padding is grid-size * 2. */
 .pg-classic-theme .pg-cell__inner {
-  padding: 0 16px;
+  padding: 0 12px;
 }
 
 /* The number gutter and the group-column header read as chrome, not as data. */

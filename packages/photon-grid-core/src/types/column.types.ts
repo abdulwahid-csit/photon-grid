@@ -3,6 +3,14 @@ import type { ColumnGroupResizeStrategy } from '../column-groups/column-group.ty
 import type { ColumnRenderer, ColumnRendererMap, DisplayRendererParams } from './renderer.types';
 import type { AnyBuiltInRendererOptions, BuiltInRenderer } from './built-in-renderer.types';
 import type { ValueGetterFn, ValueSetterFn, ValueFormatterFn } from './value.types';
+// Type-only, so the cycle with `editing/types/*` (which reads `ColumnDef`) is
+// erased at compile time and never reaches the emitted JavaScript.
+import type {
+  CellEditorParamsSpec,
+  CellEditorSpec,
+  EditableSpec,
+} from '../editing/types/cell-editor.types';
+import type { ColumnValidation } from '../editing/types/validation.types';
 
 export type ColumnPinPosition = 'left' | 'right' | null;
 
@@ -51,6 +59,7 @@ export type ColumnDataType =
   | 'email'
   | 'phone'
   | 'url'
+  | 'color'
   | 'sparkline'
   | 'custom';
 
@@ -242,7 +251,84 @@ export interface ColumnDef {
   configurable?: boolean;
   resizable?: boolean;
   draggable?: boolean;
-  editable?: boolean;
+  /**
+   * Whether this column's cells can be edited.
+   *
+   * A predicate is evaluated per cell, so editability can depend on the row —
+   * the usual reason being a status or permission field.
+   *
+   * Editing also requires `GridOptions.editing.mode` to be something other than
+   * `'none'`, and is refused outright when {@link ColumnDef.locked} is `true`.
+   *
+   * @default false
+   *
+   * @example
+   * ```ts
+   * { field: 'discount', editable: ({ data }) => data.status === 'draft' }
+   * ```
+   */
+  editable?: EditableSpec;
+  /**
+   * Which editor opens for this column's cells.
+   *
+   * Everything is optional: a column that sets only `editable: true` gets the
+   * right editor for its {@link ColumnDef.type} automatically. Reach for this
+   * when the default is not what you want.
+   *
+   * Accepts a built-in name, a key registered through `GridApi.registerEditor`,
+   * an editor class or factory, or — with the matching framework wrapper
+   * installed — an Angular / React / Vue component.
+   *
+   * Resolution order is: `editable` → this → registered key → the
+   * {@link ColumnDef.type} default → the text editor.
+   *
+   * @example
+   * ```ts
+   * { field: 'status',   editable: true, cellEditor: 'select' }
+   * { field: 'currency', editable: true, cellEditor: CurrencyEditor }
+   * { field: 'owner',    editable: true, cellEditor: OwnerPickerComponent }
+   * ```
+   */
+  cellEditor?: CellEditorSpec;
+  /**
+   * Configuration handed to the editor as `params.params`.
+   *
+   * The function form is evaluated per cell, so an option list can depend on the
+   * row being edited.
+   *
+   * @example
+   * ```ts
+   * { field: 'score', editable: true, cellEditorParams: { min: 0, max: 100, step: 5 } }
+   * ```
+   */
+  cellEditorParams?: CellEditorParamsSpec;
+  /**
+   * Declarative validation applied when an edit is committed.
+   *
+   * Rules run in a fixed order (emptiness before range, so a blank required
+   * cell says "is required" rather than "must be at least 10") and apply
+   * identically to built-in, custom, and framework editors — the grid owns
+   * validation, not the editor.
+   *
+   * Some rules are implied by {@link ColumnDef.type}: an `email` column
+   * validates as an email address with no configuration at all.
+   *
+   * @example
+   * ```ts
+   * {
+   *   field: 'price', type: 'number', editable: true,
+   *   validation: {
+   *     required: true,
+   *     min: 10,
+   *     validate: ({ value, data }) =>
+   *       Number(value) > Number(data.cost)
+   *         ? { valid: true }
+   *         : { valid: false, message: 'Price must exceed cost' },
+   *   },
+   * }
+   * ```
+   */
+  validation?: ColumnValidation;
   /**
    * When `true`, the column is "locked": its cells cannot be edited regardless
    * of {@link ColumnDef.editable}. Toggled by the column menu's "Lock Column".
@@ -373,9 +459,27 @@ export interface ColumnDef {
    */
   objectValueKey?: string;
 
+  /**
+   * @deprecated Use `validation: { required: true }`. Still honoured — the
+   * validation engine normalises it into the equivalent rule — but the
+   * `validation` object is the documented home for every rule, and only it
+   * supports messages, codes, async and cross-field checks.
+   */
   required?: boolean;
+  /**
+   * @deprecated Use `validation: { min }`. Still honoured. Note that
+   * `cellEditorParams.min` is a separate, complementary thing: it constrains the
+   * *input control*, while validation constrains the *value*.
+   */
   min?: number | null;
+  /** @deprecated Use `validation: { max }`. Still honoured. See {@link ColumnDef.min}. */
   max?: number | null;
+  /**
+   * @deprecated Use `validation: { validate }`, which returns a structured
+   * {@link ValidationResult} instead of a bare message string and receives the
+   * whole row rather than only the value. Still honoured; the engine adapts the
+   * old signature.
+   */
   validatorFn?: (value: unknown) => string | null;
 
   showSummary?: boolean;

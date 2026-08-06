@@ -37,6 +37,7 @@ export type BuiltInRenderer =
   | 'avatarGroup'
   | 'profile'
   | 'country'
+  | 'color'
   | 'checkbox'
   | 'switch'
   | 'badge'
@@ -518,6 +519,103 @@ export interface CountryRendererOptions extends BaseRendererOptions {
   readonly fallback?: string | ((value: unknown) => RendererOutput);
 }
 
+// ─── Colour ──────────────────────────────────────────────────────────────────
+
+/** Silhouette of a colour swatch. */
+export type ColorSwatchShape = 'square' | 'rounded' | 'circle' | 'bar';
+
+/**
+ * How a `color` cell is laid out.
+ *
+ * - `'swatch'` (default) — a small swatch beside the colour's text. Reads as a
+ *   normal data cell, and the text stays selectable and searchable.
+ * - `'fill'` — a pill filled with the colour itself, its label drawn in black or
+ *   white by measured contrast. The choice for a palette or design-token table,
+ *   where the colour is the subject of the row rather than one attribute of it.
+ */
+export type ColorRendererVariant = 'swatch' | 'fill';
+
+/**
+ * How a `color` cell writes the colour as text.
+ *
+ * - `'value'` (default) — exactly what the row stores. The honest choice: a
+ *   column fed `hsl()` should not appear to hold hex codes.
+ * - `'hex'` / `'rgb'` / `'hsl'` — normalised to that notation, so a column whose
+ *   API mixes forms reads consistently down the page.
+ * - `'name'` — the CSS keyword when the colour has one, hex otherwise.
+ * - `'none'` — no text; the swatch alone. The colour still reaches the clipboard
+ *   and the filters as hex, via the renderer's `toText`.
+ */
+export type ColorTextFormat = 'value' | 'hex' | 'rgb' | 'hsl' | 'name' | 'none';
+
+/**
+ * Options for the `color` renderer — a cell that shows the colour it holds.
+ *
+ * The column accepts every notation CSS does: `#f00`, `#ff0000`, `#ff0000cc`,
+ * `rgb(255 0 0)`, `rgba(255, 0, 0, .5)`, `hsl(0deg 100% 50%)` and the colour
+ * keywords (`red`, `rebeccapurple`). All of them are parsed to the same colour,
+ * so a column whose data mixes forms still renders one consistent set of
+ * swatches.
+ *
+ * Pair it with `editable: true` and the cell opens the colour editor on `Enter`,
+ * where clicking the swatch raises the platform's own colour picker.
+ *
+ * ```ts
+ * {
+ *   field: 'brandColor',
+ *   header: 'Brand colour',
+ *   type: 'color',
+ *   editable: true,
+ *   renderer: { name: 'color', options: { variant: 'fill', textFormat: 'hex' } },
+ * }
+ * ```
+ */
+export interface ColorRendererOptions extends BaseRendererOptions {
+  /** @default 'swatch' */
+  readonly variant?: ColorRendererVariant;
+  /** Swatch silhouette. Ignored by `variant: 'fill'`, which has no separate swatch. @default 'rounded' */
+  readonly shape?: ColorSwatchShape;
+  /**
+   * Swatch size in px — the diameter, or the width of a `'bar'`.
+   *
+   * Applied as a CSS custom property rather than a width/height pair, so a theme
+   * can still restyle the swatch entirely.
+   *
+   * @default 14
+   */
+  readonly size?: number;
+  /**
+   * Draw the swatch. `false` leaves a text-only colour cell, which is right for
+   * a column sitting next to one that already shows the same colour.
+   * @default true
+   */
+  readonly showSwatch?: boolean;
+  /** @default 'value' */
+  readonly textFormat?: ColorTextFormat;
+  /**
+   * Draw a checkerboard behind a translucent colour, so `#ff000020` reads as
+   * "nearly transparent red" rather than as pale pink.
+   *
+   * Costs nothing for opaque colours — the checkerboard is only attached to a
+   * swatch whose colour actually has alpha.
+   *
+   * @default true
+   */
+  readonly showAlpha?: boolean;
+  /**
+   * Mirror the colour into the cell's `title`, for a native tooltip. Always the
+   * hex form, so an `hsl()` column is still identifiable at a glance.
+   * @default true
+   */
+  readonly tooltip?: boolean;
+  /**
+   * Shown when the value is not a colour this grid can parse. Receives the
+   * original value. Defaults to displaying that value verbatim — a colour column
+   * fed a typo should still be readable rather than blank.
+   */
+  readonly fallback?: string | ((value: unknown) => RendererOutput);
+}
+
 /** Options for the `checkbox` and `switch` renderers. */
 export interface CheckboxRendererOptions extends BaseRendererOptions {
   /** Forces the control read-only regardless of `ColumnDef.editable`. */
@@ -649,6 +747,7 @@ export interface BuiltInRendererOptionsMap {
   avatarGroup: AvatarGroupRendererOptions;
   profile: ProfileRendererOptions;
   country: CountryRendererOptions;
+  color: ColorRendererOptions;
   checkbox: CheckboxRendererOptions;
   switch: CheckboxRendererOptions;
   badge: BadgeRendererOptions;

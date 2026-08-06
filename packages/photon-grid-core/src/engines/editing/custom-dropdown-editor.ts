@@ -1,6 +1,7 @@
 import type { ColumnDropdownOption } from '../../types/column.types';
 import type { RendererOutput } from '../../types/renderer.types';
 import { portalHostFor } from '../../theme/overlay-portal';
+import { placeOverlay } from '../../renderer/overlay-position';
 
 export interface CustomDropdownCallbacks {
   /**
@@ -270,29 +271,43 @@ export class CustomDropdownEditor {
 
   // ── Positioning ────────────────────────────────────────────────────────────
 
+  /**
+   * Places the panel against its cell: below by default, above whenever below
+   * cannot hold it.
+   *
+   * Delegated to {@link placeOverlay} rather than computed here. The hand-rolled
+   * version this replaced flipped above only when the *whole* panel fitted
+   * there, so a cell near the bottom of the window — where neither side fits —
+   * stayed below and ran off the screen, and nothing capped its height.
+   *
+   * The list's height is known exactly (`VIS × ITEM_HEIGHT`), so the panel does
+   * not need measuring — which matters, because this runs before the panel is
+   * in the document and would measure zero.
+   */
   private positionPanel(): void {
-    const cellRect = this.cellEl.getBoundingClientRect();
-    const H        = CustomDropdownEditor.ITEM_HEIGHT;
-    const VIS      = Math.min(Math.max(this.options.length, 1), CustomDropdownEditor.MAX_VISIBLE);
-    const panelH   = VIS * H;
-    const panelW   = cellRect.width;
-    const GAP      = 4;
+    const anchor = this.cellEl.getBoundingClientRect();
+    const H      = CustomDropdownEditor.ITEM_HEIGHT;
+    const VIS    = Math.min(Math.max(this.options.length, 1), CustomDropdownEditor.MAX_VISIBLE);
+    const panelH = VIS * H;
+    const panelW = anchor.width;
 
-    let top        = cellRect.bottom + GAP;
-    let flipsAbove = false;
+    const { x, y, maxHeight, placement } = placeOverlay({
+      anchor,
+      width: panelW,
+      height: panelH,
+      fallback: 'opposite',
+    });
 
-    if (window.innerHeight - cellRect.bottom < panelH + GAP && cellRect.top > panelH + GAP) {
-      top        = cellRect.top - panelH - GAP;
-      flipsAbove = true;
-    }
-
-    const left = Math.max(GAP, Math.min(cellRect.left, window.innerWidth - panelW - GAP));
-
-    this.panelEl.style.top    = `${Math.max(GAP, top)}px`;
-    this.panelEl.style.left   = `${left}px`;
+    this.panelEl.style.top    = `${y}px`;
+    this.panelEl.style.left   = `${x}px`;
     this.panelEl.style.width  = `${panelW}px`;
+    // The list is what scrolls, so the cap goes on it: capping only the panel
+    // would leave a fixed-height list overflowing a shorter box, and the
+    // panel's `overflow: hidden` would silently cut the last options off with
+    // no way to reach them.
+    this.scrollEl.style.height = `${Math.min(panelH, maxHeight)}px`;
 
-    this.panelEl.classList.toggle('pg-dropdown-editor__panel--above', flipsAbove);
+    this.panelEl.classList.toggle('pg-dropdown-editor__panel--above', placement === 'above');
   }
 
   // ── Event handlers ─────────────────────────────────────────────────────────

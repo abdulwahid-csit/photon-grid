@@ -116,35 +116,26 @@ export interface SelectionConfig {
 /**
  * Configuration for in-cell editing behaviour.
  *
+ * Re-exported from the editing module, which owns the definition. Kept
+ * available here because `GridOptions.editing` has always been typed from this
+ * file and existing code imports the name from `'photon-grid-core'` either way.
+ *
+ * @see {@link ../editing/types/editing-config.types!EditingConfig}
+ *
  * @example
  * ```ts
  * editing: {
  *   mode: 'cell',
  *   singleClickEdit: true,
- *   stopEditingWhenCellsLoseFocus: true,
+ *   validateOn: 'change',
+ *   onInvalid: 'keep-open',
  * }
  * ```
  */
-export interface EditingConfig {
-  /**
-   * Editing mode for the grid.
-   * - `'cell'`  — individual cells are edited one at a time (default).
-   * - `'row'`   — an entire row enters edit mode together.
-   * - `'none'`  — editing is fully disabled.
-   */
-  mode: 'cell' | 'row' | 'none';
-  /**
-   * When `true`, a **single click** activates the cell editor.
-   * When `false` (default), a **double-click** is required — matching AG Grid default behaviour.
-   */
-  singleClickEdit: boolean;
-  /**
-   * When `true` (default), the active editor commits its value and closes when the
-   * grid loses focus.  Set to `false` to keep the editor open until the user
-   * explicitly confirms (Enter) or cancels (Escape).
-   */
-  stopEditingWhenCellsLoseFocus: boolean;
-}
+export type { EditingConfig } from '../editing/types/editing-config.types';
+
+/** Local alias so `GridOptions.editing` below can reference the re-exported type. */
+import type { EditingConfig as EditingConfigType } from '../editing/types/editing-config.types';
 
 export interface RowGroupingConfig {
   enabled: boolean;
@@ -357,7 +348,7 @@ export interface GridOptions {
   getColumnMenuItems?: import('./column-menu.types').GetColumnMenuItems;
 
   selection?: Partial<SelectionConfig>;
-  editing?: Partial<EditingConfig>;
+  editing?: Partial<EditingConfigType>;
   pagination?: Partial<PaginationConfig>;
   grouping?: Partial<RowGroupingConfig>;
   virtualScroll?: Partial<VirtualScrollConfig>;

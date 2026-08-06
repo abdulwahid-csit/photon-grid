@@ -17,7 +17,7 @@
     </div>
   </ng-template>
 
-  <section class="grid-wrapper">
+  <!-- <section class="grid-wrapper">
     <photon-grid-angular
       [columns]="columns"
       [dataSet]="data"
@@ -27,7 +27,7 @@
       (rowSelected)="onRowSelected($event)"
       >
     </photon-grid-angular>
-  </section>
+  </section> -->
 
   <!-- Timeline scheduler: employees as pinned grid columns, the timeline as a
        plugin-owned virtualized layer beside them. Events live in their own
@@ -37,7 +37,19 @@
   <!-- One column per built-in renderer, so the whole set is visible side by
        side. Two columns declare only a `type` and let the grid infer their
        renderer — the path most real columns take. -->
-  <app-renderer-showcase-grid></app-renderer-showcase-grid>
+  <!-- <app-renderer-showcase-grid></app-renderer-showcase-grid> -->
+
+  <!-- One column per built-in cell editor, plus a custom editor registered at
+       runtime. Also demonstrates type-inferred editors and validation, an
+       `editable` predicate, an async uniqueness rule and a row validator. -->
+  <!-- <app-editing-showcase-grid></app-editing-showcase-grid> -->
+
+  <!-- Spreadsheet: 100 lettered columns (A … CV) over a row count you choose,
+       up to millions. Rows carry only their index; every cell value is derived
+       from its coordinates as it is painted, so the sheet costs one small
+       object per row instead of one value per cell. Cells are editable and the
+       headers are real A1 references — type `=A1+B1` anywhere. -->
+  <app-excel-grid></app-excel-grid>
 
   <!-- Summary Rows: four aggregate rows over one grid, each with its own scope
        (visible page / selection / filtered) and anchoring. Three are docked at

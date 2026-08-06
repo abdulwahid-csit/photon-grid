@@ -4,6 +4,7 @@ import type {
 import { avatarGroupRenderer } from './avatar-group';
 import { actionsRenderer } from './actions/actions';
 import { booleanRenderer, checkboxRenderer, switchRenderer } from './boolean';
+import { colorRenderer } from './color';
 import { countryRenderer } from './country/country';
 import { iconRenderer, progressRenderer, ratingRenderer } from './indicator';
 import { emailRenderer, linkRenderer, phoneRenderer } from './link';
@@ -36,7 +37,7 @@ import { multilineRenderer, textRenderer } from './text';
  * registry never references it. Be aware, though, that {@link cellRenderers} —
  * the instance the grid itself renders through — *is* constructed eagerly with
  * the full set, and `renderer-resolver.ts` imports it. Any bundle containing
- * the grid therefore contains all 33 today. The seam is real for a custom
+ * the grid therefore contains all 34 today. The seam is real for a custom
  * embedding; it is not a saving the default build gets for free.
  *
  * Follows the shape of `IconRegistry` and `AutoFillDetectorRegistry`; method
@@ -128,6 +129,7 @@ export function createDefaultRenderers(): BuiltInRendererDefinition[] {
     avatarGroupRenderer,
     profileRenderer,
     countryRenderer,
+    colorRenderer,
     badgeRenderer,
     chipRenderer,
     tagRenderer,

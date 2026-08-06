@@ -25,6 +25,7 @@ import { rowGroupCss }          from './base/row-group.css';
 import { treeCss }              from './base/tree.css';
 import { scrollbarsCss }        from './base/scrollbars.css';
 import { editorsCss }           from './base/editors.css';
+import { editorsSystemCss }     from './base/editors-system.css';
 import { footerCss }            from './base/footer.css';
 import { miscCss }              from './base/misc.css';
 import { rowDragCss }           from './base/row-drag.css';
@@ -75,6 +76,11 @@ const baseCss = [
   treeCss,
   scrollbarsCss,
   editorsCss,
+  // Immediately after the editor rules it refines. The editing system's cell
+  // ring, rejection pulse and popup shell all override same-specificity rules
+  // in `editorsCss`, so source order is what makes them win — keep them adjacent
+  // and in this order.
+  editorsSystemCss,
   footerCss,
   miscCss,
   rowDragCss,

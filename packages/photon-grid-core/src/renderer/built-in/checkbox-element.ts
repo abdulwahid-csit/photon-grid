@@ -32,11 +32,20 @@ export const BOOLEAN_CELL_CHECKBOX_CLASS = 'pg-cell-checkbox';
  * switched off renders its checkbox disabled — the value is still shown, it
  * just cannot be changed by clicking it.
  *
+ * A **predicate** `editable` is treated as enabled here, because this runs per
+ * cell during rendering and has no row to evaluate it against. That is not a
+ * hole: the toggle itself goes through `EditorManager.commitValue`, which
+ * resolves the predicate against the real row and refuses the write if it says
+ * no. Rendering optimistically and enforcing at commit is the right way round —
+ * the alternative disables every checkbox on a column whose editability happens
+ * to be dynamic.
+ *
  * @param colDef - Column the cell belongs to.
  * @param editingEnabled - Grid-level editing switch; `true` when unspecified.
  */
 export function isBooleanCellEditable(colDef: ColumnDef, editingEnabled?: boolean): boolean {
-  return editingEnabled !== false && colDef.editable === true && colDef.locked !== true;
+  if (editingEnabled === false || colDef.locked === true) return false;
+  return colDef.editable === true || typeof colDef.editable === 'function';
 }
 
 /**

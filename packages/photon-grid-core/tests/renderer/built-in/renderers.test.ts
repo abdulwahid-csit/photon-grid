@@ -50,8 +50,8 @@ function render(
 const ALL = cellRenderers.names();
 
 describe('built-in renderers — the whole set', () => {
-  it('registers all 33 documented names', () => {
-    expect(ALL).toHaveLength(33);
+  it('registers all 34 documented names', () => {
+    expect(ALL).toHaveLength(34);
   });
 
   it.each(ALL)('%s survives a null value without throwing or leaving a hole', (name) => {
@@ -229,7 +229,9 @@ describe('patch hooks', () => {
   it('are declared by exactly the renderers whose element holds state', () => {
     const withPatch = ALL.filter((n) => typeof cellRenderers.get(n)?.patch === 'function');
     expect(withPatch.sort()).toEqual(
-      ['button', 'checkbox', 'longText', 'profile', 'progress', 'rating', 'sparkline', 'switch'].sort(),
+      // `color` repaints through two custom properties, so a value change costs
+      // no rebuild — see colorRenderer.patch.
+      ['button', 'checkbox', 'color', 'longText', 'profile', 'progress', 'rating', 'sparkline', 'switch'].sort(),
     );
   });
 

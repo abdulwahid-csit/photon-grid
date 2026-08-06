@@ -193,6 +193,16 @@ export class CellSelectionEngine {
    */
   private clearFocusOnClickOutside = true;
 
+  /**
+   * Reports whether a cell editor is currently open.
+   *
+   * Wired to `EditorManager.isEditing` by `GridCore`. Unset means "never
+   * editing", which is correct for a grid with editing switched off.
+   *
+   * @see onKeydown, where it gates every keyboard interaction.
+   */
+  private isEditingFn: (() => boolean) | null = null;
+
   // ─── Fill handle state ────────────────────────────────────────────────────
 
   /** DOM element for the interactive fill handle corner square. */
@@ -284,6 +294,17 @@ export class CellSelectionEngine {
 
   setBodyPanels(panels: HTMLElement[]): void {
     this.bodyPanels = panels.filter(Boolean) as HTMLElement[];
+  }
+
+  /**
+   * Registers the predicate that tells this engine an editor is open, so it can
+   * stand down from the keyboard entirely.
+   *
+   * @param fn - Returns `true` while a cell is being edited.
+   * @see isEditingFn
+   */
+  setEditingPredicate(fn: () => boolean): void {
+    this.isEditingFn = fn;
   }
 
   /**
@@ -2352,6 +2373,24 @@ export class CellSelectionEngine {
   }
 
   private onKeydown(e: KeyboardEvent): void {
+    // ── An open editor owns the keyboard, completely ────────────────────────
+    //
+    // While a cell is being edited every key belongs to the editor: arrows move
+    // the caret or the highlighted option, Enter commits, Escape cancels, Tab
+    // commits and moves. None of it is grid navigation.
+    //
+    // This used to be left to the editor calling `stopPropagation`, plus the
+    // tag-name test below. That covered a plain `<input>` and nothing else — a
+    // `<select>`, a `<button>`-based switch, a `<div>`-rooted composite editor
+    // and every framework component fell straight through to the navigation
+    // handler. The visible symptoms were arrows moving the selection out from
+    // under an open dropdown, and Enter closing the editor *and* advancing a
+    // cell in the same keystroke.
+    //
+    // Asking the editor manager directly is the only test that cannot drift:
+    // it is the same state machine that decides an editor is open.
+    if (this.isEditingFn?.()) return;
+
     // Don't steal keyboard from input / editable elements
     const target = e.target as HTMLElement;
     if (

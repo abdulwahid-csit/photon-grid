@@ -78,6 +78,45 @@ export interface ToolbarSearchConfig {
 }
 
 /**
+ * Configuration for the **Columns Manager** launcher (`GridOptions.columnsManager`)
+ * — an icon button in the tools strip, immediately left of the Filters funnel,
+ * that opens the grid's Column Chooser so a user can show and hide columns
+ * without going through a header's context menu.
+ *
+ * The dialog it opens is the *same* {@link import('../renderer/column-chooser').ColumnChooser}
+ * the column menu's "Column Chooser…" item uses — one component, one set of
+ * behaviours, so the two entry points can never drift apart.
+ *
+ * The feature is **opt-in**: a launcher that appeared by default would add a
+ * tools strip to every grid that has no other launcher, changing the layout of
+ * grids that never asked for one.
+ *
+ * @example
+ * ```ts
+ * // Shorthand — show it with every default.
+ * { columnsManager: true }
+ *
+ * // Configured.
+ * { columnsManager: { enabled: true, tooltip: 'Manage columns', icon: 'settings' } }
+ * ```
+ */
+export interface ColumnsManagerConfig {
+  /** Master switch. The launcher is rendered only when this is `true`. */
+  readonly enabled: boolean;
+  /**
+   * Tooltip and accessible name for the button.
+   * @default `'Columns Manager'`
+   */
+  readonly tooltip?: string;
+  /**
+   * Icon-registry name for the glyph. Any registered icon works, so a host that
+   * ships its own pack can point this at one of its own.
+   * @default `'columns'`
+   */
+  readonly icon?: string;
+}
+
+/**
  * Configuration for the Photon Grid **Toolbar** (`GridOptions.toolbar`). The
  * feature is disabled unless {@link enabled} is `true`; when omitted entirely,
  * the top strip falls back to legacy behaviour (the Filters/Import launchers
@@ -97,8 +136,24 @@ export interface ToolbarConfig {
    * feature is itself enabled (`GridOptions.import`). @default `true`
    */
   readonly showImportButton?: boolean;
+  /**
+   * Whether the **Export ▾** launcher is shown. Only has effect when the Export
+   * feature is itself enabled (`GridOptions.export`) — this is the toolbar's
+   * veto over it, matching {@link showFilterButton} and {@link showImportButton},
+   * so a host can keep the programmatic `GridApi.export()` while hiding the
+   * user-facing dropdown. @default `true`
+   */
+  readonly showExportButton?: boolean;
+
   /** Global search configuration. Omit to render no search input. */
   readonly search?: ToolbarSearchConfig;
   /** Tab-strip configuration. Omit to render no tabs. */
   readonly tabs?: ToolbarTabsConfig;
+  /**
+   * Whether the Columns Manager launcher is shown. Only has effect when the
+   * feature is itself enabled (`GridOptions.columnsManager`) — this is the
+   * toolbar's veto over it, matching {@link showFilterButton} and
+   * {@link showImportButton}. @default `true`
+   */
+  readonly showColumnsButton?: boolean;
 }

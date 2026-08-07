@@ -15,6 +15,8 @@ import type { EditorAdapterRegistry } from '../editing/registry/editor-adapter-r
 import type { ValidationEngine } from '../editing/validation/validation-engine';
 import type { SummaryEngine } from '../engines/summary/summary-engine';
 import type { ExportEngine } from '../engines/export/export-engine';
+import type { ExportService } from '../export/export-service';
+
 import type { ImportEngine } from '../engines/import/import-engine';
 import type { ToastService } from '../toast/toast-service';
 import type { ClipboardEngine } from '../engines/clipboard/clipboard-engine';
@@ -111,6 +113,17 @@ export interface GridContext {
    */
   summaryAggregationEngine: SummaryAggregationEngine;
   exportEngine: ExportEngine;
+  /**
+   * Export Service — the pluggable export system behind `GridApi.export()` and
+   * the toolbar's *Export ▾* dropdown.
+   *
+   * Owns the shared data-preparation layer, so CSV, JSON, Excel and PDF exports
+   * of the same grid always agree on rows, columns and cell text. CSV and JSON
+   * are built in; Excel and PDF resolve through this grid's exporter registry
+   * (chained to the global one), which is how the core stays zero-dependency.
+   */
+  exportService: ExportService;
+
   /**
    * Import Engine — ingests Excel/CSV/TSV/Clipboard data through one unified
    * pipeline and feeds the grid via the public `setColumns`/`setData` seams.

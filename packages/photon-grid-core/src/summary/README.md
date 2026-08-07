@@ -1,5 +1,9 @@
 # Summary Rows
 
+<p align="center">
+  <img src="../../../../assets/logo.svg" alt="Photon Grid" width="180"/>
+</p>
+
 Configurable aggregate rows docked above and/or below the grid body — grand
 totals, page subtotals, "selected rows" running counts — with per-cell control
 over value, aggregation, formatting, rendering, styling, span and tooltip.

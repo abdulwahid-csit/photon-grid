@@ -22,6 +22,16 @@
       "import": "./dist/engines/import/adapters/sheetjs-workbook-parser.js",
       "default": "./dist/engines/import/adapters/sheetjs-workbook-parser.js"
     },
+    "./export/excel": {
+      "types": "./dist/export/excel.d.ts",
+      "import": "./dist/export/excel.js",
+      "default": "./dist/export/excel.js"
+    },
+    "./export/pdf": {
+      "types": "./dist/export/pdf.d.ts",
+      "import": "./dist/export/pdf.js",
+      "default": "./dist/export/pdf.js"
+    },
     "./styles/*": "./styles/*",
     "./package.json": "./package.json"
   },

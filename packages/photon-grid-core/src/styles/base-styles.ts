@@ -42,6 +42,7 @@ import { chartControlsCss }     from './base/chart-controls.css';
 import { columnChooserCss }     from './base/column-chooser.css';
 import { filtersToolPanelCss }  from './base/filters-tool-panel.css';
 import { importMenuCss }        from './base/import-menu.css';
+import { exportMenuCss }        from './base/export-menu.css';
 import { toolbarCss }           from './base/toolbar.css';
 import { themeManagerCss }      from './base/theme-manager.css';
 import { toastCss }             from './base/toast.css';
@@ -101,6 +102,7 @@ const baseCss = [
   columnChooserCss,
   filtersToolPanelCss,
   importMenuCss,
+  exportMenuCss,
   toolbarCss,
   themeManagerCss,
   toastCss,

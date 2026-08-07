@@ -176,18 +176,115 @@ export class ColumnModel {
    * see: after pinning a middle column left from the column menu, Arrow keys in
    * the header jumped to whatever still sat beside it in the *old* order.
    *
+   * ### Unpinning puts it back
+   * Because pinning moves the column, its old position has to be remembered or
+   * it is gone: unpinning used to drop the column at the end of the unpinned
+   * block, so pinning the third of twenty columns to glance at it and unpinning
+   * again returned it as the twentieth. The slot it came from is recorded on the
+   * way in (see {@link Column.unpinAnchorColId}) and restored on the way out.
+   *
    * Drag-to-pin has always reordered (see {@link moveAndPin}); this is the same
    * operation with the insertion point left implicit.
    */
   setColumnPin(colId: string, pinned: ColumnPinPosition): void {
     const col = this.getColumn(colId);
     if (!col) return;
-    col.pinned = pinned;
-    this.reorderIntoPanel(col, pinned, null);
+
+    const wasPinned = col.pinned ?? null;
+    const nextPin = pinned ?? null;
+
+    // Captured on the way in only. Pinning left and then right must not forget
+    // where the column started, and re-pinning an already-pinned column would
+    // otherwise record a slot inside a pinned panel.
+    if (wasPinned === null && nextPin !== null) {
+      col.unpinAnchorColId = this.columnBefore(col.colId);
+    }
+
+    col.pinned = nextPin;
+
+    if (nextPin === null) {
+      this.restoreUnpinned(col);
+      col.unpinAnchorColId = undefined;
+    } else {
+      this.reorderIntoPanel(col, nextPin, null);
+    }
+
     this.rebuildPinnedSections();
     this.store.set('columns', [...this.columns]);
     this.eventBus.emit(GridEventType.COLUMN_PINNED, { colDef: col, pinned });
     this.emitStatesChanged();
+  }
+
+  /**
+   * The colId of the visible column immediately *before* `colId`, or `null` when
+   * it is the first one.
+   *
+   * A neighbour rather than an index, because indices go stale the moment any
+   * other column is moved, hidden or pinned — and a column can sit pinned for
+   * the whole time the user spends rearranging the rest of the grid.
+   *
+   * The column *before* rather than after, because it degrades better. When the
+   * remembered neighbour has itself been pinned away in the meantime, "just
+   * after A" still puts the column back on A's side of the grid; "just before C"
+   * collapses to the front of the block and silently swaps the column past
+   * everything that used to precede it.
+   */
+  private columnBefore(colId: string): string | null {
+    const visibleCols = this.getVisibleColumns();
+    const index = visibleCols.findIndex((c) => c.colId === colId);
+    if (index <= 0) return null;
+    return visibleCols[index - 1].colId;
+  }
+
+  /**
+   * Puts a just-unpinned column back where it was, or as close as the layout
+   * still allows.
+   *
+   * The remembered neighbour may since have been hidden, removed, or pinned
+   * itself, and the result must stay inside the unpinned block either way —
+   * definition order has to keep matching panel order, or the consumers listed
+   * on {@link setColumnPin} start disagreeing with the screen. So the target is
+   * clamped to the block's bounds: a stale anchor degrades to the end of the
+   * unpinned block, which is exactly the old behaviour, rather than to a
+   * corrupt order.
+   *
+   * @returns The from/to indices within the visible-column order, or `null` when
+   *          the column is hidden and has no position to move — the same
+   *          contract as {@link reorderIntoPanel}, so `moveAndPin` can use
+   *          either interchangeably.
+   */
+  private restoreUnpinned(col: Column): { from: number; to: number } | null {
+    const visibleCols = this.getVisibleColumns();
+    const fromIdx = visibleCols.findIndex((c) => c.colId === col.colId);
+    if (fromIdx === -1) return null;
+
+    // Removed first so every index below is in the final coordinate space.
+    visibleCols.splice(fromIdx, 1);
+
+    // Bounds of the unpinned block: after the last left-pinned column, up to
+    // the last column that is not right-pinned.
+    let blockStart = 0;
+    let blockEnd = 0;
+    for (let i = 0; i < visibleCols.length; i++) {
+      const rank = panelRank(visibleCols[i].pinned ?? null);
+      if (rank === 0) blockStart = i + 1;
+      if (rank <= 1) blockEnd = i + 1;
+    }
+    blockEnd = Math.max(blockEnd, blockStart);
+
+    const anchor = col.unpinAnchorColId ?? null;
+    // `null` means the column was first in the order, so it goes back to the
+    // front of the block. A named anchor that is still visible puts it directly
+    // after that column; one that has since been hidden or removed falls back to
+    // the end of the block, which is the behaviour this replaced.
+    const anchorIdx = anchor === null ? -1 : visibleCols.findIndex((c) => c.colId === anchor);
+    const desired =
+      anchor === null ? blockStart : anchorIdx === -1 ? blockEnd : anchorIdx + 1;
+    const toIdx = Math.min(Math.max(desired, blockStart), blockEnd);
+
+    visibleCols.splice(toIdx, 0, col);
+    this.columns = this.syncColumnOrder(visibleCols);
+    return { from: fromIdx, to: toIdx };
   }
 
   moveColumn(fromIndex: number, toIndex: number): void {
@@ -267,9 +364,24 @@ export class ColumnModel {
   moveAndPin(colId: string, newPin: ColumnPinPosition, insertBeforeColId: string | null): void {
     const col = this.getColumn(colId);
     if (!col) return;
+
+    const wasPinned = col.pinned ?? null;
+    const nextPin = newPin ?? null;
+    // Same bookkeeping as the menu path, so dragging a column into a pinned
+    // panel and dragging it back out is not a one-way trip either. Only the
+    // implicit case restores: a drag that names a drop target has already said
+    // where the column goes.
+    if (wasPinned === null && nextPin !== null) {
+      col.unpinAnchorColId = this.columnBefore(col.colId);
+    }
+
     col.pinned = newPin;
 
-    const moved = this.reorderIntoPanel(col, newPin, insertBeforeColId);
+    const moved =
+      nextPin === null && insertBeforeColId === null
+        ? this.restoreUnpinned(col)
+        : this.reorderIntoPanel(col, newPin, insertBeforeColId);
+    if (nextPin === null) col.unpinAnchorColId = undefined;
     if (!moved) {
       this.rebuildPinnedSections();
       this.store.set('columns', [...this.columns]);

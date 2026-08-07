@@ -435,7 +435,6 @@ export const themeClassicCss = `
 .pg-classic-theme .pg-th__filter-btn--active,
 .pg-classic-theme .pg-filter-cell__icon--active {
   color: var(--pg-colors-text-secondary);
-  background: #DBEAFE;
 }
 
 /* ── Header affordances: the funnel and the overflow button ─────────────────

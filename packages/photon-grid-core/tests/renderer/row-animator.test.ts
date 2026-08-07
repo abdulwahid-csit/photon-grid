@@ -60,9 +60,19 @@ function makeCache(ids: string[]): Map<string, RowPanelParts> {
 const center = (cache: Map<string, RowPanelParts>, id: string): StubElement =>
   cache.get(id)!.center! as StubElement;
 
-/** Runs the queued rAF callback so the play phase executes synchronously. */
+/**
+ * Runs the queued rAF callbacks so the play phase executes synchronously.
+ *
+ * The animator schedules its play phase two frames out (see `animate()`): the
+ * first frame gives the browser a chance to commit the inverted start state —
+ * the job the forced `offsetHeight` reflow used to do — and the second enables
+ * the transitions. `runOnlyPendingTimers` deliberately does not run timers
+ * queued *during* the run, so one call advances exactly one frame and both are
+ * needed to reach the play phase.
+ */
 function flushFrame(): void {
-  vi.runOnlyPendingTimers();
+  vi.runOnlyPendingTimers(); // commit frame — start state goes live
+  vi.runOnlyPendingTimers(); // play frame — transitions begin
 }
 
 const VIEWPORT = { scrollTop: 0, height: 400 };
@@ -76,6 +86,14 @@ describe('RowAnimator — FLIP contract', () => {
     // be observed as distinct, separately-asserted steps.
     vi.stubGlobal('requestAnimationFrame', (cb: (t: number) => void) => {
       return setTimeout(() => cb(0), 0) as unknown as number;
+    });
+    // The animator cancels a scheduled play frame in `finishAll()` (on destroy,
+    // and whenever a new FLIP pre-empts one still in flight). Stubbing rAF
+    // without its counterpart leaves the global pair inconsistent — the `node`
+    // environment supplies neither — so every teardown that caught the animator
+    // between phases died on a ReferenceError instead of asserting.
+    vi.stubGlobal('cancelAnimationFrame', (handle: number) => {
+      clearTimeout(handle as unknown as ReturnType<typeof setTimeout>);
     });
     animator = new RowAnimator();
   });

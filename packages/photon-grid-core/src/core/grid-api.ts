@@ -33,6 +33,13 @@ import { ImportSourceType } from '../types/import.types';
 import type { Workbook } from '../engines/import/model/workbook';
 import type { WorkbookParser } from '../engines/import/parser/workbook-parser';
 import type { ToastService } from '../toast/toast-service';
+import type {
+  ExportFormat,
+  ExportOptions,
+  GridExporter,
+  PreparedExportData,
+} from '../export/export.types';
+
 import type { EventHandler } from '../event-bus/event-bus';
 import type { ChartConfig } from '../chart/chart-engine';
 import type { ChartModel } from '../chart/model/chart-model';
@@ -1149,6 +1156,15 @@ export class GridApi {
 
   // ──────────────────── Export ────────────────────
 
+  /**
+   * Exports the grid as CSV using the original export engine.
+   *
+   * Unchanged and fully supported. `export('csv')` produces the same document
+   * through the pluggable system and additionally honours row/column scope
+   * options — prefer it in new code.
+   *
+   * @param fileName - Base name without the extension.
+   */
   exportCsv(fileName?: string): void {
     this.ctx.exportEngine.exportToCsv(
       this.ctx.store.get('visibleRows'),
@@ -1157,6 +1173,16 @@ export class GridApi {
     );
   }
 
+  /**
+   * Exports the grid as a SpreadsheetML `.xlsx` file using the original export
+   * engine.
+   *
+   * This writes the legacy XML spreadsheet format, which Excel opens but which
+   * is not a real OOXML workbook. For a genuine `.xlsx`, register the SheetJS
+   * exporter and call {@link export}`('excel')`.
+   *
+   * @param fileName - Base name without the extension.
+   */
   exportXlsx(fileName?: string): void {
     this.ctx.exportEngine.exportToXlsx(
       this.ctx.store.get('visibleRows'),
@@ -1164,6 +1190,95 @@ export class GridApi {
       { fileName: fileName ?? this.ctx.options.exportConfig?.fileName ?? 'export' },
     );
   }
+
+  /**
+   * Exports the grid in any registered format.
+   *
+   * `'csv'` and `'json'` always work — Photon Grid Core implements them itself.
+   * `'excel'` and `'pdf'` require a one-time exporter registration, because the
+   * core is zero-dependency by contract and will not bundle `xlsx` or `jspdf`:
+   *
+   * ```ts
+   * import * as XLSX from 'xlsx';
+   * import { createExcelExporter } from 'photon-grid-core/export/excel';
+   * api.registerExporter('excel', createExcelExporter(XLSX));
+   * ```
+   *
+   * Asking for an unregistered format shows a toast naming the packages to
+   * install and rejects with a typed {@link ExportError} — it never fails
+   * silently or with an opaque library error.
+   *
+   * @param format  - `'csv'`, `'json'`, `'excel'`, `'pdf'`, or any registered format.
+   * @param options - Per-call options, merged over `GridOptions.export`.
+   * @returns Resolves once the file has been produced.
+   *
+   * @example
+   * ```ts
+   * await api.export('json', { fileName: 'employees.json', pretty: true });
+   * await api.export('excel', { onlySelectedRows: true });
+   * await api.export('pdf', { fileName: 'employees.pdf', orientation: 'landscape' });
+   * ```
+   */
+  export(format: ExportFormat, options?: ExportOptions): Promise<void> {
+    return this.ctx.exportService.export(format, options);
+  }
+
+  /**
+   * Registers an exporter for **this grid only**, outranking any global
+   * registration for the same format.
+   *
+   * Use the module-level `registerExporter` instead to enable a format for
+   * every grid on the page — the usual choice, made once at app bootstrap.
+   *
+   * @param format   - The format key, e.g. `'excel'`, `'pdf'`, `'xml'`.
+   * @param exporter - The implementation.
+   */
+  registerExporter(format: ExportFormat, exporter: GridExporter): void {
+    this.ctx.exportService.registerExporter(format, exporter);
+  }
+
+  /**
+   * Removes a grid-local exporter registration, revealing any global one again.
+   *
+   * @returns `true` when a registration was removed.
+   */
+  unregisterExporter(format: ExportFormat): boolean {
+    return this.ctx.exportService.unregisterExporter(format);
+  }
+
+  /** Whether this grid can currently export the format (grid-local, then global). */
+  hasExporter(format: ExportFormat): boolean {
+    return this.ctx.exportService.hasExporter(format);
+  }
+
+  /** Resolves the exporter this grid would use for a format, or `undefined`. */
+  getExporter(format: ExportFormat): GridExporter | undefined {
+    return this.ctx.exportService.getExporter(format);
+  }
+
+  /** Every format this grid can export, sorted. */
+  getExportFormats(): ExportFormat[] {
+    return this.ctx.exportService.getFormats();
+  }
+
+  /**
+   * Builds the export payload — columns, headers and normalised cells — without
+   * writing a file.
+   *
+   * The seam for hosts that upload rather than download, and the easiest way to
+   * unit-test what an export *would* contain.
+   *
+   * @param options - The same scope options {@link export} accepts.
+   */
+  prepareExportData(options?: ExportOptions): PreparedExportData {
+    return this.ctx.exportService.prepare(options);
+  }
+
+  /** Opens the toolbar's Export dropdown, if the feature is enabled. */
+  openExportMenu(): void {
+    this.ctx.renderer.openExportMenu();
+  }
+
 
   // ──────────────────── Import ────────────────────
   /**

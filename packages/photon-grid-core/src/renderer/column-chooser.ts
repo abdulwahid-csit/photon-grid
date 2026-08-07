@@ -24,6 +24,17 @@ export class ColumnChooser {
   private dialogEl: HTMLElement | null = null;
   private treeEl: HTMLElement | null = null;
 
+  /**
+   * The "Select all" checkbox, kept so {@link syncSelectAll} can re-state it
+   * without rebuilding the row it lives in.
+   *
+   * It sits *outside* the tree, so the wholesale `renderTree` rebuild never
+   * touches it — which is why it needs its own sync step rather than being
+   * regenerated like every other checkbox here.
+   */
+  private selectAllBoxEl: HTMLElement | null = null;
+  private selectAllRowEl: HTMLElement | null = null;
+
   /** Original, still-nested column definitions used as the tree's structure. */
   private columns: ColumnDefInput[] = [];
   /** Group ids currently expanded in the tree. */
@@ -90,6 +101,8 @@ export class ColumnChooser {
     this.overlayEl = null;
     this.dialogEl = null;
     this.treeEl = null;
+    this.selectAllBoxEl = null;
+    this.selectAllRowEl = null;
   }
 
   /** Permanently disposes the component. */
@@ -148,6 +161,9 @@ export class ColumnChooser {
 
     search.append(searchIcon, searchInput);
 
+    // Select all ──────────────────────────────────────────────────────────
+    const selectAll = this.buildSelectAllRow();
+
     // Body / tree ────────────────────────────────────────────────────────
     const body = doc.createElement('div');
     body.className = 'pg-col-chooser__body';
@@ -158,7 +174,7 @@ export class ColumnChooser {
     body.appendChild(tree);
     this.treeEl = tree;
 
-    dialog.append(header, search, body);
+    dialog.append(header, search, selectAll, body);
     overlay.appendChild(dialog);
     portalHostFor(this.ownerEl).appendChild(overlay);
     this.overlayEl = overlay;
@@ -184,6 +200,144 @@ export class ColumnChooser {
       frag.appendChild(empty);
     }
     this.treeEl.appendChild(frag);
+    // The select-all row lives outside the tree, so the rebuild above cannot
+    // refresh it. Every path that changes visibility ends here, which makes this
+    // the one place the header checkbox has to be re-derived.
+    this.syncSelectAll();
+  }
+
+  // ── Select all ──────────────────────────────────────────────────────────
+
+  /**
+   * Builds the "Select all" row that sits between the search box and the tree.
+   *
+   * A single affordance for the most common two actions in this dialog —
+   * "show me everything again" and "clear the lot so I can pick a few" — which
+   * otherwise cost one click per column.
+   */
+  private buildSelectAllRow(): HTMLElement {
+    const row = document.createElement('div');
+    row.className = 'pg-col-chooser__select-all';
+    this.selectAllRowEl = row;
+
+    // State is filled in by `syncSelectAll`, which `renderTree` calls during
+    // the initial build — so the arguments here are placeholders, not defaults.
+    const box = this.makeCheckbox(false, false, false);
+    box.setAttribute('aria-label', 'Select all columns');
+    this.selectAllBoxEl = box;
+
+    const label = this.makeLabel('Select all');
+    label.classList.add('pg-col-chooser__label--select-all');
+
+    this.onActivate(box, () => this.toggleSelectAll());
+    label.addEventListener('click', () => this.toggleSelectAll());
+
+    row.append(box, label);
+    return row;
+  }
+
+  /**
+   * Re-derives the select-all checkbox from the columns the tree is currently
+   * showing.
+   *
+   * Tri-state, and deliberately scoped to the *listed* columns rather than to
+   * every column in the grid: with a search term active the row the user is
+   * looking at describes what they can see, and toggling it acts on exactly
+   * that. A checkbox reading "all selected" while a filtered list showed three
+   * unticked rows would be describing something off screen.
+   *
+   * Always-visible columns are excluded from the count as well as from the
+   * write — they can never be unticked, so including them would leave the box
+   * stuck at "some" no matter what the user did. A list of nothing but
+   * always-visible columns therefore disables the row entirely.
+   */
+  private syncSelectAll(): void {
+    const box = this.selectAllBoxEl;
+    const row = this.selectAllRowEl;
+    if (!box || !row) return;
+
+    const toggleable = this.listedLeaves().filter((c) => !c.alwaysVisible);
+    const visibleCount = toggleable.filter((c) => c.visible !== false).length;
+    const disabled = toggleable.length === 0;
+    const checked = !disabled && visibleCount === toggleable.length;
+    const indeterminate = visibleCount > 0 && visibleCount < toggleable.length;
+
+    box.classList.toggle('pg-col-chooser__checkbox--checked', checked);
+    box.classList.toggle('pg-col-chooser__checkbox--indeterminate', indeterminate);
+    box.classList.toggle('pg-col-chooser__checkbox--disabled', disabled);
+    box.setAttribute('aria-checked', indeterminate ? 'mixed' : String(checked));
+    box.setAttribute('aria-disabled', String(disabled));
+    box.tabIndex = disabled ? -1 : 0;
+    row.classList.toggle('pg-col-chooser__select-all--disabled', disabled);
+  }
+
+  /**
+   * Shows or hides every listed column in one act.
+   *
+   * "All visible" hides them; anything else — none or some — shows them all,
+   * so a half-ticked box always resolves upward. That matches the group
+   * checkbox's rule, and means the destructive direction is only ever reached
+   * from a state the user can see is complete.
+   */
+  private toggleSelectAll(): void {
+    const toggleable = this.listedLeaves().filter((c) => !c.alwaysVisible);
+    if (toggleable.length === 0) return;
+
+    const visible = !toggleable.every((c) => c.visible !== false);
+    for (const leaf of toggleable) this.columnModel.setColumnVisible(leaf.colId, visible);
+    this.renderTree();
+  }
+
+  /**
+   * The live columns the tree is currently rendering, in display order.
+   *
+   * Mirrors the filtering in {@link buildGroupNode} and {@link buildLeafNode}
+   * exactly — a group filtered out by the search contributes nothing, and a
+   * group kept by a header match still filters its own leaves — so the
+   * select-all box can never describe a different set from the rows beneath it.
+   */
+  private listedLeaves(defs: ColumnDefInput[] = this.columns, out: ColumnDef[] = []): ColumnDef[] {
+    for (const def of defs) {
+      if (Array.isArray(def.children) && def.children.length > 0) {
+        if (this.searchTerm && !this.groupMatches(def)) continue;
+        this.listedLeaves(def.children, out);
+        continue;
+      }
+
+      const live = this.resolveLeaf(def);
+      if (!live) continue;
+      if (this.searchTerm && !(live.header ?? '').toLowerCase().includes(this.searchTerm)) continue;
+      out.push(live);
+    }
+    return out;
+  }
+
+  /**
+   * Binds pointer *and* keyboard activation to an element acting as a control.
+   *
+   * These checkboxes are `<span role="checkbox">` with a tabindex, which makes
+   * them focusable but not operable: a real `<input>` fires `click` for Space,
+   * a span does not. Without this a keyboard user can reach every checkbox in
+   * the dialog and toggle none of them.
+   *
+   * Space is the checkbox's own binding and Enter is accepted too, matching the
+   * latitude every native control allows. The default is suppressed for both —
+   * Space would otherwise scroll the dialog out from under the row just toggled.
+   *
+   * Propagation is stopped in both directions so a checkbox inside a group row
+   * cannot also trigger the row-level label handler sitting beside it.
+   */
+  private onActivate(el: HTMLElement, handler: () => void): void {
+    el.addEventListener('click', (e: MouseEvent) => {
+      e.stopPropagation();
+      handler();
+    });
+    el.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (e.key !== ' ' && e.key !== 'Spacebar' && e.key !== 'Enter') return;
+      e.preventDefault();
+      e.stopPropagation();
+      handler();
+    });
   }
 
   /**
@@ -263,7 +417,7 @@ export class ColumnChooser {
       this.columnModel.setColumnVisible(live.colId, live.visible === false);
       this.renderTree();
     };
-    checkbox.addEventListener('click', toggle);
+    this.onActivate(checkbox, toggle);
     label.addEventListener('click', toggle);
 
     row.append(spacer, checkbox, label);
@@ -314,11 +468,8 @@ export class ColumnChooser {
       visibleCount === 0 ? 'none' : visibleCount === leaves.length ? 'all' : 'some';
 
     const checkbox = this.makeCheckbox(state === 'all', state === 'some', false);
-    checkbox.addEventListener('click', (e) => {
-      e.stopPropagation();
-      // "some"/"none" → show all; "all" → hide all.
-      this.setGroupVisible(def, state !== 'all');
-    });
+    // "some"/"none" → show all; "all" → hide all.
+    this.onActivate(checkbox, () => this.setGroupVisible(def, state !== 'all'));
     return { checkbox, state };
   }
 

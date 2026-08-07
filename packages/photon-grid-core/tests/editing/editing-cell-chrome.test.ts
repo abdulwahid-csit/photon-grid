@@ -23,10 +23,27 @@ import { cellsCss } from '../../src/styles/base/cells.css';
 const css = editorsSystemCss.replace(/\s+/g, ' ');
 const cells = cellsCss.replace(/\s+/g, ' ');
 
-/** The declarations of the first rule whose selector list contains `selector`. */
+/**
+ * The declarations of the first rule whose selector list contains `selector`.
+ *
+ * A trailing `{` anchors the match to a rule whose selector list *ends* there,
+ * which is how both callers below pin the bare `.pg-cell--editing` rule rather
+ * than one of the many compound rules that merely start with it. Without the
+ * anchor the leading `.pg-cell--editing` of a longer selector — or, worse, a
+ * mention inside one of this stylesheet's prose comments — matches first and
+ * the wrong declarations come back.
+ */
 function ruleFor(selector: string): string {
-  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`${escaped}[^{}]*\\{([^}]*)\\}`).exec(css)?.[1] ?? '';
+  const trimmed = selector.trim();
+  const anchored = trimmed.endsWith('{');
+  const bare = anchored ? trimmed.slice(0, -1).trim() : trimmed;
+  const escaped = bare.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // Anchored: the brace must follow the selector directly. Unanchored: allow
+  // the rest of a selector list to run on before it.
+  const pattern = anchored
+    ? `${escaped}\\s*\\{([^}]*)\\}`
+    : `${escaped}[^{}]*\\{([^}]*)\\}`;
+  return new RegExp(pattern).exec(css)?.[1] ?? '';
 }
 
 describe('the editing cell ring', () => {

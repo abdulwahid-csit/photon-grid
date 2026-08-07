@@ -241,7 +241,7 @@ export class OverlayRenderer {
     overlay.appendChild(label);
 
     this.errorEl = overlay;
-    this.containerEl?.appendChild(overlay);
+    // this.containerEl?.appendChild(overlay);
 
     if (autoHideMs > 0) {
       this.errorTimer = setTimeout(() => this.hideError(), autoHideMs);

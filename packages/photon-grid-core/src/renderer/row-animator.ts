@@ -344,9 +344,6 @@ export class RowAnimator {
     for (const el of toFadeIn) this.pending.add(el);
     for (const el of toSlideIn) this.pending.add(el);
 
-    // Exactly one forced style flush for the entire batch, so the browser
-    // commits every inverted position above as the animation's start state.
-    // Any element works; the first one written is guaranteed to exist here.
     // Mark the animation as live from here, not from the play phase below:
     // `active` does not fill until the next frame, and a caller polling
     // `isAnimating()` in between would see an idle animator and restart the
@@ -354,40 +351,45 @@ export class RowAnimator {
     this.playPending = true;
 
     // ── Play phase ───────────────────────────────────────────────────────────
-    // Next frame: enable transitions and release every element to its natural
-    // resting place. Only `transform`/`opacity` are transitioned — never `top`,
+    // Two frames out, not one. The browser has to commit every inverted
+    // position above as the animation's start state before transitions are
+    // enabled, or it coalesces the invert and the release into a single style
+    // recalculation and the rows jump straight to their resting places with no
+    // movement. The first frame buys that commit without the synchronous
+    // layout a forced `offsetHeight` read would cost; the second starts the
+    // transitions. Only `transform`/`opacity` are transitioned — never `top`,
     // which the position stylesheet owns and which would force layout per frame.
     this.playFrame = requestAnimationFrame(() => {
       this.playFrame = requestAnimationFrame(() => {
-      this.playFrame = null;
-      this.playPending = false;
-      const moveTransition = `transform ${duration}ms ${EASING}`;
-      const fadeTransition = `opacity ${duration}ms ${EASING}, transform ${duration}ms ${EASING}`;
+        this.playFrame = null;
+        this.playPending = false;
+        const moveTransition = `transform ${duration}ms ${EASING}`;
+        const fadeTransition = `opacity ${duration}ms ${EASING}, transform ${duration}ms ${EASING}`;
 
-      for (const el of toFlip) {
-        this.pending.delete(el);
-        el.style.transition = moveTransition;
-        el.style.transform = '';
-        this.trackUntilDone(el);
-      }
-      for (const el of toFadeIn) {
-        this.pending.delete(el);
-        el.style.transition = fadeTransition;
-        el.style.opacity = '';
-        el.style.transform = '';
-        this.trackUntilDone(el);
-      }
-      for (const el of toSlideIn) {
-        this.pending.delete(el);
-        el.style.transition = moveTransition;
-        el.style.transform = '';
-        this.trackUntilDone(el);
-      }
+        for (const el of toFlip) {
+          this.pending.delete(el);
+          el.style.transition = moveTransition;
+          el.style.transform = '';
+          this.trackUntilDone(el);
+        }
+        for (const el of toFadeIn) {
+          this.pending.delete(el);
+          el.style.transition = fadeTransition;
+          el.style.opacity = '';
+          el.style.transform = '';
+          this.trackUntilDone(el);
+        }
+        for (const el of toSlideIn) {
+          this.pending.delete(el);
+          el.style.transition = moveTransition;
+          el.style.transform = '';
+          this.trackUntilDone(el);
+        }
 
-      toFlip.length = 0;
-      flipDeltas.length = 0;
-      toFadeIn.length = 0;
-      toSlideIn.length = 0;
+        toFlip.length = 0;
+        flipDeltas.length = 0;
+        toFadeIn.length = 0;
+        toSlideIn.length = 0;
       });
     });
   }

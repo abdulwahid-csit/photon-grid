@@ -42,6 +42,69 @@ export * from './editing';
 export { SummaryEngine } from './engines/summary/summary-engine';
 export { ExportEngine } from './engines/export/export-engine';
 
+// ── Export System ────────────────────────────────────────────────────────────
+// The pluggable export architecture behind `GridApi.export()`. CSV and JSON are
+// implemented here; Excel and PDF are host-registered adapters, which is what
+// keeps Photon Grid Core at zero runtime dependencies.
+//
+// The optional adapters are deliberately NOT re-exported here — importing this
+// barrel must never be able to pull `xlsx` or `jspdf` into a bundle. Reach for
+// them on their own entry points:
+//
+//   import { createExcelExporter } from 'photon-grid-core/export/excel';
+//   import { createPdfExporter }   from 'photon-grid-core/export/pdf';
+export {
+  BuiltInExportFormat,
+  DEFAULT_EXPORT_FORMATS,
+  EXPORTER_REQUIREMENTS,
+  EXPORT_MIME_TYPES,
+  ExportDataPreparer,
+  ExportError,
+  ExportErrorCode,
+  ExportService,
+  ExporterRegistry,
+  PdfOrientation,
+  csvExporter,
+  downloadExportFile,
+  escapeCsvValue,
+  getExporter,
+  getRegisteredExportFormats,
+  globalExporterRegistry,
+  hasExporter,
+  jsonExporter,
+  registerExporter,
+  serializeCsv,
+  serializeJson,
+  toJsonRecords,
+  unregisterExporter,
+  withExtension,
+} from './export';
+export type {
+  ExcelExportOptions,
+  ExportCell,
+  ExportCellParams,
+  ExportColumn,
+  ExportDataSource,
+  ExportFeatureConfig,
+  ExportFormat,
+  ExportHeaderParams,
+  ExportMenuItemId,
+  ExportOptions,
+  ExportRow,
+  ExportServiceDeps,
+  ExportSuccessInfo,
+  ExporterRequirement,
+  GridExporter,
+  JsonExportOptions,
+  JsonExportRecord,
+  PdfExportOptions,
+  PreparedExportData,
+  ResolvedExportOptions,
+} from './export';
+export { ExportMenu, resolveExportConfig } from './renderer/export-menu';
+export type { ExportMenuDeps } from './renderer/export-menu';
+
+
 // ── Summary Rows ─────────────────────────────────────────────────────────────
 // Configurable aggregate rows docked above/below the body (or flowing with its
 // content). See `GridOptions.summary` and the `GridApi` summary methods.
@@ -170,6 +233,7 @@ export type {
   ToolbarTab,
   ToolbarTabsConfig,
   ToolbarSearchConfig,
+  ColumnsManagerConfig,
 } from './types/toolbar.types';
 export type { ToolbarTabChangedEvent, ToolbarSearchChangedEvent } from './types/event.types';
 
@@ -294,6 +358,12 @@ export type {
 
 export { GridRenderer } from './renderer/grid-renderer';
 export { ColumnChooser } from './renderer/column-chooser';
+// Tools-strip launcher that opens the Column Chooser. See `GridOptions.columnsManager`.
+export {
+  ColumnsManagerLauncher,
+  resolveColumnsManagerConfig,
+} from './renderer/columns-manager-launcher';
+export type { ColumnsManagerDeps } from './renderer/columns-manager-launcher';
 export { FiltersToolPanel } from './renderer/filters-tool-panel';
 export type { FiltersToolPanelDeps } from './renderer/filters-tool-panel';
 export { HeaderRenderer } from './renderer/header-renderer';

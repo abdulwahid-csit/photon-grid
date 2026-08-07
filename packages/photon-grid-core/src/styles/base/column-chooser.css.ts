@@ -109,6 +109,38 @@ export const columnChooserCss = `/* ──────────────�
   color: var(--pg-colors-text-secondary, #94a3b8);
 }
 
+/* ── Select all ──
+   A header row for the list rather than a member of it: it sits outside the
+   scrolling body, on the dialog's own surface, and is separated by a rule so it
+   reads as acting *on* the tree instead of being the tree's first item. */
+.pg-col-chooser__select-all {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  margin: 0 14px;
+  padding: 2px 6px;
+  border-bottom: 1px solid var(--pg-colors-border, #e2e8f0);
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--pg-transitions-duration-fast, 80ms ease);
+}
+.pg-col-chooser__select-all:hover {
+  background: var(--pg-colors-background-alt, #f1f5f9);
+}
+/* Nothing toggleable is listed — an empty search result, or a list of nothing
+   but always-visible columns. Dimmed and inert rather than removed, so the row
+   does not appear and disappear as the user types. */
+.pg-col-chooser__select-all--disabled {
+  opacity: 0.5;
+  cursor: default;
+  pointer-events: none;
+}
+.pg-col-chooser__label--select-all {
+  font-weight: var(--pg-typography-font-weight-medium, 500);
+  color: var(--pg-colors-text-primary, #0f172a);
+}
+
 /* ── Body / tree ── */
 .pg-col-chooser__body {
   flex: 1 1 auto;

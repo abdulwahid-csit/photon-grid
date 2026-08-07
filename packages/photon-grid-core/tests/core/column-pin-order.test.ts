@@ -116,3 +116,100 @@ describe('setColumnPin reorders, so logical order matches the panels', () => {
     expect(order(model)).toEqual(before);
   });
 });
+
+/**
+ * Unpinning is the return leg of that move, and it has to land where the column
+ * started.
+ *
+ * The reported failure: pinning the third of twenty columns to glance at it and
+ * then unpinning returned it as the twentieth. Because pinning *moves* the
+ * column, its old slot is gone unless something remembers it — the unpin simply
+ * appended to the end of the unpinned block, which is the same thing as
+ * discarding the user's column order.
+ */
+describe('unpinning returns a column to where it was pinned from', () => {
+  it('puts a left-pinned column back in its original slot', () => {
+    model.setColumnPin('c', 'left');
+    expect(order(model)).toEqual(['c', 'a', 'b', 'd']);
+
+    model.setColumnPin('c', null);
+
+    expect(order(model)).toEqual(['a', 'b', 'c', 'd']);
+  });
+
+  it('puts a right-pinned column back in its original slot', () => {
+    model.setColumnPin('b', 'right');
+    expect(order(model)).toEqual(['a', 'c', 'd', 'b']);
+
+    model.setColumnPin('b', null);
+
+    expect(order(model)).toEqual(['a', 'b', 'c', 'd']);
+  });
+
+  it('returns the first column to the front, not the back', () => {
+    model.setColumnPin('a', 'right');
+    model.setColumnPin('a', null);
+
+    expect(order(model)).toEqual(['a', 'b', 'c', 'd']);
+  });
+
+  it('remembers the original slot across a change of side', () => {
+    // Left then right then out: the slot recorded on the way in is the one that
+    // matters, and re-pinning must not overwrite it with a position inside a
+    // pinned panel.
+    model.setColumnPin('c', 'left');
+    model.setColumnPin('c', 'right');
+    model.setColumnPin('c', null);
+
+    expect(order(model)).toEqual(['a', 'b', 'c', 'd']);
+  });
+
+  it('keeps a column that was last in the order last', () => {
+    model.setColumnPin('d', 'left');
+    model.setColumnPin('d', null);
+
+    expect(order(model)).toEqual(['a', 'b', 'c', 'd']);
+  });
+
+  it('falls back to the end of the block when the remembered neighbour is gone', () => {
+    model.setColumnPin('b', 'left');
+    // 'a' was what 'b' sat after. Hiding it leaves the anchor dangling.
+    model.setColumnVisible('a', false);
+
+    model.setColumnPin('b', null);
+
+    // Degrades to the old behaviour rather than to a corrupt order.
+    expect(order(model)).toEqual(['c', 'd', 'b']);
+  });
+
+  it('never lands outside the unpinned block', () => {
+    // 'b' remembers sitting after 'a'; by the time it is unpinned, 'a' is
+    // pinned left. Honouring the anchor literally would splice an unpinned
+    // column into the middle of the left panel — and this is the case that
+    // makes anchoring to the *preceding* column worth it, because "just after
+    // a" still resolves to the front of the unpinned block rather than
+    // throwing 'b' past everything it used to follow.
+    model.setColumnPin('b', 'right');
+    model.setColumnPin('a', 'left');
+
+    model.setColumnPin('b', null);
+
+    expect(order(model)).toEqual(['a', 'b', 'c', 'd']);
+  });
+
+  it('restores through the drag path too, when the drag names no target', () => {
+    model.moveAndPin('c', 'left', null);
+    model.moveAndPin('c', null, null);
+
+    expect(order(model)).toEqual(['a', 'b', 'c', 'd']);
+  });
+
+  it('obeys an explicit drop target instead of the remembered slot', () => {
+    // A drag that names where to land has already answered the question; the
+    // remembered slot must not override what the user just did.
+    model.moveAndPin('c', 'left', null);
+    model.moveAndPin('c', null, 'a');
+
+    expect(order(model)).toEqual(['c', 'a', 'b', 'd']);
+  });
+});

@@ -65,6 +65,14 @@ export type RowMenuIcon = string | ((ctx: RowMenuItemContext) => string | HTMLEl
  * Pass these to {@link RowMenuConfig.suppressItems} to hide individual entries.
  * `chartRange` and `export` are submenu parents; suppressing a parent removes
  * its whole fly-out.
+ *
+ * The four `export*` ids let a host offer exactly the formats it supports —
+ * a grid with no PDF exporter registered can suppress `exportPdf` rather than
+ * advertise a format that will only explain how to install it:
+ *
+ * ```ts
+ * rowMenu: { suppressItems: ['exportPdf', 'exportExcel'] }
+ * ```
  */
 export type RowMenuItemId =
   | 'cut'
@@ -73,7 +81,11 @@ export type RowMenuItemId =
   | 'paste'
   | 'chartRange'
   | 'export'
-  | 'exportCsv';
+  | 'exportCsv'
+  | 'exportJson'
+  | 'exportExcel'
+  | 'exportPdf';
+
 
 // ── Context ─────────────────────────────────────────────────────────────────
 

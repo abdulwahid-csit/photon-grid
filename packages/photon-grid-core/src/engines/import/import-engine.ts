@@ -52,6 +52,11 @@ export class ImportEngine {
   /** Registered Excel parser (SheetJS adapter or custom); `null` until set. */
   private parser: WorkbookParser | null = null;
 
+  // Global workbook parser, registered for every new grid when present.
+  // Hosts can register one via `registerGlobalWorkbookParser` below.
+  // This is module-scoped so tests may override/clear it.
+  private static globalParser: WorkbookParser | null = null;
+
   /**
    * Per-session mapping memory: imported header → target grid `field`. Lets a
    * mapping resolved (or confirmed) once be reused for later imports in the
@@ -83,6 +88,17 @@ export class ImportEngine {
   get isExcelAvailable(): boolean {
     return this.parser !== null;
   }
+
+  /** Returns the module-global workbook parser, if any. */
+  static getGlobalWorkbookParser(): WorkbookParser | null {
+    return ImportEngine.globalParser;
+  }
+
+  /** Registers a module-global workbook parser applied to every new grid. */
+  static registerGlobalWorkbookParser(parser: WorkbookParser | null): void {
+    ImportEngine.globalParser = parser;
+  }
+
 
   // ── Public import entry points ─────────────────────────────────────────────
 

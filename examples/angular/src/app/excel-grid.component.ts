@@ -6,10 +6,22 @@ import {
     ViewEncapsulation,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import * as XLSX from 'xlsx';
 
 import { PhotonGridComponent } from 'photon-grid-angular';
 import type { ColumnDef } from 'photon-grid-angular';
-import type { GridApi, GridOptions, ValueGetterParams } from 'photon-grid-core';
+import {
+    ToolbarSearchPosition,
+    registerExporter,
+    type GridApi,
+    type GridOptions,
+    type ValueGetterParams,
+} from 'photon-grid-core';
+import { createPdfExporter } from 'photon-grid-core/export/pdf';
+import type { JsPdfConstructor } from 'photon-grid-core/export/pdf';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import { SheetJsWorkbookParser } from 'photon-grid-core/import/sheetjs';
 
 /**
  * A spreadsheet: 100 lettered columns over as many rows as you ask for.
@@ -41,10 +53,10 @@ import type { GridApi, GridOptions, ValueGetterParams } from 'photon-grid-core';
  */
 
 /** How many lettered columns to build: A … CV. */
-const COLUMN_COUNT = 100;
+const COLUMN_COUNT = 10;
 
 /** Rows generated unless you ask for another count. */
-const DEFAULT_ROW_COUNT = 1_000_000;
+const DEFAULT_ROW_COUNT = 1000;
 
 /**
  * Ceiling on the row count, as a guard rather than a grid limit.
@@ -228,10 +240,16 @@ export class ExcelGridComponent implements OnInit {
         this.options = {
             columns: [],
             // Spreadsheet proportions: short rows, so a screen shows many of them.
-            rowHeight: 28,
-            headerRowHeight: 30,
+            rowHeight: 40,
+            headerRowHeight: 44,
             mode: 'light',
             rowShading: false,
+            filtersToolPanel: { enabled: true },
+            themeManager: { enabled: true },
+            import: { enabled: true },
+            toolbar: {enabled: true, search: {enabled: true, position: ToolbarSearchPosition.Right}},
+            columnsManager: { enabled: true },
+            export: {enabled: true},
             // The row-number gutter, which is half of what makes a grid read as a
             // sheet — and what the row half of an A1 reference counts.
             showSerialNumber: true,
@@ -240,11 +258,16 @@ export class ExcelGridComponent implements OnInit {
             editing: { mode: 'cell' },
         } as GridOptions;
 
+        // Register the page-wide PDF exporter if the host libraries are available.
+        // This lets the grid's Export → PDF menu work in this example.
+     
+
         this.generate(DEFAULT_ROW_COUNT);
     }
 
     onGridReady(api: GridApi): void {
         this.api = api;
+        this.api.registerImportParser(new SheetJsWorkbookParser(XLSX));
     }
 
     onRowCountInput(event: Event): void {

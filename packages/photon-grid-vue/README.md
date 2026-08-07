@@ -1,187 +1,158 @@
-# Photon Grid for Vue
+# Photon Grid for Vue — Vue 3 Data Grid & Data Table Component
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/abdulwahid-csit/photon-grid/main/assets/logo.svg" alt="Photon Grid — Vue 3 Data Grid" width="180"/>
+  <img src="https://raw.githubusercontent.com/abdulwahid-csit/photon-grid/main/assets/logo.svg" alt="Photon Grid — Vue data grid / Vue table" width="180"/>
 </p>
 
 <p align="center">
-    <strong>A high-performance, enterprise-grade Vue 3 data grid built on the zero-dependency Photon Grid engine.</strong>
+  <strong>A fast, enterprise-grade Vue 3 data grid built on the zero-dependency Photon Grid engine.</strong><br/>
+  Virtual scrolling over millions of rows, Excel-style editing, grouping, pinning and themes — as one Vue component.
 </p>
 
 <p align="center">
-
-![npm](https://img.shields.io/npm/v/photon-grid-vue)
-![license](https://img.shields.io/npm/l/photon-grid-vue)
-![typescript](https://img.shields.io/badge/TypeScript-5.x-blue)
-![vue](https://img.shields.io/badge/Vue-3.4%2B-42b883)
-
+  <a href="https://www.npmjs.com/package/photon-grid-vue"><img src="https://img.shields.io/npm/v/photon-grid-vue" alt="npm version"/></a>
+  <a href="https://www.npmjs.com/package/photon-grid-vue"><img src="https://img.shields.io/npm/dm/photon-grid-vue" alt="npm downloads"/></a>
+  <a href="https://github.com/abdulwahid-csit/photon-grid/blob/main/LICENSE"><img src="https://img.shields.io/npm/l/photon-grid-vue" alt="license"/></a>
+  <img src="https://img.shields.io/badge/Vue-3.4%2B-42b883" alt="Vue 3.4+"/>
+  <img src="https://img.shields.io/badge/TypeScript-5.x-blue" alt="TypeScript"/>
 </p>
+
+---
+
+![Vue data grid screenshot — Photon Grid, light theme](https://raw.githubusercontent.com/abdulwahid-csit/photon-grid/main/assets/screenshots/grid-light.png)
+
+<details>
+<summary>Dark theme</summary>
+
+![Vue data table screenshot — Photon Grid, dark theme](https://raw.githubusercontent.com/abdulwahid-csit/photon-grid/main/assets/screenshots/grid-dark.png)
+
+</details>
 
 ---
 
 ## Overview
 
-**Photon Grid for Vue** (`photon-grid-vue`) is the official Vue 3 wrapper for [Photon Grid Core](https://www.npmjs.com/package/photon-grid-core) — an extremely fast, framework-agnostic TypeScript data grid.
+**Photon Grid for Vue** (`photon-grid-vue`) is the official Vue 3 wrapper for [Photon Grid Core](https://www.npmjs.com/package/photon-grid-core) — a framework-agnostic **data grid** / **data table** engine written in TypeScript with zero runtime dependencies.
 
-It exposes a single `<PhotonGrid />` component that binds Vue props and emits to the core engine, giving you virtual scrolling, sorting, filtering, grouping, editing, and custom cell renderers with **zero framework lock-in**.
+One `<PhotonGrid />` component binds Vue props and emits to the core engine: virtual scrolling, sorting, filtering, grouping, editing, and cell renderers written as ordinary Vue components.
 
-A modern, lightweight alternative to AG Grid, Handsontable, and vue-good-table for Vue 3 applications.
-
----
-
-## Features
-
-- Single declarative Vue 3 component (`<PhotonGrid />`)
-- Fully typed props and emitted events
-- Composition API friendly (`<script setup>`)
-- Zero runtime dependencies in the core engine
-- Virtual scrolling and virtual columns
-- Millions of rows support
-- Column pinning, resizing, moving, and auto-size
-- Cell selection and range selection
-- Clipboard support (copy / paste)
-- Keyboard and mouse navigation
-- Tree data and row grouping
-- Sorting and multi-column sorting
-- Filtering and quick filtering
-- Custom cell and header renderers
-- Context menu and custom context menus
-- Pagination, status bar, and tool panels
-- Theme support (light, dark, custom)
-- Event-driven, API-driven architecture
-- High-FPS, memory-efficient rendering
+A modern, lightweight alternative to AG Grid, Vuetify Data Table, PrimeVue DataTable and vue-good-table.
 
 ---
 
 ## Installation
 
 ```bash
-npm install photon-grid-vue photon-grid-core vue
+npm install photon-grid-vue photon-grid-core
 ```
-
-or
 
 ```bash
-yarn add photon-grid-vue photon-grid-core vue
+yarn add photon-grid-vue photon-grid-core
 ```
-
-or
 
 ```bash
-pnpm add photon-grid-vue photon-grid-core vue
+pnpm add photon-grid-vue photon-grid-core
 ```
 
-`vue` (>= 3.4) and `photon-grid-core` are peer dependencies.
+`vue` (≥3.4) and `photon-grid-core` are peer dependencies — install `photon-grid-core` alongside the wrapper.
+
+No CSS import is required: the core injects its own stylesheet on first render.
 
 ---
 
-## Basic Usage
+## Quick start
 
 ```vue
 <script setup lang="ts">
 import { PhotonGrid } from 'photon-grid-vue';
-import type { ColumnDef, GridApi } from 'photon-grid-vue';
+import type { ColumnDefInput, GridApi, GridOptions } from 'photon-grid-vue';
 
-const columns: ColumnDef[] = [
-  { colId: 'name', field: 'name', header: 'Name', type: 'string' },
-  { colId: 'age', field: 'age', header: 'Age', type: 'number' },
+// Only `field` is required — colId, header and type are defaulted for you.
+const columns: ColumnDefInput[] = [
+  { field: 'sku',      header: 'SKU',      width: 110, pinned: 'left' },
+  { field: 'product',  header: 'Product',  width: 190 },
+  { field: 'category', header: 'Category', width: 140 },
+  { field: 'price',    header: 'Price',    width: 120, type: 'number', editable: true },
+  { field: 'released', header: 'Released', width: 130, type: 'date' },
 ];
 
 const rows = [
-  { name: 'Ada', age: 36 },
-  { name: 'Alan', age: 41 },
+  { sku: 'PG-1001', product: 'Photon Keyboard', category: 'Hardware', price: 1249, released: '2024-01-18' },
+  { sku: 'PG-1002', product: 'Quantum Mouse',   category: 'Hardware', price:  349, released: '2024-02-04' },
+  { sku: 'PG-1003', product: 'Nebula Dock',     category: 'Hardware', price: 2199, released: '2024-02-22' },
 ];
 
-function onReady(api: GridApi) {
-  console.log('visible rows:', api.getVisibleRows().length);
+const options: Partial<GridOptions> = {
+  mode: 'light',
+  rowHeight: 40,
+  showSerialNumber: true,
+  pagination: { enabled: true, pageSize: 10 },
+  editing: { mode: 'cell' },
+};
+
+function onGridReady(api: GridApi) {
+  api.sizeColumnsToFit();
 }
 </script>
 
 <template>
-  <PhotonGrid
-    :columns="columns"
-    :dataSet="rows"
-    :options="{ theme: 'light' }"
-    @gridReady="onReady"
-    @rowClicked="(e) => console.log(e)"
-  />
+  <!-- The grid fills its host, so give the host a height. -->
+  <div style="height: 460px">
+    <PhotonGrid
+      :columns="columns"
+      :data-set="rows"
+      :options="options"
+      @grid-ready="onGridReady"
+      @cell-value-changed="(e) => console.log('cell changed', e)"
+    />
+  </div>
 </template>
 ```
-
-> **Styling** is injected automatically by the core engine — no CSS import is required.
 
 ---
 
 ## Props
 
-| Prop      | Type                        | Description                                             |
-| --------- | --------------------------- | ------------------------------------------------------ |
-| `columns` | `ColumnDef[]`               | Column definitions.                                    |
-| `dataSet` | `Record<string, unknown>[]` | Row data.                                              |
-| `options` | `Partial<GridOptions>`      | Theme, selection, editing, pagination, and feature flags. |
+| Prop      | Type                        | Description |
+| --------- | --------------------------- | ----------- |
+| `columns` | `ColumnDefInput[]`          | Column definitions. Renderer slots accept Vue components as well as plain functions. |
+| `dataSet` | `Record<string, unknown>[]` | Row data. |
+| `options` | `Partial<GridOptions>`      | Everything else — theme, selection, editing, pagination, row model, master/detail, AI panel. |
+| `loading` | `boolean`                   | Toggles the loading overlay through `GridApi.setLoading`, so scroll position, selection and column layout survive. Configure its look with `options.loadingOverlay`. |
 
 ---
 
-## Events
+## Emits
 
-`gridReady`, `dataChanged`, `rowClicked`, `rowDoubleClicked`, `rowSelected`,
-`cellClicked`, `cellDoubleClicked`, `cellValueChanged`, `cellSelectionChanged`,
-`columnResized`, `columnMoved`, `sortChanged`, `filterChanged`, `pageChanged`,
-`columnsStateChanged`, `themeChanged`, `exportComplete`.
+`gridReady` emits the `GridApi`, which is full programmatic control over the grid.
 
-`gridReady` emits the `GridApi`, giving you full programmatic control over the grid.
+| Group | Events |
+| --- | --- |
+| Lifecycle | `gridReady`, `dataChanged`, `loadingChanged` |
+| Rows | `rowClicked`, `rowDoubleClicked`, `rowSelected` |
+| Cells | `cellClicked`, `cellDoubleClicked`, `cellValueChanged`, `cellSelectionChanged` |
+| Columns | `columnResized`, `columnMoved`, `columnsStateChanged` |
+| Data ops | `sortChanged`, `filterChanged`, `pageChanged` |
+| Misc | `themeChanged`, `exportComplete` |
 
----
-
-## Why Photon Grid?
-
-- Declarative, idiomatic Vue 3 API
-- Fast, virtualized rendering for millions of rows
-- Framework-independent core — share grid logic across Vue, React, and Angular
-- Modular, extensible, plugin-friendly architecture
-- Enterprise capabilities with a simple, predictable API
-- Fully typed with built-in declaration files
+In templates, use the kebab-case form (`@grid-ready`, `@cell-value-changed`).
 
 ---
 
-## Browser Support
+## Features
 
-Supports all modern browsers: Chrome, Edge, Firefox, and Safari.
-
----
-
-## TypeScript
-
-`photon-grid-vue` is written in TypeScript and ships with built-in declaration files. No additional typings are required.
-
----
-
-## Ecosystem
-
-| Package | Description |
-| ------- | ----------- |
-| [`photon-grid-core`](https://www.npmjs.com/package/photon-grid-core) | Framework-agnostic engine |
-| [`photon-grid-vue`](https://www.npmjs.com/package/photon-grid-vue) | Vue 3 wrapper (this package) |
-| [`photon-grid-angular`](https://www.npmjs.com/package/photon-grid-angular) | Angular wrapper |
-| [`photon-grid-react`](https://www.npmjs.com/package/photon-grid-react) | React wrapper |
-
----
-
-## Contributing
-
-Contributions are welcome. Please submit issues, feature requests, or pull requests through GitHub.
-
----
-
-## License
-
-MIT License
-
----
-
-## Author
-
-**Abdul Wahid**
+- Virtual row and column rendering — millions of rows, thousands of columns
+- Vue components as cell, header, editor and master–detail renderers
+- Column pinning, resizing, reordering, auto-size, size-to-fit, column groups
+- Sorting, multi-column sorting, filtering, quick filter, filter panels
+- Row grouping with aggregations, tree data, master–detail rows
+- Client, server-side and infinite row models
+- 15+ cell editors, declarative and async validation, fill handle, clipboard, undo/redo
+- Excel-style formula engine (`=A1+B1`) with 55+ functions
+- Light/dark modes and five variants, all CSS-custom-property driven
+- CSV / Excel export and import, summary rows, status bar, context menus, charts
+- Full keyboard navigation, ARIA roles, screen-reader support, RTL
+- Natural-language AI panel (optional, with a Gemini back-end)
 
 ---
 
@@ -189,11 +160,20 @@ MIT License
 
 - **GitHub** — https://github.com/abdulwahid-csit/photon-grid
 - **Issues** — https://github.com/abdulwahid-csit/photon-grid/issues
-- **NPM Vue** — https://www.npmjs.com/package/photon-grid-vue
-- **NPM Angular** — https://www.npmjs.com/package/photon-grid-angular
-- **NPM React** — https://www.npmjs.com/package/photon-grid-react
-- **NPM Core** — https://www.npmjs.com/package/photon-grid-core
+- **Core engine** — https://www.npmjs.com/package/photon-grid-core
+- **Angular wrapper** — https://www.npmjs.com/package/photon-grid-angular
+- **React wrapper** — https://www.npmjs.com/package/photon-grid-react
 
 ---
 
-⭐ If you find Photon Grid useful, consider starring the repository.
+## Keywords
+
+vue, vue3, vue grid, vue data grid, vue table, vue data table, vue datatable, vue table component, vuetify data table alternative, primevue datatable alternative, vue-good-table alternative, ag-grid vue alternative, grid, data grid, datagrid, table, data table, datatable, table data, spreadsheet, excel grid, editable table, virtual scroll, virtualized table, infinite scroll, large dataset, million rows, tree grid, row grouping, sorting, filtering, pagination, column pinning, column resize, column reorder, row selection, cell selection, csv export, excel export, enterprise data grid, typescript, composition api
+
+---
+
+## License
+
+MIT © Abdul Wahid
+
+⭐ If Photon Grid is useful to you, consider starring the repository.

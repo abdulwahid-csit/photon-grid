@@ -368,6 +368,22 @@ export interface ColumnDef {
   visible?: boolean;
 
   /**
+   * Excludes this column from every export (CSV / JSON / Excel / PDF), whatever
+   * its visibility.
+   *
+   * For columns that exist to drive the UI rather than to carry data — a row
+   * handle, an internal key, a column of buttons. An explicit
+   * {@link ExportOptions.columns} list still wins: naming a column *is* the
+   * decision to export it.
+   *
+   * Columns rendered with the built-in `actions` renderer are excluded
+   * automatically and need no flag.
+   *
+   * @default false
+   */
+  suppressExport?: boolean;
+
+  /**
    * Controls when this column's filter funnel icon appears in the header.
    * Only relevant while the column is filterable ({@link ColumnDef.filterable}
    * is not `false`). Overrides the grid-level {@link HeaderIconsConfig.filter}
@@ -591,6 +607,22 @@ export interface Column extends ColumnDef {
   colId: string;
   header: string;
   type: ColumnDataType;
+  /**
+   * The column this one sat immediately after when it was pinned, so unpinning
+   * can put it back there.
+   *
+   * Pinning is a move — the column leaves its block and joins a panel's — which
+   * means the position it came from is lost unless something remembers it.
+   * Without this, unpinning dropped the column at the end of the unpinned block:
+   * a user who pinned the third of twenty columns to glance at it got it back
+   * as the twentieth.
+   *
+   * Holds `null` when the column was first in the order (nothing to sit after),
+   * and `undefined` while the column is unpinned. Internal: set and cleared by
+   * `ColumnModel`, never authored, and deliberately absent from
+   * {@link ColumnState} — it describes an in-flight pin, not saved layout.
+   */
+  unpinAnchorColId?: string | null;
 }
 
 /**

@@ -1,5 +1,9 @@
 # Photon Grid — Formula Engine
 
+<p align="center">
+  <img src="../../../../assets/logo.svg" alt="Photon Grid" width="180"/>
+</p>
+
 An enterprise-grade, **zero-dependency**, framework-independent formula engine for
 Photon Grid. It parses and evaluates Excel/Sheets-style formulas (`=SUM(A1:A10)`,
 `=IF(A1>5,"Yes","No")`, `=VLOOKUP(...)`), maintains a dependency graph, and

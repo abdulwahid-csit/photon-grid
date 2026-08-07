@@ -66,6 +66,8 @@ import { SummaryModel } from '../summary/summary-model';
 import { SummaryService } from '../summary/summary-service';
 import { SummaryScope } from '../summary/summary.types';
 import { ExportEngine } from '../engines/export/export-engine';
+import { ExportService } from '../export/export-service';
+
 import { ImportEngine } from '../engines/import/import-engine';
 import { ImportSourceType } from '../types/import.types';
 import type { ImportCompleteEvent, ImportErrorEvent } from '../types/import.types';
@@ -263,12 +265,51 @@ export class GridCore {
     });
 
     const exportEngine = new ExportEngine(eventBus);
+    // The pluggable export system. Reads the grid only through the port below,
+    // so it never couples to this composition root; `getToasts` is a thunk
+    // because the toast service is constructed further down this constructor.
+    const exportService = new ExportService({
+      eventBus,
+      getConfig: () => options.export,
+      getToasts: () => this.ctx?.toastService ?? null,
+      source: {
+        getAllColumns: () => columnModel.getAllColumns(),
+        getVisibleColumns: () => columnModel.getVisibleColumns(),
+        getVisibleRows: () => store.get('visibleRows'),
+        // `applyFilters` returns its input unchanged when no filter is active,
+        // so the unfiltered case costs one predicate call, not a copy.
+        getFilteredRows: () =>
+          filterEngine.applyFilters(store.get('allRows'), columnModel.getAllColumns()),
+        // Selection is resolved against every row, not just the current page:
+        // "export what I selected" must not silently drop rows the user
+        // selected before paging forward.
+        getSelectedRows: () => rowSelectionEngine.getSelectedRows(store.get('allRows')),
+        getFormatOptions: () => ({
+          locale: options.locale,
+          dateFormat: options.dateFormat,
+          timeZone: options.timeZone,
+          currencySymbol: options.currencySymbol,
+          currencyFormat: options.currencyFormat,
+        }),
+        getApi: () => this.api,
+      },
+    });
+
     const clipboardEngine = new ClipboardEngine();
     // Import Engine mirrors ExportEngine (its inverse). It reads the clipboard
     // through the existing clipboard engine and writes into the grid only via
     // the public GridApi seams (wired as a sink in GridApi), so GridCore never
     // couples to any parser.
     const importEngine = new ImportEngine(eventBus, clipboardEngine);
+    // Auto-register a module-global workbook parser when the host has set one.
+    try {
+      const globalParser = ImportEngine.getGlobalWorkbookParser();
+      if (globalParser) importEngine.registerWorkbookParser(globalParser);
+    } catch (err) {
+      // Defensive: any problem here is non-fatal for grid construction.
+      // eslint-disable-next-line no-console
+      console.warn('[GridCore] failed to apply global workbook parser:', err);
+    }
     const dragDropEngine = new DragDropEngine(eventBus);
     const undoRedoEngine = new UndoRedoEngine();
     // Built before the engines that draw icon-bearing UI (the cell context menu
@@ -424,6 +465,7 @@ export class GridCore {
       summaryService,
       summaryAggregationEngine,
       exportEngine,
+      exportService,
       importEngine,
       toastService,
       clipboardEngine,
@@ -656,6 +698,21 @@ export class GridCore {
     });
 
     ctx.renderer.setSearchCallback((term) => this.api.setQuickFilter(term));
+
+    // Export wiring: the toolbar's Export dropdown and the cell context menu's
+    // Export fly-out are both pure UI. GridCore is the single bridge from them
+    // to the ExportService, so all three entry points (plus `api.export()`)
+    // produce byte-identical files.
+    //
+    // The rejection is swallowed at both call sites: a failure has already been
+    // reported as an EXPORT_ERROR event, an `onError` callback and — for a
+    // missing Excel/PDF exporter — a toast naming the packages to install.
+    // Re-throwing here would only surface as an unhandled promise rejection.
+    const runExport = (format: string): void => {
+      void this.api.export(format).catch(() => undefined);
+    };
+    ctx.renderer.setExportHandlers(runExport, (format) => ctx.exportService.hasExporter(format));
+    ctx.cellSelectionEngine.setExportCallback(runExport);
 
     // Row context menu: hand the engine its configuration plus the icon
     // registry and public API its custom items need. Items are rendered on each

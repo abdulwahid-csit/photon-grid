@@ -3,7 +3,7 @@ import { ChangeDetectionStrategy, Component, OnInit, TemplateRef, ViewChild } fr
 import { PhotonGridComponent } from 'photon-grid-angular';
 import type { ColumnDef, RendererContext } from 'photon-grid-angular';
 import type { CellRange, DisplayRendererParams, GridApi, GridOptions } from 'photon-grid-core';
-import { PhotonAIProviderType, HeaderIconDisplay, AutoFillDetectorName, ColumnGroupResizeStrategy, ToastPosition, ToolbarSearchPosition } from 'photon-grid-core';
+import { PhotonAIProviderType, HeaderIconDisplay, AutoFillDetectorName, ColumnGroupResizeStrategy, ToastPosition, ToolbarSearchPosition, registerExporter } from 'photon-grid-core';
 import type { RowClickPayload, RowSelectedEvent, ToolbarTabChangedEvent, ToolbarSearchChangedEvent } from 'photon-grid-core';
 import type {
     ServerSideDatasource,
@@ -19,6 +19,7 @@ import type {
 import { SheetJsWorkbookParser } from 'photon-grid-core/import/sheetjs';
 import * as XLSX from 'xlsx';
 
+
 import { EmployeeCellComponent } from './employee-cell.component';
 import { RealtimeGridComponent } from './realtime-grid.component';
 import { InfiniteGridComponent } from './infinite-grid.component';
@@ -32,6 +33,10 @@ import { SchedulerDemoComponent } from './scheduler/scheduler-demo.component';
 import { CommonModule } from '@angular/common';
 import { environment } from '../environments/environment';
 import { NestedColComponent } from "./nested-cols-data.component";
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import { createPdfExporter, type JsPdfConstructor } from 'photon-grid-core/export/pdf';
+import { registerExcelSupport, type SheetJsModule } from 'photon-grid-core/export/register-excel';
 
 /** Emoji flags for the fixed country list used by `generateData` below. */
 
@@ -395,6 +400,26 @@ export class AppComponent implements OnInit {
             },
             serverSideDatasource: this.createMockDatasource(serverData),
         };
+
+        this.registerGridServices();
+    }
+
+
+    registerGridServices(){
+    try {
+            // `jspdf`'s upstream types do not match the narrow constructor shape
+            // this adapter declares. Cast to the expected constructor to satisfy
+            // TypeScript without changing the adapter's internal types.
+            registerExporter('pdf', createPdfExporter({ jsPDF: jsPDF as unknown as JsPdfConstructor, autoTable: autoTable as any }));
+            // Convenience: enable Excel import+export app-wide in one call.
+            registerExcelSupport(XLSX as unknown as SheetJsModule);
+        } catch (err) {
+            // Registration failure is non-fatal for the demo; log for visibility.
+            // Typical cause: `jspdf-autotable` not installed in this example.
+            // The grid will show a helpful message if the exporter is missing when used.
+            // eslint-disable-next-line no-console
+            console.warn('[ExcelGrid] PDF exporter registration failed:', err);
+        }
     }
 
     /**

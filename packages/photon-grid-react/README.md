@@ -1,186 +1,186 @@
-# Photon Grid for React
+# Photon Grid for React — React Data Grid & Data Table Component
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/abdulwahid-csit/photon-grid/main/assets/logo.svg" alt="Photon Grid — React Data Grid" width="180"/>
+  <img src="https://raw.githubusercontent.com/abdulwahid-csit/photon-grid/main/assets/logo.svg" alt="Photon Grid — React data grid / React table" width="180"/>
 </p>
 
 <p align="center">
-    <strong>A high-performance, enterprise-grade React data grid built on the zero-dependency Photon Grid engine.</strong>
+  <strong>A fast, enterprise-grade React data grid built on the zero-dependency Photon Grid engine.</strong><br/>
+  Virtual scrolling over millions of rows, Excel-style editing, grouping, pinning and themes — as one React component.
 </p>
 
 <p align="center">
-
-![npm](https://img.shields.io/npm/v/photon-grid-react)
-![license](https://img.shields.io/npm/l/photon-grid-react)
-![typescript](https://img.shields.io/badge/TypeScript-5.x-blue)
-![react](https://img.shields.io/badge/React-18%2B-61dafb)
-
+  <a href="https://www.npmjs.com/package/photon-grid-react"><img src="https://img.shields.io/npm/v/photon-grid-react" alt="npm version"/></a>
+  <a href="https://www.npmjs.com/package/photon-grid-react"><img src="https://img.shields.io/npm/dm/photon-grid-react" alt="npm downloads"/></a>
+  <a href="https://github.com/abdulwahid-csit/photon-grid/blob/main/LICENSE"><img src="https://img.shields.io/npm/l/photon-grid-react" alt="license"/></a>
+  <img src="https://img.shields.io/badge/React-18%2B-61dafb" alt="React 18+"/>
+  <img src="https://img.shields.io/badge/TypeScript-5.x-blue" alt="TypeScript"/>
 </p>
+
+---
+
+![React data grid screenshot — Photon Grid, light theme](https://raw.githubusercontent.com/abdulwahid-csit/photon-grid/main/assets/screenshots/grid-light.png)
+
+<details>
+<summary>Dark theme</summary>
+
+![React data table screenshot — Photon Grid, dark theme](https://raw.githubusercontent.com/abdulwahid-csit/photon-grid/main/assets/screenshots/grid-dark.png)
+
+</details>
 
 ---
 
 ## Overview
 
-**Photon Grid for React** (`photon-grid-react`) is the official React wrapper for [Photon Grid Core](https://www.npmjs.com/package/photon-grid-core) — an extremely fast, framework-agnostic TypeScript data grid.
+**Photon Grid for React** (`photon-grid-react`) is the official React wrapper for [Photon Grid Core](https://www.npmjs.com/package/photon-grid-core) — a framework-agnostic **data grid** / **data table** engine written in TypeScript with zero runtime dependencies.
 
-It exposes a single `<PhotonGrid />` component that binds React props and callbacks to the core engine, giving you virtual scrolling, sorting, filtering, grouping, editing, and custom React cell renderers with **zero framework lock-in**.
+One `<PhotonGrid />` component binds React props and callbacks to the core engine: virtual scrolling, sorting, filtering, grouping, editing, and cell renderers written as ordinary React components.
 
-A modern, lightweight alternative to AG Grid, react-data-grid, TanStack Table, and Handsontable for React applications.
-
----
-
-## Features
-
-- Single declarative React component (`<PhotonGrid />`)
-- Custom React component cell renderers
-- Fully typed props and event callbacks
-- Zero runtime dependencies in the core engine
-- Virtual scrolling and virtual columns
-- Millions of rows support
-- Column pinning, resizing, moving, and auto-size
-- Cell selection and range selection
-- Clipboard support (copy / paste)
-- Keyboard and mouse navigation
-- Tree data and row grouping
-- Sorting and multi-column sorting
-- Filtering and quick filtering
-- Custom cell and header renderers
-- Context menu and custom context menus
-- Pagination, status bar, and tool panels
-- Theme support (light, dark, custom)
-- Event-driven, API-driven architecture
-- High-FPS, memory-efficient rendering
+A modern, lightweight alternative to AG Grid, TanStack Table, MUI DataGrid and react-data-grid.
 
 ---
 
 ## Installation
 
 ```bash
-npm install photon-grid-react photon-grid-core
+npm install photon-grid-react
 ```
-
-or
 
 ```bash
-yarn add photon-grid-react photon-grid-core
+yarn add photon-grid-react
 ```
-
-or
 
 ```bash
-pnpm add photon-grid-react photon-grid-core
+pnpm add photon-grid-react
 ```
 
-`react`, `react-dom` (>= 18) are peer dependencies. `photon-grid-core` is a dependency and is installed automatically.
+`photon-grid-core` is a regular dependency and is installed for you. `react` and `react-dom` (≥18) are peer dependencies you already have.
+
+No CSS import is required: the core injects its own stylesheet on first render.
 
 ---
 
-## Basic Usage
+## Quick start
 
 ```tsx
+import { useCallback } from 'react';
 import { PhotonGrid } from 'photon-grid-react';
 import type { PhotonGridColumnDef } from 'photon-grid-react';
-import type { GridApi } from 'photon-grid-core';
+import type { GridApi, GridOptions } from 'photon-grid-core';
 
+// Only `field` is required — colId, header and type are defaulted for you.
 const columns: PhotonGridColumnDef[] = [
-  { colId: 'name', field: 'name', header: 'Name', type: 'string' },
-  { colId: 'age', field: 'age', header: 'Age', type: 'number' },
+  { field: 'sku',      header: 'SKU',      width: 110, pinned: 'left' },
+  { field: 'product',  header: 'Product',  width: 190 },
+  { field: 'category', header: 'Category', width: 140 },
+  { field: 'price',    header: 'Price',    width: 120, type: 'number', editable: true },
+  { field: 'released', header: 'Released', width: 130, type: 'date' },
 ];
 
 const rows = [
-  { name: 'Ada', age: 36 },
-  { name: 'Alan', age: 41 },
+  { sku: 'PG-1001', product: 'Photon Keyboard', category: 'Hardware', price: 1249, released: '2024-01-18' },
+  { sku: 'PG-1002', product: 'Quantum Mouse',   category: 'Hardware', price:  349, released: '2024-02-04' },
+  { sku: 'PG-1003', product: 'Nebula Dock',     category: 'Hardware', price: 2199, released: '2024-02-22' },
 ];
 
-export function App() {
-  const onReady = (api: GridApi) => {
-    console.log('visible rows:', api.getVisibleRows().length);
-  };
+// Declared outside the component (or memoized): a new `options` identity
+// recreates the grid.
+const options: Partial<GridOptions> = {
+  mode: 'light',
+  rowHeight: 40,
+  showSerialNumber: true,
+  pagination: { enabled: true, pageSize: 10 },
+  editing: { mode: 'cell' },
+};
+
+export function Products() {
+  const onGridReady = useCallback((api: GridApi) => {
+    api.sizeColumnsToFit();
+  }, []);
 
   return (
-    <PhotonGrid
-      columns={columns}
-      dataSet={rows}
-      options={{ theme: 'light' }}
-      onGridReady={onReady}
-      onRowClicked={(e) => console.log(e)}
-    />
+    // The grid fills its host, so give the host a height.
+    <div style={{ height: 460 }}>
+      <PhotonGrid
+        columns={columns}
+        dataSet={rows}
+        options={options}
+        onGridReady={onGridReady}
+        onCellValueChanged={(e) => console.log('cell changed', e)}
+      />
+    </div>
   );
 }
 ```
-
-> **Styling** is injected automatically by the core engine — no CSS import is required.
 
 ---
 
 ## Props
 
-| Prop      | Type                        | Description                                             |
-| --------- | --------------------------- | ------------------------------------------------------ |
-| `columns` | `PhotonGridColumnDef[]`     | Column definitions. Renderer slots accept React components in addition to plain functions. |
-| `dataSet` | `Record<string, unknown>[]` | Row data.                                              |
-| `options` | `Partial<GridOptions>`      | Theme, selection, editing, pagination, and feature flags. |
+| Prop      | Type                        | Description |
+| --------- | --------------------------- | ----------- |
+| `columns` | `PhotonGridColumnDef[]`     | Column definitions. Renderer slots accept React components as well as plain functions. |
+| `dataSet` | `Record<string, unknown>[]` | Row data. |
+| `options` | `Partial<GridOptions>`      | Everything else — theme, selection, editing, pagination, row model, master/detail, AI panel. A new object identity recreates the grid, so memoize it. |
+| `loading` | `boolean`                   | Toggles the loading overlay through `GridApi.setLoading`, so scroll position, selection and column layout survive. Configure its look with `options.loadingOverlay`. |
 
 ### Event callbacks
 
-`onGridReady`, `onDataChanged`, `onRowClicked`, `onRowDoubleClicked`, `onRowSelected`,
-`onCellClicked`, `onCellDoubleClicked`, `onCellValueChanged`, `onCellSelectionChanged`,
-`onColumnResized`, `onColumnMoved`, `onSortChanged`, `onFilterChanged`, `onPageChanged`,
-`onColumnsStateChanged`, `onThemeChanged`, `onExportComplete`.
+`onGridReady` receives the `GridApi`, which is full programmatic control over the grid.
 
-`onGridReady` receives the `GridApi`, giving you full programmatic control over the grid.
-
----
-
-## Why Photon Grid?
-
-- Declarative, idiomatic React API
-- Fast, virtualized rendering for millions of rows
-- Framework-independent core — share grid logic across React, Angular, and Vue
-- Modular, extensible, plugin-friendly architecture
-- Enterprise capabilities with a simple, predictable API
-- Fully typed with built-in declaration files
+| Group | Callbacks |
+| --- | --- |
+| Lifecycle | `onGridReady`, `onDataChanged`, `onLoadingChanged` |
+| Rows | `onRowClicked`, `onRowDoubleClicked`, `onRowSelected` |
+| Cells | `onCellClicked`, `onCellDoubleClicked`, `onCellValueChanged`, `onCellSelectionChanged` |
+| Columns | `onColumnResized`, `onColumnMoved`, `onColumnsStateChanged` |
+| Data ops | `onSortChanged`, `onFilterChanged`, `onPageChanged` |
+| Misc | `onThemeChanged`, `onExportComplete` |
 
 ---
 
-## Browser Support
+## React cell renderers
 
-Supports all modern browsers: Chrome, Edge, Firefox, and Safari.
+Renderer slots accept React components directly — the wrapper mounts and unmounts them as rows are virtualized and recycled. The renderer params arrive as props (`value`, `row`, `rowIndex`, `colDef`, `colIndex`, `api`):
 
----
+```tsx
+const StatusBadge = ({ value }: Record<string, unknown>) => (
+  <span className="badge">{String(value)}</span>
+);
 
-## TypeScript
+const columns: PhotonGridColumnDef[] = [
+  { field: 'status', header: 'Status', renderer: { display: StatusBadge } },
+];
+```
 
-`photon-grid-react` is written in TypeScript and ships with built-in declaration files. No additional typings are required.
+Pass `{ kind: 'component', component, props }` instead when you want to map the params to a narrower prop type of your own.
 
----
+Master–detail panels work the same way:
 
-## Ecosystem
+```tsx
+const OrderDetail = ({ data, ctx }) => (
+  <button onClick={() => ctx.emit('save', data)}>Save {data.account}</button>
+);
 
-| Package | Description | NPM |
-| ------- | ----------- | --- |
-| [`photon-grid-core`](https://www.npmjs.com/package/photon-grid-core) | Framework-agnostic engine | https://www.npmjs.com/package/photon-grid-core |
-| [`photon-grid-react`](https://www.npmjs.com/package/photon-grid-react) | React wrapper (this package) | https://www.npmjs.com/package/photon-grid-react |
-| [`photon-grid-angular`](https://www.npmjs.com/package/photon-grid-angular) | Angular wrapper | https://www.npmjs.com/package/photon-grid-angular | 
-| [`photon-grid-vue`](https://www.npmjs.com/package/photon-grid-vue) | Vue 3 wrapper | https://www.npmjs.com/package/photon-grid-vue |
-
----
-
-## Contributing
-
-Contributions are welcome. Please submit issues, feature requests, or pull requests through GitHub.
-
----
-
-## License
-
-MIT License
+<PhotonGrid options={{ masterDetail: { enabled: true, renderer: OrderDetail } }} />
+```
 
 ---
 
-## Author
+## Features
 
-**Abdul Wahid**
+- Virtual row and column rendering — millions of rows, thousands of columns
+- React components as cell, header, editor and master–detail renderers
+- Column pinning, resizing, reordering, auto-size, size-to-fit, column groups
+- Sorting, multi-column sorting, filtering, quick filter, filter panels
+- Row grouping with aggregations, tree data, master–detail rows
+- Client, server-side and infinite row models
+- 15+ cell editors, declarative and async validation, fill handle, clipboard, undo/redo
+- Excel-style formula engine (`=A1+B1`) with 55+ functions
+- Light/dark modes and five variants, all CSS-custom-property driven
+- CSV / Excel export and import, summary rows, status bar, context menus, charts
+- Full keyboard navigation, ARIA roles, screen-reader support, RTL
+- Natural-language AI panel (optional, with a Gemini back-end)
 
 ---
 
@@ -188,11 +188,20 @@ MIT License
 
 - **GitHub** — https://github.com/abdulwahid-csit/photon-grid
 - **Issues** — https://github.com/abdulwahid-csit/photon-grid/issues
-- **NPM React** — https://www.npmjs.com/package/photon-grid-react
-- **NPM Angular** — https://www.npmjs.com/package/photon-grid-angular
-- **NPM Vue** — https://www.npmjs.com/package/photon-grid-vue
-- **NPM Core** — https://www.npmjs.com/package/photon-grid-core
+- **Core engine** — https://www.npmjs.com/package/photon-grid-core
+- **Angular wrapper** — https://www.npmjs.com/package/photon-grid-angular
+- **Vue wrapper** — https://www.npmjs.com/package/photon-grid-vue
 
 ---
 
-⭐ If you find Photon Grid useful, consider starring the repository.
+## Keywords
+
+react, react grid, react data grid, react table, react data table, react datatable, react table component, reacttable, tanstack table alternative, ag-grid react alternative, mui datagrid alternative, react-data-grid alternative, grid, data grid, datagrid, table, data table, datatable, table data, spreadsheet, excel grid, editable table, virtual scroll, virtualized table, infinite scroll, large dataset, million rows, tree grid, row grouping, sorting, filtering, pagination, column pinning, column resize, column reorder, row selection, cell selection, csv export, excel export, enterprise data grid, typescript, hooks
+
+---
+
+## License
+
+MIT © Abdul Wahid
+
+⭐ If Photon Grid is useful to you, consider starring the repository.

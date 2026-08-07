@@ -1,305 +1,218 @@
-# Photon Grid Core
+# Photon Grid Core — High-Performance JavaScript & TypeScript Data Grid
 
 <p align="center">
-  <img src="https://github.com/abdulwahid-csit/photon-grid/blob/main/assets/logo.svg" alt="Photon Grid" width="180"/>
+  <img src="https://raw.githubusercontent.com/abdulwahid-csit/photon-grid/main/assets/logo.svg" alt="Photon Grid — JavaScript data grid / data table" width="180"/>
 </p>
 
 <p align="center">
-    <strong>A high-performance, zero-dependency TypeScript data grid engine.</strong>
+  <strong>A fast, zero-dependency data grid engine for JavaScript and TypeScript.</strong><br/>
+  Virtual scrolling over millions of rows, Excel-style editing, formulas, grouping, pinning and themes — in any framework, or none.
 </p>
 
 <p align="center">
-
-![npm](https://img.shields.io/npm/v/photon-grid-core)
-![license](https://img.shields.io/npm/l/photon-grid-core)
-![typescript](https://img.shields.io/badge/TypeScript-5.x-blue)
-![dependencies](https://img.shields.io/badge/dependencies-0-success)
-
+  <a href="https://www.npmjs.com/package/photon-grid-core"><img src="https://img.shields.io/npm/v/photon-grid-core" alt="npm version"/></a>
+  <a href="https://www.npmjs.com/package/photon-grid-core"><img src="https://img.shields.io/npm/dm/photon-grid-core" alt="npm downloads"/></a>
+  <a href="https://github.com/abdulwahid-csit/photon-grid/blob/main/LICENSE"><img src="https://img.shields.io/npm/l/photon-grid-core" alt="license"/></a>
+  <img src="https://img.shields.io/badge/TypeScript-5.x-blue" alt="TypeScript"/>
+  <img src="https://img.shields.io/badge/dependencies-0-success" alt="zero dependencies"/>
 </p>
 
 ---
 
-## Overview
+![Photon Grid data table screenshot — light theme](https://raw.githubusercontent.com/abdulwahid-csit/photon-grid/main/assets/screenshots/grid-light.png)
 
-Photon Grid Core is the rendering and data engine that powers the Photon Grid ecosystem.
+<details>
+<summary>Dark theme</summary>
 
-It provides an extremely fast, modular, framework-independent grid implementation written entirely in TypeScript with **zero runtime dependencies**.
+![Photon Grid data table screenshot — dark theme](https://raw.githubusercontent.com/abdulwahid-csit/photon-grid/main/assets/screenshots/grid-dark.png)
 
-This package is intended for:
-
-- JavaScript applications
-- TypeScript applications
-- Framework wrappers
-- Custom UI frameworks
-- Internal rendering engines
-
-If you're looking for Angular, React, or Vue integration, use the corresponding Photon Grid wrapper package instead.
+</details>
 
 ---
 
-# Features
+## What is Photon Grid?
 
-- Zero runtime dependencies
-- Written entirely in TypeScript
-- High performance rendering engine
-- Virtual Scrolling
-- Virtual Columns
-- Millions of rows support
-- Column Pinning
-- Column Resizing
-- Column Moving
-- Column Auto Size
-- Cell Selection
-- Range Selection
-- Clipboard Support
-- Keyboard Navigation
-- Mouse Navigation
-- Tree Data
-- Row Grouping
-- Sorting
-- Multi Column Sorting
-- Filtering
-- Quick Filtering
-- Custom Cell Renderers
-- Custom Header Renderers
-- Context Menu
-- Custom Context Menu
-- Pagination
-- Status Bar
-- Tool Panels
-- Theme Support
-- Plugin Architecture
-- Event System
-- API Driven
-- High FPS Rendering
-- Memory Efficient
-- Zero Framework Lock-in
+**Photon Grid Core** is a framework-agnostic **data grid** / **data table** engine written in TypeScript with **zero runtime dependencies**. It renders only what is on screen, so a table of ten rows and a table of ten million rows cost the same per frame.
+
+Use it directly in plain JavaScript or TypeScript, or through a wrapper:
+
+| Framework | Package | Docs |
+|---|---|---|
+| Angular | [`photon-grid-angular`](https://www.npmjs.com/package/photon-grid-angular) | [README](https://github.com/abdulwahid-csit/photon-grid/tree/main/packages/photon-grid-angular) |
+| React | [`photon-grid-react`](https://www.npmjs.com/package/photon-grid-react) | [README](https://github.com/abdulwahid-csit/photon-grid/tree/main/packages/photon-grid-react) |
+| Vue 3 | [`photon-grid-vue`](https://www.npmjs.com/package/photon-grid-vue) | [README](https://github.com/abdulwahid-csit/photon-grid/tree/main/packages/photon-grid-vue) |
+| Vanilla JS / TS | `photon-grid-core` | this page |
 
 ---
 
-# Installation
+## Installation
 
 ```bash
 npm install photon-grid-core
 ```
 
-or
-
 ```bash
 yarn add photon-grid-core
 ```
-
-or
 
 ```bash
 pnpm add photon-grid-core
 ```
 
+No CSS import is required — the grid injects its own stylesheet on first render.
+
+`xlsx` is an **optional** peer dependency, needed only if you import `.xlsx` workbooks through `photon-grid-core/import/sheetjs`.
+
 ---
 
-# Basic Usage
+## Quick start
+
+```html
+<div id="grid" style="height: 460px"></div>
+```
 
 ```ts
-import { PhotonGrid } from "photon-grid-core";
+import { createGrid } from 'photon-grid-core';
 
-const grid = new PhotonGrid({
-    element: document.getElementById("grid"),
-    columns: [],
-    rowData: []
+const grid = createGrid('#grid', {
+  columns: [
+    { field: 'sku',      header: 'SKU',      width: 110, pinned: 'left' },
+    { field: 'product',  header: 'Product',  width: 190 },
+    { field: 'category', header: 'Category', width: 140 },
+    { field: 'price',    header: 'Price',    width: 120, type: 'number' },
+    { field: 'released', header: 'Released', width: 130, type: 'date' },
+  ],
+  data: [
+    { sku: 'PG-1001', product: 'Photon Keyboard', category: 'Hardware', price: 1249, released: '2024-01-18' },
+    { sku: 'PG-1002', product: 'Quantum Mouse',   category: 'Hardware', price:  349, released: '2024-02-04' },
+    { sku: 'PG-1003', product: 'Nebula Dock',     category: 'Hardware', price: 2199, released: '2024-02-22' },
+  ],
+  rowHeight: 40,
+  headerRowHeight: 44,
+  showSerialNumber: true,
+  pagination: { enabled: true, pageSize: 10 },
 });
 
-grid.render();
+// Fill the container width, then work through the public API.
+grid.api.sizeColumnsToFit();
+
+// …and when the view goes away:
+// grid.destroy();
+```
+
+`createGrid` accepts an element or a CSS selector. `new GridCore(element, options)` is the equivalent constructor form, and `renderGrid` is an alias of `createGrid` for render-oriented naming.
+
+Only `field` is required per column: `colId`, `header` and `type` are filled in for you (`header` from the field in Title Case, `type` defaulting to `'string'`).
+
+---
+
+## Common options
+
+```ts
+createGrid('#grid', {
+  columns,
+  data,
+
+  // Appearance
+  mode: 'dark',                              // 'light' | 'dark'
+  variant: 'quantum',                        // 'classic' | 'ion' | 'neon' | 'photon' | 'quantum' | 'none'
+  rowHeight: 40,
+  headerRowHeight: 44,
+  showSerialNumber: true,                    // the row-number gutter
+
+  // Interaction
+  editing: { mode: 'cell', singleClickEdit: true },
+  pagination: { enabled: true, pageSize: 25 },
+
+  // Power features
+  formula: { enabled: true },                // Excel-style =A1+B1 formulas
+  rowModel: 'server',                        // 'client' | 'server' | 'infinite'
+  masterDetail: { enabled: true, renderer },
+  summary: { rows: [/* aggregate rows */] },
+  toolbar: { /* tabs + global search */ },
+  photonAI: { enabled: true },               // natural-language grid control
+});
 ```
 
 ---
 
-# Package Structure
+## Features
 
+**Rendering & scale**
+- Virtual row and column rendering — millions of rows, thousands of columns
+- Virtual DOM cell patcher for high-frequency streaming updates
+- Flat memory profile; DOM nodes bounded by viewport size, not data size
+
+**Columns**
+- Pinning (left / right), resizing, reordering, auto-size, size-to-fit
+- Column groups with multi-row headers
+- Show/hide, column chooser, per-column state serialization
+
+**Data**
+- Sorting (single and multi-column), filtering, quick filter, filter panels
+- Row grouping with aggregations, tree data
+- Pagination, client / server-side / infinite row models
+- Master–detail rows
+
+**Editing**
+- 15+ built-in cell editors (text, number, date, time, select, autocomplete, checkbox, colour, range …)
+- Declarative validation, async rules, row validators
+- Excel-style formula engine with A1 references and 55+ functions
+- Fill handle, clipboard, undo/redo
+
+**Presentation**
+- Light/dark modes plus five variants, all driven by CSS custom properties
+- Built-in cell renderers and fully custom renderers
+- Summary rows, status bar, context menus, charts
+
+**Platform**
+- Full keyboard navigation, ARIA roles, screen-reader support, RTL
+- Typed event bus and a documented `GridApi`
+- CSV / Excel export, CSV / Excel / clipboard import
+- Zero runtime dependencies, tree-shakeable ESM + CJS builds
+
+---
+
+## API surface
+
+```ts
+const grid = createGrid('#grid', options);
+
+grid.api.setData(rows);
+grid.api.setColumns(columns);
+grid.api.sizeColumnsToFit();
+grid.api.exportCsv();
+grid.api.on(GridEventType.CELL_VALUE_CHANGED, (e) => console.log(e));
+
+grid.destroy();
 ```
-photon-grid-core
-│
-├── api
-├── core
-├── chart
-├── clipboard
-├── column
-├── context-menu
-├── datasource
-├── events
-├── export
-├── filter
-├── grouping
-├── header
-├── keyboard
-├── menu
-├── overlay
-├── pagination
-├── renderer
-├── row
-├── selection
-├── sorting
-├── statusbar
-├── theme
-├── tree
-├── utils
-└── index.ts
-```
+
+Everything is typed — the package ships its own declaration files, so no `@types/*` package is needed.
 
 ---
 
-# Why Photon Grid?
+## Browser support
 
-Photon Grid was designed from the ground up to compete with enterprise-grade grid libraries while remaining lightweight and fully extensible.
-
-Goals include:
-
-- Better developer experience
-- Modern TypeScript architecture
-- Framework independent
-- Fast rendering
-- Modular design
-- Simple API
-- Enterprise capabilities
+Chrome, Edge, Firefox and Safari — current and previous major versions.
 
 ---
 
-# Browser Support
+## Links
 
-Supports all modern browsers.
-
-- Chrome
-- Edge
-- Firefox
-- Safari
+- **GitHub** — https://github.com/abdulwahid-csit/photon-grid
+- **Issues** — https://github.com/abdulwahid-csit/photon-grid/issues
+- **npm** — https://www.npmjs.com/package/photon-grid-core
 
 ---
 
-# TypeScript
+## Keywords
 
-Photon Grid Core is written in TypeScript and ships with built-in declaration files.
-
-No additional typings are required.
+grid, data grid, datagrid, table, data table, datatable, table data, javascript grid, javascript data grid, typescript data grid, js table, html table component, spreadsheet, excel grid, excel-like table, editable table, virtual scroll, virtualized table, infinite scroll, large dataset, million rows, tree grid, row grouping, pivot, sorting, filtering, pagination, column pinning, column resize, column reorder, row selection, cell selection, clipboard, csv export, excel export, enterprise data grid, ag-grid alternative, handsontable alternative, tanstack table alternative, angular table, react table, vue table, zero dependency
 
 ---
 
-# Zero Dependencies
+## License
 
-Photon Grid Core intentionally avoids runtime dependencies.
+MIT © Abdul Wahid
 
-Benefits include:
-
-- Smaller bundle size
-- Faster startup
-- Better tree shaking
-- No dependency conflicts
-- Easier upgrades
-
----
-
-# Performance
-
-Photon Grid is optimized for very large datasets using virtualization.
-
-Typical capabilities include:
-
-- Millions of rows
-- Thousands of columns
-- High FPS scrolling
-- Low memory usage
-
-Actual performance depends on browser, hardware, and enabled features.
-
----
-
-# Framework Wrappers
-
-Photon Grid Core is the engine behind upcoming framework integrations.
-
-Planned packages include:
-
-- photon-grid-angular
-- photon-grid-react
-- photon-grid-vue
-- photon-grid-svelte
-
----
-
-# Roadmap
-
-Upcoming features include:
-
-- Pivot Tables
-- Excel Export
-- CSV Export
-- Server Side Row Model
-- Infinite Row Model
-- Master Detail
-- Charts
-- Sparklines
-- Formula Engine
-- Undo / Redo
-- Aggregations
-- Advanced Filtering
-- AI Assisted Grid Operations
-- Theme Builder
-
----
-
-# Contributing
-
-Contributions are welcome.
-
-Please submit issues, feature requests, or pull requests through GitHub.
-
----
-
-# License
-
-MIT License
-
----
-
-# Author
-
-**Abdul Wahid**
-
----
-
-# Links
-
-GitHub
-
-https://github.com/abdulwahid-csit/photon-grid
-
-Issues
-
-https://github.com/abdulwahid-csit/photon-grid/issues
-
-NPM
-
-https://www.npmjs.com/package/photon-grid-core
-
----
-
-## Philosophy
-
-Photon Grid is built around a few simple principles.
-
-- Performance first.
-- Zero unnecessary dependencies.
-- Framework independence.
-- Extensible architecture.
-- Excellent developer experience.
-- Enterprise-grade capabilities.
-
----
-
-## Status
-
-Photon Grid is under active development.
-
-New features, performance improvements, and framework integrations are added regularly.
-
-If you encounter any issues or have feature requests, please open an issue on GitHub.
-
-⭐ If you find Photon Grid useful, consider starring the repository.
+⭐ If Photon Grid is useful to you, consider starring the repository.

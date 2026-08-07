@@ -16,6 +16,48 @@
  */
 export const toolbarCss = `/* ──────────────────── Toolbar ──────────────────── */
 
+/* ─── Columns Manager launcher (right region) ───
+   Square icon button matching the Filters funnel it sits beside, so the two
+   read as one set rather than as two unrelated controls.
+
+   'order: 0' is what places it *ahead* of the funnel. The right region
+   sequences its launchers by order, not by DOM order (funnel 1, Import 2,
+   Theme 3), precisely so each launcher can be mounted whenever its own feature
+   is resolved without the mount sequence dictating the visual one. */
+.pg-columns-launcher {
+  order: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--pg-colors-border, #e2e8f0);
+  border-radius: var(--pg-borders-radius-md, 6px);
+  background: var(--pg-colors-surface, #ffffff);
+  color: var(--pg-colors-text-secondary, #64748b);
+  box-shadow: var(--pg-shadows-sm, 0 1px 2px rgba(15, 23, 42, 0.08));
+  cursor: pointer;
+  transition:
+    background var(--pg-transitions-duration-fast, 100ms) var(--pg-transitions-easing-base, ease),
+    color var(--pg-transitions-duration-fast, 100ms) var(--pg-transitions-easing-base, ease),
+    border-color var(--pg-transitions-duration-fast, 100ms) var(--pg-transitions-easing-base, ease);
+}
+.pg-columns-launcher:hover {
+  background: var(--pg-colors-background-alt, #f1f5f9);
+  color: var(--pg-colors-text-primary, #0f172a);
+}
+.pg-columns-launcher:focus-visible {
+  outline: 2px solid var(--pg-colors-primary, #2563eb);
+  outline-offset: 1px;
+}
+.pg-columns-launcher__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.pg-columns-launcher__icon svg { display: block; }
+
 /* ─── Tab strip (left region) ─── */
 .pg-toolbar-tabs {
   display: inline-flex;

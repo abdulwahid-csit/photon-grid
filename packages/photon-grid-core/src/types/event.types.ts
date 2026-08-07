@@ -415,10 +415,36 @@ export interface ThemeChangedEvent {
   themeName: string;
 }
 export interface ExportEvent {
-  format: 'csv' | 'xlsx';
+  /**
+   * The format that was written.
+   *
+   * Widened from the original `'csv' | 'xlsx'` when the pluggable export system
+   * landed: `'json'`, `'excel'`, `'pdf'` and any host-registered format now flow
+   * through the same events. The two legacy values still appear — they are what
+   * `GridApi.exportCsv()` / `exportXlsx()` emit.
+   */
+  format: 'csv' | 'xlsx' | (string & {});
   fileName: string;
   rowCount: number;
 }
+
+/**
+ * Emitted when an export fails — including the common case of asking for Excel
+ * or PDF before registering an exporter for it.
+ *
+ * @see {@link import('../export/export.types').ExportError}
+ */
+export interface ExportErrorEvent {
+  /** The format that was requested. */
+  format: string;
+  /** Developer-facing explanation, identical to the thrown error's message. */
+  message: string;
+  /** Machine-readable cause, from `ExportErrorCode`. */
+  code: string;
+  /** npm packages the host must install, when an exporter was missing. */
+  requiredPackages: readonly string[];
+}
+
 export interface ColumnsStateChangedEvent {
   states: ColumnState[];
 }
@@ -615,6 +641,7 @@ export type GridEventMap = {
   [GridEventType.THEME_CHANGED]: ThemeChangedEvent;
   [GridEventType.EXPORT_START]: ExportEvent;
   [GridEventType.EXPORT_COMPLETE]: ExportEvent;
+  [GridEventType.EXPORT_ERROR]: ExportErrorEvent;
   [GridEventType.IMPORT_START]: ImportStartEvent;
   [GridEventType.IMPORT_PROGRESS]: ImportProgressEvent;
   [GridEventType.IMPORT_COMPLETE]: ImportCompleteEvent;

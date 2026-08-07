@@ -42,7 +42,31 @@ const BUILTIN_ID_BY_ACTION: Readonly<Record<string, RowMenuItemId>> = {
   'copy-headers': 'copyWithHeaders',
   'paste': 'paste',
   'export-csv': 'exportCsv',
+  'export-json': 'exportJson',
+  'export-excel': 'exportExcel',
+  'export-pdf': 'exportPdf',
 };
+
+/**
+ * The context menu's **Export** fly-out, in display order.
+ *
+ * Data rather than four near-identical blocks of DOM code, so adding a format
+ * is one entry here. Each maps to an `ExportFormat` the grid's export service
+ * resolves — the menu itself knows nothing about how a format is produced, and
+ * every entry is suppressible by its {@link RowMenuItemId}.
+ */
+const EXPORT_MENU_ENTRIES: ReadonlyArray<{
+  readonly action: string;
+  readonly itemId: RowMenuItemId;
+  readonly format: string;
+  readonly label: string;
+}> = [
+  { action: 'export-csv', itemId: 'exportCsv', format: 'csv', label: 'Export as CSV' },
+  { action: 'export-json', itemId: 'exportJson', format: 'json', label: 'Export as JSON' },
+  { action: 'export-excel', itemId: 'exportExcel', format: 'excel', label: 'Export as Excel' },
+  { action: 'export-pdf', itemId: 'exportPdf', format: 'pdf', label: 'Export as PDF' },
+];
+
 
 /**
  * The narrow surface the selection engine needs from the formula engine to make
@@ -77,6 +101,9 @@ export class CellSelectionEngine {
   private bodyPanels: HTMLElement[] = [];
   private contextMenuEl: HTMLElement | null = null;
   private chartOpenCallback: ((type: string) => void) | null = null;
+  /** Runs an export for a format chosen in the context menu. Wired by `GridCore`. */
+  private exportCallback: ((format: string) => void) | null = null;
+
 
   // ── Row context menu ──────────────────────────────────────────────────────
   /** Host-supplied row-menu configuration, or `null` for built-ins only. */
@@ -1414,6 +1441,20 @@ export class CellSelectionEngine {
   }
 
   /**
+   * Routes the context menu's **Export** fly-out to the grid's export service.
+   *
+   * Wired by `GridCore`, so the menu itself stays free of the export pipeline
+   * and every entry point — fly-out, toolbar dropdown, `GridApi.export()` —
+   * produces an identical file. Left unwired (an engine constructed outside a
+   * grid), only *Export as CSV* works, via a minimal inline fallback.
+   *
+   * @param fn - Runs an export for the chosen format id.
+   */
+  setExportCallback(fn: (format: string) => void): void {
+    this.exportCallback = fn;
+  }
+
+  /**
    * Supplies the row context-menu configuration and the collaborators its
    * custom items need.
    *
@@ -2747,19 +2788,23 @@ export class CellSelectionEngine {
     exportItem.appendChild(exportLabel);
     const exportSub = document.createElement('div');
     exportSub.className = 'pg-context-menu__sub';
-    const csvBtn = document.createElement('button');
-    csvBtn.className = 'pg-context-menu__item';
-    csvBtn.setAttribute('role', 'menuitem');
-    csvBtn.setAttribute('data-action', 'export-csv');
-    csvBtn.setAttribute('data-item-id', 'exportCsv');
-    csvBtn.setAttribute('data-item-label', 'Export as CSV');
-    const csvLabel = document.createElement('span');
-    csvLabel.className = 'pg-context-menu__label';
-    csvLabel.textContent = 'Export as CSV';
-    csvBtn.appendChild(csvLabel);
-    exportSub.appendChild(csvBtn);
+    for (const entry of EXPORT_MENU_ENTRIES) {
+      const btn = document.createElement('button');
+      btn.className = 'pg-context-menu__item';
+      btn.setAttribute('role', 'menuitem');
+      btn.setAttribute('data-action', entry.action);
+      btn.setAttribute('data-item-id', entry.itemId);
+      btn.setAttribute('data-item-label', entry.label);
+      btn.setAttribute('data-export-format', entry.format);
+      const label = document.createElement('span');
+      label.className = 'pg-context-menu__label';
+      label.textContent = entry.label;
+      btn.appendChild(label);
+      exportSub.appendChild(btn);
+    }
     exportItem.appendChild(exportSub);
     builtIns.appendChild(exportItem);
+
 
     el.appendChild(builtIns);
     el.appendChild(custom);
@@ -2803,8 +2848,19 @@ export class CellSelectionEngine {
         case 'copy-headers':  this.copySelectionWithHeaders(rows, columns); break;
         case 'paste':         this.pasteSelection(rows, columns); break;
         case 'selectAll':     this.selectAll(rows.length, columns.length); break;
-        case 'export-csv':    this.exportAsCsv(rows, columns); break;
+        default: {
+          // Every Export fly-out entry routes through the grid's export service
+          // so the context menu, the toolbar dropdown and `GridApi.export()`
+          // all produce the same file. The inline CSV fallback below only runs
+          // in the unwired case (an engine constructed outside a grid).
+          const format = btn.getAttribute('data-export-format');
+          if (!format) break;
+          if (this.exportCallback) this.exportCallback(format);
+          else if (format === 'csv') this.exportAsCsv(rows, columns);
+          break;
+        }
       }
+
     });
 
     // Portaled into the owning grid's host rather than straight onto <body>, so
@@ -2814,7 +2870,16 @@ export class CellSelectionEngine {
     this.contextMenuEl = el;
   }
 
+  /**
+   * Minimal CSV fallback for an engine used outside a grid.
+   *
+   * Inside a grid this never runs: `GridCore` wires
+   * {@link setExportCallback}, and the fly-out routes through the shared export
+   * pipeline instead, so the context menu's CSV matches the toolbar's byte for
+   * byte.
+   */
   private exportAsCsv(rows: RowNode[], columns: ColumnDef[]): void {
+
     const header = columns.map((c) => `"${c.header}"`).join(',');
     const body = rows
       .filter((r) => r.type === 'data')

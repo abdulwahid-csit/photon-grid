@@ -14,7 +14,7 @@ import type { AutoFillConfig } from './autofill.types';
 import type { RowMenuConfig } from './row-menu.types';
 import type { RowDragOptions } from './row-drag.types';
 import type { ImportConfig } from './import.types';
-import type { ToolbarConfig } from './toolbar.types';
+import type { ColumnsManagerConfig, ToolbarConfig } from './toolbar.types';
 import type { RowModelType, ServerSideConfig, ServerSideDatasource } from './server-side.types';
 import type { InfiniteScrollConfig } from './infinite.types';
 import type { ScrollConfig } from './scroll.types';
@@ -152,6 +152,16 @@ export interface VirtualScrollConfig {
   dynamicRowHeight: boolean;
 }
 
+/**
+ * Legacy export configuration (`GridOptions.exportConfig`), read by the original
+ * {@link import('../engines/export/export-engine').ExportEngine} behind
+ * `GridApi.exportCsv()` / `exportXlsx()`.
+ *
+ * Still fully supported — its `fileName` is honoured as the fallback for the
+ * newer system too. New code should prefer `GridOptions.export`
+ * ({@link import('../export/export.types').ExportFeatureConfig}), which covers
+ * JSON, real `.xlsx` and PDF, the toolbar dropdown, and per-format defaults.
+ */
 export interface ExportConfig {
   enabled: boolean;
   fileName: string;
@@ -159,6 +169,7 @@ export interface ExportConfig {
   includeHiddenColumns: boolean;
   processCellValue?: (params: { value: unknown; colDef: ColumnDef }) => string;
 }
+
 
 export interface CellRange {
   startRowIndex: number;
@@ -355,6 +366,36 @@ export interface GridOptions {
   exportConfig?: Partial<ExportConfig>;
 
   /**
+   * The **Export** feature — the toolbar's *Export ▾* dropdown and the defaults
+   * every `GridApi.export()` call inherits.
+   *
+   * CSV and JSON work with no setup, because Photon Grid Core implements them
+   * itself. Excel and PDF are *pluggable*: the core stays zero-dependency and
+   * never bundles `xlsx` or `jspdf`, so a host registers a small adapter once —
+   * see {@link import('../export/export.types').GridExporter} and
+   * `registerExporter`. Both formats still appear in the dropdown either way;
+   * selecting one that has no exporter shows a toast naming the packages to
+   * install rather than failing silently.
+   *
+   * Opt-in: without `enabled: true` no dropdown is mounted, and the
+   * programmatic API keeps working exactly as before.
+   *
+   * @example
+   * ```ts
+   * export: {
+   *   enabled: true,
+   *   fileName: 'employees',
+   *   formats: ['csv', 'json', 'excel', 'pdf'],
+   *   pdf: { orientation: 'landscape', title: 'Employee Register' },
+   * }
+   * ```
+   *
+   * @see {@link ToolbarConfig.showExportButton} to hide the dropdown while
+   * keeping the feature.
+   */
+  export?: import('../export/export.types').ExportFeatureConfig;
+
+  /**
    * How input gestures are translated into scroll motion.
    *
    * The defaults need no configuration: a notched mouse wheel is eased into
@@ -417,6 +458,19 @@ export interface GridOptions {
    * theme (see `gridApi.photonAI`). Set `true` (or `{ enabled: true }`) to show it.
    */
   themeManager?: boolean | { enabled: boolean };
+
+  /**
+   * Columns Manager — mounts a column-layout launcher in the top-right tools
+   * strip, immediately left of the Filters funnel, which opens the grid's
+   * Column Chooser for showing and hiding columns. Set `true` (or
+   * `{ enabled: true }`) to show it.
+   *
+   * The dialog is the same one the column menu's "Column Chooser…" item opens,
+   * so both entry points behave identically.
+   *
+   * @see {@link ColumnsManagerConfig}
+   */
+  columnsManager?: boolean | ColumnsManagerConfig;
 
   sortConfig?: SortConfig[];
   filterModel?: FilterModel;

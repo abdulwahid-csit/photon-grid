@@ -51,6 +51,13 @@ export const coreIcons: Record<string, string> = {
   import: `<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M8 10V2M5 5L8 2L11 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 10V13H14V10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   fileExcel: `<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 1.5H9L13 5.5V14.5H3V1.5Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 1.5V5.5H13" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M6 8L9 12M9 8L6 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`,
   fileText: `<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 1.5H9L13 5.5V14.5H3V1.5Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 1.5V5.5H13" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M5.5 8.5H10.5M5.5 11H10.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`,
+
+  /** PDF document — the Export menu's PDF entry. Same page silhouette as `fileExcel`/`fileText`, with a "P". */
+  filePdf: `<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 1.5H9L13 5.5V14.5H3V1.5Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 1.5V5.5H13" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M6 12V8h1.6a1.2 1.2 0 0 1 0 2.4H6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+
+  /** JSON document — the Export menu's JSON entry. Braces mark it as structured data. */
+  fileJson: `<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 1.5H9L13 5.5V14.5H3V1.5Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 1.5V5.5H13" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M6.6 8.2c-.7 0-.9.4-.9 1s.1 1-.6 1.05c.7.05.6.45.6 1.05s.2 1 .9 1M9.4 8.2c.7 0 .9.4.9 1s-.1 1 .6 1.05c-.7.05-.6.45-.6 1.05s-.2 1-.9 1" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+
   paste: `<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="3" width="10" height="12" rx="1" stroke="currentColor" stroke-width="1.5"/><path d="M6 3V2.5C6 1.9 6.4 1.5 7 1.5H9C9.6 1.5 10 1.9 10 2.5V3" stroke="currentColor" stroke-width="1.5"/><path d="M6 8H10M6 10.5H10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`,
 
   /**

@@ -1,5 +1,28 @@
-# Vue 3 + Vite
+# Photon Grid — Vue example
 
-This template should help get you started developing with Vue 3 in Vite. The template uses Vue 3 `<script setup>` SFCs, check out the [script setup docs](https://v3.vuejs.org/api/sfc-script-setup.html#sfc-script-setup) to learn more.
+<p align="center">
+  <img src="../../assets/logo.svg" alt="Photon Grid" width="180"/>
+</p>
 
-Learn more about IDE Support for Vue in the [Vue Docs Scaling up Guide](https://vuejs.org/guide/scaling-up/tooling.html#ide-support).
+A runnable Vue 3 + Vite app demonstrating [`photon-grid-vue`](../../packages/photon-grid-vue).
+
+## Run it
+
+From the **repository root** — this builds the core in watch mode alongside the app, so a change to the engine is picked up live:
+
+```bash
+npm run setup    # once: installs workspaces + example apps
+npm run dev:vue
+```
+
+To run only the app against whatever is already built:
+
+```bash
+npm --prefix examples/vue run dev
+```
+
+Vite prints the local URL it picked.
+
+## Where to look
+
+[`src/App.vue`](src/App.vue) holds the grid: columns, row data, options and the Vue cell renderers passed through the `renderer` slots.

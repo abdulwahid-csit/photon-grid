@@ -20,6 +20,7 @@ import { GroupDropZone } from './group-drop-zone';
 import { HeaderRenderer } from './header-renderer';
 import { isTouchPointer } from '../core/pointer-utils';
 import { ColumnChooser } from './column-chooser';
+import { ColumnsManagerLauncher, resolveColumnsManagerConfig } from './columns-manager-launcher';
 import { BodyRenderer } from './body-renderer';
 import type { BodyRendererOptions } from './body-renderer';
 import { PatchScheduler } from './vdom/patch-scheduler';
@@ -57,6 +58,10 @@ import { FilterPanel } from '../engines/filter/filter-panel';
 import type { FilterSetOption } from '../engines/filter/filter-panel';
 import { FiltersToolPanel } from './filters-tool-panel';
 import { ImportMenu } from './import-menu';
+import { ExportMenu, resolveExportConfig } from './export-menu';
+import { DEFAULT_EXPORT_FORMATS } from '../export/export-service';
+import type { ExportFormat } from '../export/export.types';
+
 import { Toolbar } from './toolbar';
 import { ThemeManagerPanel } from './theme-manager-panel';
 import type { PhotonThemeApi } from '../types/theme-ai.types';
@@ -222,6 +227,8 @@ export class GridRenderer {
   private headerRenderer: HeaderRenderer;
   /** Lazily-opened "Choose Columns" dialog. Created once, reused across opens. */
   private columnChooser: ColumnChooser | null = null;
+  /** Tools-strip launcher that opens {@link columnChooser} — only when `columnsManager` is enabled. */
+  private columnsManagerLauncher: ColumnsManagerLauncher | null = null;
   private bodyRenderer: BodyRenderer;
   private footerRenderer: FooterRenderer;
   private overlayRenderer: OverlayRenderer;
@@ -238,6 +245,13 @@ export class GridRenderer {
   private filtersToolPanel: FiltersToolPanel | null = null;
   /** Floating Import menu (launcher + dropdown) — only created when `import.enabled`. */
   private importMenu: ImportMenu | null = null;
+  /** Floating Export menu (launcher + dropdown) — only created when `export.enabled`. */
+  private exportMenu: ExportMenu | null = null;
+  /** Runs an export for a format chosen in the Export menu. Wired by GridCore. */
+  private exportFormatHandler: ((format: ExportFormat) => void) | null = null;
+  /** Reports whether a format has a registered exporter. Wired by GridCore. */
+  private exportAvailabilityFn: ((format: ExportFormat) => boolean) | null = null;
+
   /** Configurable top toolbar (tabs + global search) — only created when `toolbar.enabled`. */
   private toolbar: Toolbar | null = null;
   /** Top-right Theme Manager launcher — only created when `themeManager` is enabled. */
@@ -485,6 +499,23 @@ export class GridRenderer {
           ],
         onSelectFile: (source, file) => this.importFileHandler?.(source, file),
         onSelectClipboard: () => this.importClipboardHandler?.(),
+      });
+    }
+
+    const exportConfig = resolveExportConfig(options.export);
+    if (exportConfig) {
+      // Pure-UI launcher + dropdown, mirroring the Import menu: the export
+      // itself runs in the host handler (wired via setExportHandlers by
+      // GridCore), so this renderer never touches the export pipeline.
+      //
+      // `isAvailable` is read per open rather than captured, so an exporter
+      // registered after construction (a lazily-imported `xlsx`) is reflected
+      // without a re-render.
+      this.exportMenu = new ExportMenu({
+        iconRenderer,
+        getFormats: () => exportConfig.formats ?? DEFAULT_EXPORT_FORMATS,
+        isAvailable: (format) => this.exportAvailabilityFn?.(format) ?? false,
+        onSelectFormat: (format) => this.exportFormatHandler?.(format),
       });
     }
 
@@ -917,6 +948,37 @@ export class GridRenderer {
     this.importFileHandler = onFile;
     this.importClipboardHandler = onClipboard;
   }
+
+  /**
+   * Wires the host handlers the Export menu invokes.
+   *
+   * Called by {@link import('../core/grid-core').GridCore} once the live
+   * {@link import('../core/grid-api').GridApi} exists. Kept as callbacks rather
+   * than an `ExportService` reference so this renderer stays free of the export
+   * pipeline entirely — the same seam the Import menu uses.
+   *
+   * @param onSelectFormat - Runs the export for a chosen format.
+   * @param isAvailable    - Whether an exporter is registered for a format;
+   *                         drives only the dropdown's "Setup" hint.
+   */
+  setExportHandlers(
+    onSelectFormat: (format: ExportFormat) => void,
+    isAvailable: (format: ExportFormat) => boolean,
+  ): void {
+    this.exportFormatHandler = onSelectFormat;
+    this.exportAvailabilityFn = isAvailable;
+  }
+
+  /** Opens the Export dropdown, if the feature is enabled. No-op otherwise. */
+  openExportMenu(): void {
+    this.exportMenu?.open();
+  }
+
+  /** Toggles the Export dropdown open/closed, if the feature is enabled. No-op otherwise. */
+  toggleExportMenu(): void {
+    this.exportMenu?.toggle();
+  }
+
 
   /**
    * Applies a live, per-column text filter from an inline filter-row input.
@@ -1515,6 +1577,7 @@ export class GridRenderer {
 
     this.headerRenderer.destroy();
     this.columnChooser?.destroy();
+    this.columnsManagerLauncher?.destroy();
     this.bodyRenderer.destroy();
     this.destroySummaryBands();
     this.gridResize.destroy();
@@ -1524,6 +1587,7 @@ export class GridRenderer {
     this.photonAIPanel?.destroy();
     this.filtersToolPanel?.destroy();
     this.importMenu?.destroy();
+    this.exportMenu?.destroy();
     this.toolbar?.destroy();
     this.themeManagerPanel?.destroy();
     this.toolsBarEl?.remove();
@@ -1797,6 +1861,24 @@ export class GridRenderer {
       this.toolbar.mount(this.getToolsLeftRegion(), this.getToolsRightRegion(), this.options.toolbar);
     }
 
+    // Mount the Columns Manager launcher ahead of the Filters funnel — both in
+    // mount order and, authoritatively, via its CSS `order: 0`. It opens the
+    // *same* ColumnChooser the header menu uses (wired in `wireHeaderCallbacks`),
+    // so the two entry points cannot drift. The toolbar's `showColumnsButton`
+    // toggle (default true) can hide it without disabling the feature.
+    const showColumnsButton = this.options.toolbar ? this.options.toolbar.showColumnsButton !== false : true;
+    const columnsManagerConfig = resolveColumnsManagerConfig(this.options.columnsManager);
+    if (columnsManagerConfig && showColumnsButton) {
+      this.columnsManagerLauncher = new ColumnsManagerLauncher({
+        iconRenderer: this.iconRenderer,
+        // Read at click time, not captured now: `options.columns` is replaced
+        // wholesale when a host swaps the column set, and a captured array
+        // would keep offering the original one for the life of the grid.
+        onOpen: () => this.columnChooser?.open(this.options.columns ?? []),
+      });
+      this.columnsManagerLauncher.mount(this.getToolsRightRegion(), columnsManagerConfig);
+    }
+
     // Mount the Filters Tool Panel launcher into the tools strip's right region;
     // its floating panel goes on the wrapper. Absolute positioning keeps the
     // panel out of the flex layout, so it never affects virtualization. The
@@ -1826,7 +1908,17 @@ export class GridRenderer {
       );
     }
 
+    // Mount the Export menu (launcher + dropdown) after Import, so the two pills
+    // read left-to-right as Import → Export (CSS `order` is authoritative). The
+    // toolbar's `showExportButton` toggle (default true) can hide the launcher
+    // while leaving `GridApi.export()` fully functional.
+    const showExportButton = this.options.toolbar ? this.options.toolbar.showExportButton !== false : true;
+    if (this.exportMenu && this.wrapperEl && showExportButton) {
+      this.exportMenu.mount(this.wrapperEl, this.getToolsRightRegion(), resolveExportConfig(this.options.export)!);
+    }
+
     // Mount the Theme Manager launcher (apply saved themes / export / import /
+
     // reset) into the tools strip when enabled. The theme API is resolved lazily
     // because the engine is constructed after this renderer.
     if (this.themeManagerEnabled && this.themeApiProvider && this.themeToastProvider && this.wrapperEl) {

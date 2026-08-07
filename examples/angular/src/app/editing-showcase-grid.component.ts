@@ -192,7 +192,7 @@ function buildRows(count: number): ProductRow[] {
             discontinued: i % 7 === 6,
         });
     }
-    return rows; 
+    return rows;
 }
 
 

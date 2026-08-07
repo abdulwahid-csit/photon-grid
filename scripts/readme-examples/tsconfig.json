@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "jsx": "react-jsx",
+    "experimentalDecorators": true,
+    "lib": ["ES2022", "DOM"],
+    "types": [],
+    "baseUrl": ".",
+    "paths": {
+      "photon-grid-core": ["../../packages/photon-grid-core/dist/index.d.ts"],
+      "photon-grid-react": ["../../packages/photon-grid-react/src/index.ts"],
+      "photon-grid-vue": ["../../packages/photon-grid-vue/src/index.ts"]
+    }
+  },
+  "include": ["*.ts", "*.tsx"]
+}

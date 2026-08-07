@@ -1,6 +1,6 @@
 {
   "name": "photon-grid-react",
-  "version": "3.0.1",
+  "version": "3.0.2",
   "description": "A high-performance React data grid built on Photon Grid Core with virtualization, sorting, filtering, editing, grouping, and custom React renderers.",
   "type": "module",
   "keywords": [
@@ -55,7 +55,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "photon-grid-core": "^3.0.1"
+    "photon-grid-core": "^3.0.2"
   },
   "peerDependencies": {
     "react": ">=18",

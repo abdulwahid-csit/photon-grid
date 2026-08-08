@@ -1,9 +1,8 @@
 {
   "name": "photon-grid-react",
-  "version": "3.0.2",
+  "version": "3.0.3",
   "description": "A high-performance React data grid built on Photon Grid Core with virtualization, sorting, filtering, editing, grouping, and custom React renderers.",
   "type": "module",
-
   "keywords": [
     "react",
     "react-grid",
@@ -31,25 +30,19 @@
     "photon-grid",
     "photon-grid-react"
   ],
-
   "homepage": "https://github.com/abdulwahid-csit/photon-grid",
-
   "repository": {
     "type": "git",
     "url": "git+https://github.com/abdulwahid-csit/photon-grid.git"
   },
-
   "bugs": {
     "url": "https://github.com/abdulwahid-csit/photon-grid/issues"
   },
-
   "license": "MIT",
   "author": "Abdul Wahid",
-
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
-
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -57,13 +50,10 @@
       "require": "./dist/index.cjs"
     }
   },
-
   "files": [
     "dist"
   ],
-
   "sideEffects": false,
-
   "scripts": {
     "dev": "vite build --watch",
     "clean": "rimraf dist",
@@ -72,16 +62,13 @@
     "lint": "eslint .",
     "preview": "vite preview"
   },
-
   "dependencies": {
-    "photon-grid-core": "^3.0.2"
+    "photon-grid-core": "^3.0.3"
   },
-
   "peerDependencies": {
     "react": ">=18",
     "react-dom": ">=18"
   },
-
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^24.13.2",

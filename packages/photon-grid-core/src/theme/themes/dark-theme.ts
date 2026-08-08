@@ -11,6 +11,15 @@ export const darkTheme: Theme = {
       primaryActive: '#93c5fd',
       primaryText: '#ffffff',
 
+      /* Accent ramp — subtle < soft < light. Tints and state layers build from
+         these, so a variant re-skins the accent everywhere by setting them. */
+      primarySubtle: 'rgba(96, 165, 250, 0.10)',
+      primarySubtleHover: 'rgba(96, 165, 250, 0.16)',
+      primarySoft: 'rgba(96, 165, 250, 0.22)',
+      primaryLight: '#1e3a5f',
+      primaryContrast: '#0b1220',
+      onPrimary: '#0b1220',
+
       secondary: '#94a3b8',
       secondaryHover: '#cbd5e1',
 
@@ -55,6 +64,7 @@ export const darkTheme: Theme = {
 
       pinnedBackground: '#0f172a',
       pinnedShadow: '4px 0 6px -2px rgba(0,0,0,0.4)',
+      pinnedBorder: '#334155',
 
       filterBackground: '#1e293b',
       filterBorder: '#334155',
@@ -64,6 +74,7 @@ export const darkTheme: Theme = {
       scrollbarTrack: '#1e293b',
       scrollbarThumb: '#475569',
       scrollbarThumbHover: '#64748b',
+      scrollbarBg: '#0f172a',
 
       resizeHandleColor: '#334155',
       resizeHandleActiveColor: '#3b82f6',
@@ -71,6 +82,9 @@ export const darkTheme: Theme = {
       dragPreviewBackground: '#1e293b',
       dragPreviewBorder: '#475569',
       dragOverHighlight: 'rgba(59, 130, 246, 0.1)',
+      dragGhostBackground: '#1e293b',
+      dragGhostBorderColor: '#475569',
+      rowDragGhost: '#1e293b',
 
       checkboxBackground: '#1e293b',
       checkboxCheckedBackground: '#3b82f6',
@@ -78,22 +92,41 @@ export const darkTheme: Theme = {
 
       badgeBackground: '#1e3a5f',
       badgeText: '#93c5fd',
+      chipBackground: 'rgba(96, 165, 250, 0.16)',
+      chipText: '#bfdbfe',
 
       groupRowBackground: '#1e293b',
       groupRowBorder: '#334155',
+      groupRowHover: '#1e293b',
+      groupRowText: '#e2e8f0',
+      groupToggleHover: 'rgba(148,163,184,0.16)',
+      groupFooterBackground: '#111c2e',
+      groupFooterHover: '#17253b',
+      groupZoneOver: 'rgba(96,165,250,0.12)',
+      aggText: '#cbd5e1',
 
       tooltipBackground: '#f1f5f9',
       tooltipText: '#0f172a',
+      borderCtxtMenu: '#334155',
+
+      overlay: 'rgba(2, 6, 23, 0.60)',
+      overlayLoading: 'rgba(15, 23, 42, 0.85)',
+
+      skeleton: '#1e293b',
+      skeletonHighlight: '#334155',
 
       success: '#22c55e',
       warning: '#f59e0b',
       error: '#ef4444',
       info: '#38bdf8',
+      danger: '#f87171',
 
       successLight: '#052e16',
       warningLight: '#1c1007',
       errorLight: '#1f0909',
       infoLight: '#082f49',
+      dangerSoft: 'rgba(248, 113, 113, 0.16)',
+      errorSubtle: 'rgba(248, 113, 113, 0.10)',
     },
     typography: {
       fontFamily: "'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif",
@@ -107,6 +140,7 @@ export const darkTheme: Theme = {
       fontWeightMedium: '500',
       fontWeightSemiBold: '600',
       fontWeightBold: '700',
+      headerFontWeight: '600',
       lineHeightTight: '1.2',
       lineHeightBase: '1.5',
       lineHeightRelaxed: '1.75',
@@ -146,6 +180,7 @@ export const darkTheme: Theme = {
       widthBase: '1px',
       widthThick: '2px',
       styleBase: 'solid',
+      widthFocus: '2px',
     },
     shadows: {
       none: 'none',
@@ -158,6 +193,7 @@ export const darkTheme: Theme = {
       dropdown: '0 8px 24px rgba(0,0,0,0.45), 0 2px 8px rgba(0,0,0,0.3)',
       tooltip: '0 4px 12px rgba(0,0,0,0.5)',
       dragPreview: '0 8px 24px rgba(0,0,0,0.5), 0 2px 8px rgba(0,0,0,0.35)',
+      dialog: '0 24px 48px rgba(15,23,42,0.24), 0 8px 16px rgba(15,23,42,0.12)',
     },
     transitions: {
       durationFast: '100ms',
@@ -166,6 +202,9 @@ export const darkTheme: Theme = {
       easingBase: 'cubic-bezier(0.4, 0, 0.2, 1)',
       easingDecelerate: 'cubic-bezier(0, 0, 0.2, 1)',
       easingAccelerate: 'cubic-bezier(0.4, 0, 1, 1)',
+    },
+    opacity: {
+      disabled: '0.5',
     },
   },
 };

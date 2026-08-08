@@ -1,4 +1,4 @@
-import type { ChartData } from './chart-data-transformer';
+import type { ChartData, ChartDataset } from './chart-data-transformer';
 import type { ChartPanelType } from './chart-panel';
 import type { LegendPosition, TextAlign } from './model/chart-model';
 import { resolveChartTheme, type ResolvedChartTheme } from './chart-theme';
@@ -119,11 +119,12 @@ const DEFAULTS: Required<ChartRenderOptions> = {
 
 /**
  * Fallback series palette used when a dataset has no resolved color yet (e.g.
- * before {@link assignColors} runs, or a defensive `?? DEFAULT_SERIES_PALETTE[i]`
- * at a draw site). Kept in sync with the light palette in `chart-theme.ts` so
- * every code path — bars, lines, and pie slices — draws from one coherent set.
+ * before {@link resolveSeriesColors} runs, or a defensive
+ * `?? DEFAULT_SERIES_PALETTE[i]` at a draw site). Kept in sync with the light
+ * palette in `chart-theme.ts` so every code path — bars, lines, and pie slices
+ * — draws from one coherent set.
  */
-const DEFAULT_SERIES_PALETTE = [
+export const DEFAULT_SERIES_PALETTE: readonly string[] = [
   '#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de',
   '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc', '#48b3a5',
 ];
@@ -182,9 +183,52 @@ interface PolarLayout {
 }
 
 /**
- * Assigns a concrete color to every dataset. Precedence: an explicit override
- * in `seriesColors` (keyed by the dataset label), then a color already on the
- * dataset, then the theme `palette` cycled by index.
+ * Gutter (px) taken out of each bar's slot in a grouped chart, so adjacent
+ * series read as separate bars rather than one continuous block.
+ */
+const BAR_GROUP_GAP_PX = 1;
+
+/**
+ * Slot thickness (px) below which a grouped bar is not drawn at all.
+ *
+ * Sub-pixel slots only ever come from a series the legend has switched off (or
+ * one mid-collapse); a chart dense enough to genuinely produce them has nothing
+ * legible to show either way.
+ */
+const MIN_GROUP_SLOT_PX = 0.5;
+
+/**
+ * Resolves the concrete color every dataset will be drawn with.
+ *
+ * Precedence: an explicit override in `seriesColors` (keyed by the dataset
+ * label), then a color already on the dataset, then the theme `palette` cycled
+ * by index.
+ *
+ * This is the **single definition** of that chain. The renderer colors its own
+ * private copy of the data (see {@link assignColors}), which leaves the caller's
+ * `ChartData` untouched — so any UI that has to show the same colors next to the
+ * chart (the panel's interactive HTML legend) must resolve them through here
+ * rather than reading `dataset.color`, which is usually still undefined.
+ *
+ * @param datasets - Datasets in draw order.
+ * @param palette - Theme-resolved series palette; an empty one falls back to
+ *   {@link DEFAULT_SERIES_PALETTE}.
+ * @param seriesColors - Per-label color overrides from the chart model.
+ * @returns One CSS color per dataset, index-aligned to `datasets`.
+ */
+export function resolveSeriesColors(
+  datasets: readonly ChartDataset[],
+  palette: readonly string[],
+  seriesColors: Readonly<Record<string, string>> = {},
+): string[] {
+  const pal = palette.length > 0 ? palette : DEFAULT_SERIES_PALETTE;
+  return datasets.map((ds, i) => seriesColors[ds.label] ?? ds.color ?? pal[i % pal.length]);
+}
+
+/**
+ * Returns a copy of `data` in which every dataset carries a concrete color, so
+ * draw sites never have to re-derive one. Colors come from
+ * {@link resolveSeriesColors}.
  *
  * @param data - Source chart data (datasets may lack colors).
  * @param palette - Theme-resolved series palette.
@@ -195,13 +239,10 @@ function assignColors(
   palette: readonly string[],
   seriesColors: Readonly<Record<string, string>>,
 ): ChartData {
-  const pal = palette.length > 0 ? palette : DEFAULT_SERIES_PALETTE;
+  const colors = resolveSeriesColors(data.datasets, palette, seriesColors);
   return {
     labels: data.labels,
-    datasets: data.datasets.map((ds, i) => ({
-      ...ds,
-      color: seriesColors[ds.label] ?? ds.color ?? pal[i % pal.length],
-    })),
+    datasets: data.datasets.map((ds, i) => ({ ...ds, color: colors[i] })),
   };
 }
 
@@ -223,6 +264,13 @@ export class ChartRenderer {
 
   /** Per-dataset scale multiplier used by toggle animations (0 = hidden, 1 = full). */
   private seriesScales: number[] = [];
+  /**
+   * Scratch buffers for {@link layoutGroupedSlots} — the start offset and
+   * thickness of each series' slot within a category band, reused across draws
+   * so a 60fps toggle animation allocates nothing per frame.
+   */
+  private readonly slotOffsets: number[] = [];
+  private readonly slotSizes: number[] = [];
   /** Active RAF IDs for per-series toggle animations, keyed by dataset index. */
   private seriesToggleRafs = new Map<number, number>();
 
@@ -268,6 +316,67 @@ export class ChartRenderer {
   private paletteColor(i: number): string {
     const pal = this.theme?.palette ?? DEFAULT_SERIES_PALETTE;
     return pal[i % pal.length];
+  }
+
+  // ── Series visibility ──────────────────────────────────────────────────────
+
+  /**
+   * Visibility weight of series `i`: `1` fully shown, `0` fully hidden, and a
+   * value in between only while a legend toggle is mid-animation. Unknown
+   * indices read as fully visible, which is what a series added since the last
+   * {@link render} should be.
+   */
+  private seriesScale(i: number): number {
+    const scale = this.seriesScales[i];
+    return scale === undefined ? 1 : scale;
+  }
+
+  /**
+   * Lays a grouped chart's per-series slots across one category band, sized in
+   * proportion to each series' {@link seriesScale}.
+   *
+   * This is what makes the remaining bars widen when a series is switched off
+   * in the legend instead of leaving a hole where it used to be: a hidden
+   * series' weight decays to `0`, its slot closes, and the surviving slots
+   * absorb the freed width over the same 280 ms the toggle animates for.
+   *
+   * Results land in {@link slotOffsets} / {@link slotSizes} rather than a fresh
+   * array, because every draw call runs this and draws run per animation frame.
+   *
+   * @param count - Number of datasets in the group.
+   * @param band - Total thickness available to the group, in pixels.
+   */
+  private layoutGroupedSlots(count: number, band: number): void {
+    const offsets = this.slotOffsets;
+    const sizes = this.slotSizes;
+    offsets.length = count;
+    sizes.length = count;
+
+    let totalWeight = 0;
+    for (let i = 0; i < count; i++) totalWeight += this.seriesScale(i);
+
+    let offset = 0;
+    for (let i = 0; i < count; i++) {
+      const size = totalWeight > 0 ? (band * this.seriesScale(i)) / totalWeight : 0;
+      offsets[i] = offset;
+      sizes[i] = size;
+      offset += size;
+    }
+  }
+
+  /**
+   * Painted thickness of one grouped bar inside its slot, or `0` when the slot
+   * belongs to a series that is hidden (or collapsing) and must not be drawn.
+   *
+   * The inter-bar gutter never consumes more than half the slot, so a chart
+   * with many categories still paints a readable sliver per series rather than
+   * losing the narrower ones entirely.
+   *
+   * @param slot - Slot thickness from {@link layoutGroupedSlots}, in pixels.
+   */
+  private groupedBarSize(slot: number): number {
+    if (slot <= MIN_GROUP_SLOT_PX) return 0;
+    return Math.max(slot - BAR_GROUP_GAP_PX, slot / 2);
   }
 
   render(data: ChartData, opts: ChartRenderOptions = { type: 'column-grouped' }): void {
@@ -474,7 +583,11 @@ export class ChartRenderer {
       const maxVal = this.niceMax(rawMax);
       const getY = (v: number) => plotBottom - (v / maxVal) * plotH;
 
-      for (const ds of data.datasets) {
+      for (let di = 0; di < data.datasets.length; di++) {
+        // Matches the tooltip's own filter, so a legend-hidden series contributes
+        // neither a highlight dot nor a tooltip row.
+        if (this.seriesScale(di) <= 0.05) continue;
+        const ds = data.datasets[di];
         const val = ds.data[idx] ?? 0;
         const dotX = crosshairX;
         const dotY = getY(val);
@@ -564,7 +677,7 @@ export class ChartRenderer {
     const xLabel = data.labels[idx] ?? '';
     type Row = { color: string; label: string; value: string };
     const rows: Row[] = data.datasets
-      .filter((_, i) => (this.seriesScales[i] ?? 1) > 0.05)
+      .filter((_, i) => this.seriesScale(i) > 0.05)
       .map((ds) => ({
         color: ds.color ?? DEFAULT_SERIES_PALETTE[0],
         label: ds.label,
@@ -884,7 +997,10 @@ export class ChartRenderer {
 
     const nGroups = data.labels.length;
     const groupWidth = plotW / Math.max(nGroups, 1);
-    const barW = (groupWidth * opts.barWidth) / nDatasets;
+    // Bars share the band in proportion to their series' visibility, so hiding
+    // one from the legend widens the rest rather than leaving a gap.
+    const band = groupWidth * opts.barWidth;
+    this.layoutGroupedSlots(nDatasets, band);
     const labelStep = this.getLabelStep(nGroups, plotW, opts.fontSize);
     const rotateLabels = nGroups > 8;
     const labelAlpha = Math.min(1, progress * 2.5);
@@ -893,16 +1009,21 @@ export class ChartRenderer {
       const groupX = plotLeft + gi * groupWidth + (groupWidth * (1 - opts.barWidth)) / 2;
 
       for (let di = 0; di < nDatasets; di++) {
+        const barW = this.groupedBarSize(this.slotSizes[di]);
+        // A collapsed (or collapsing) slot has nothing left to paint. Skipping
+        // rather than clamping matters: a clamped minimum would leave a sliver
+        // of a series the user switched off.
+        if (barW <= 0) continue;
+
         const value = data.datasets[di].data[gi] ?? 0;
         const maxForSeries = usePerSeries ? (seriesMaxes[di] || 1) : globalMax;
-        const seriesScale = this.seriesScales[di] ?? 1;
-        const barH = (value / maxForSeries) * plotH * progress * seriesScale;
-        const barX = groupX + di * barW;
+        const barH = (value / maxForSeries) * plotH * progress;
+        const barX = groupX + this.slotOffsets[di];
         const barY = plotBottom - barH;
 
         ctx.fillStyle = data.datasets[di].color ?? DEFAULT_SERIES_PALETTE[di % DEFAULT_SERIES_PALETTE.length];
         ctx.beginPath();
-        ctx.roundRect(barX, barY, Math.max(barW - 1, 1), Math.max(barH, 0), [3, 3, 0, 0]);
+        ctx.roundRect(barX, barY, barW, Math.max(barH, 0), [3, 3, 0, 0]);
         ctx.fill();
       }
 
@@ -956,7 +1077,10 @@ export class ChartRenderer {
     const nGroups = data.labels.length;
     const groupWidth = plotW / Math.max(nGroups, 1);
     const barW = groupWidth * opts.barWidth;
-    const band = plotH / Math.max(nD, 1);
+    // Each series owns a share of the stack's height weighted by its visibility,
+    // so switching one off in the legend gives its band back to the others
+    // instead of leaving a gap in the middle of the column.
+    this.layoutGroupedSlots(nD, plotH);
     const labelStep = this.getLabelStep(nGroups, plotW, opts.fontSize);
     const labelAlpha = Math.min(1, progress * 2.5);
 
@@ -967,8 +1091,8 @@ export class ChartRenderer {
       for (let di = 0; di < nD; di++) {
         const value = data.datasets[di].data[gi] ?? 0;
         const segH = (usePerSeries
-          ? (value / (seriesMaxes[di] || 1)) * band
-          : (value / maxVal) * plotH) * progress;
+          ? (value / (seriesMaxes[di] || 1)) * this.slotSizes[di]
+          : (value / maxVal) * plotH * this.seriesScale(di)) * progress;
         const segY = currentY - segH;
 
         ctx.fillStyle = data.datasets[di].color ?? DEFAULT_SERIES_PALETTE[di % DEFAULT_SERIES_PALETTE.length];
@@ -1017,7 +1141,9 @@ export class ChartRenderer {
     for (let gi = 0; gi < nGroups; gi++) {
       const shares = data.datasets.map((ds, di) => {
         const value = ds.data[gi] ?? 0;
-        return usePerSeries ? value / (seriesMaxes[di] || 1) : value;
+        // Weighting by visibility drops a legend-hidden series out of the
+        // denominator too, so the remaining segments re-expand to fill 100%.
+        return (usePerSeries ? value / (seriesMaxes[di] || 1) : value) * this.seriesScale(di);
       });
       const total = shares.reduce((sum, s) => sum + s, 0) || 1;
       const barX = plotLeft + gi * groupWidth + (groupWidth - barW) / 2;
@@ -1095,20 +1221,25 @@ export class ChartRenderer {
 
     const nGroups = data.labels.length;
     const groupH = plotH / Math.max(nGroups, 1);
-    const barH = (groupH * opts.barWidth) / nDatasets;
+    // Rows share the band in proportion to their series' visibility — the
+    // horizontal twin of `drawColumnGrouped`; see `layoutGroupedSlots`.
+    const band = groupH * opts.barWidth;
+    this.layoutGroupedSlots(nDatasets, band);
     const labelStep = this.getLabelStep(nGroups, plotH, opts.fontSize);
 
     for (let gi = 0; gi < nGroups; gi++) {
       const groupY = plotTop + gi * groupH + (groupH * (1 - opts.barWidth)) / 2;
       for (let di = 0; di < nDatasets; di++) {
+        const barH = this.groupedBarSize(this.slotSizes[di]);
+        if (barH <= 0) continue;
+
         const value = data.datasets[di].data[gi] ?? 0;
         const maxForSeries = usePerSeries ? (seriesMaxes[di] || 1) : globalMax;
-        const seriesScale = this.seriesScales[di] ?? 1;
-        const barW = (value / maxForSeries) * plotW * progress * seriesScale;
-        const barY = groupY + di * barH;
+        const barW = (value / maxForSeries) * plotW * progress;
+        const barY = groupY + this.slotOffsets[di];
         ctx.fillStyle = data.datasets[di].color ?? DEFAULT_SERIES_PALETTE[di % DEFAULT_SERIES_PALETTE.length];
         ctx.beginPath();
-        ctx.roundRect(plotLeft, barY, Math.max(barW, 0), Math.max(barH - 1, 1), [0, 3, 3, 0]);
+        ctx.roundRect(plotLeft, barY, Math.max(barW, 0), barH, [0, 3, 3, 0]);
         ctx.fill();
       }
       if (gi % labelStep === 0) {
@@ -1170,7 +1301,8 @@ export class ChartRenderer {
     const nGroups = data.labels.length;
     const groupH = plotH / Math.max(nGroups, 1);
     const barH = groupH * opts.barWidth;
-    const band = plotW / Math.max(nD, 1);
+    // Visibility-weighted bands — the horizontal twin of `drawColumnStacked`.
+    this.layoutGroupedSlots(nD, plotW);
     const labelStep = this.getLabelStep(nGroups, plotH, opts.fontSize);
 
     for (let gi = 0; gi < nGroups; gi++) {
@@ -1179,8 +1311,8 @@ export class ChartRenderer {
       for (let di = 0; di < nD; di++) {
         const value = data.datasets[di].data[gi] ?? 0;
         const segW = (usePerSeries
-          ? (value / (seriesMaxes[di] || 1)) * band
-          : (value / maxVal) * plotW) * progress;
+          ? (value / (seriesMaxes[di] || 1)) * this.slotSizes[di]
+          : (value / maxVal) * plotW * this.seriesScale(di)) * progress;
         ctx.fillStyle = data.datasets[di].color ?? DEFAULT_SERIES_PALETTE[di % DEFAULT_SERIES_PALETTE.length];
         ctx.beginPath();
         if (di === nD - 1) {
@@ -1250,7 +1382,9 @@ export class ChartRenderer {
     for (let gi = 0; gi < nGroups; gi++) {
       const shares = data.datasets.map((ds, di) => {
         const value = ds.data[gi] ?? 0;
-        return usePerSeries ? value / (seriesMaxes[di] || 1) : value;
+        // Weighting by visibility drops a legend-hidden series out of the
+        // denominator too, so the remaining segments re-expand to fill 100%.
+        return (usePerSeries ? value / (seriesMaxes[di] || 1) : value) * this.seriesScale(di);
       });
       const total = shares.reduce((sum, s) => sum + s, 0) || 1;
       const barY = plotTop + gi * groupH + (groupH - barH) / 2;
@@ -1296,8 +1430,14 @@ export class ChartRenderer {
     const getY = (v: number) => plotBottom - (v / maxVal) * plotH;
     const visibleCount = Math.max(2, Math.round(nPoints * progress));
 
-    for (const ds of data.datasets) {
+    for (let di = 0; di < data.datasets.length; di++) {
+      const ds = data.datasets[di];
+      // A legend-hidden series fades out rather than re-scaling the axis, so
+      // the points that stay put do not drift while the toggle animates.
+      const alpha = this.seriesScale(di);
+      if (alpha <= 0) continue;
       ctx.save();
+      ctx.globalAlpha = alpha;
       ctx.beginPath(); ctx.rect(plotLeft, plotTop, plotW, plotH + 1); ctx.clip();
       ctx.strokeStyle = ds.color ?? DEFAULT_SERIES_PALETTE[0];
       ctx.lineWidth = opts.strokeWidth > 0 ? opts.strokeWidth : opts.lineWidth;
@@ -1347,8 +1487,13 @@ export class ChartRenderer {
     const getY = (v: number) => plotBottom - (v / maxVal) * plotH;
     const visibleCount = Math.max(2, Math.round(nPoints * progress));
 
-    for (const ds of data.datasets) {
+    for (let di = 0; di < data.datasets.length; di++) {
+      const ds = data.datasets[di];
+      // See `drawLine`: legend toggles fade the series in / out.
+      const alpha = this.seriesScale(di);
+      if (alpha <= 0) continue;
       ctx.save();
+      ctx.globalAlpha = alpha;
       ctx.beginPath(); ctx.rect(plotLeft, plotTop, plotW, plotH + 1); ctx.clip();
       const color = ds.color ?? DEFAULT_SERIES_PALETTE[0];
       ctx.beginPath();
@@ -1652,13 +1797,19 @@ export class ChartRenderer {
 
     for (let di = 0; di < data.datasets.length; di++) {
       const ds = data.datasets[di];
+      // See `drawLine`: legend toggles fade the series in / out.
+      const alpha = this.seriesScale(di);
+      if (alpha <= 0) continue;
       const color = ds.color ?? DEFAULT_SERIES_PALETTE[di % DEFAULT_SERIES_PALETTE.length];
+      ctx.save();
+      ctx.globalAlpha = alpha;
       for (let i = 0; i < Math.min(visibleCount, nPoints); i++) {
         ctx.beginPath();
         ctx.arc(getX(i), getY(ds.data[i] ?? 0), 5, 0, Math.PI * 2);
         ctx.fillStyle = color + 'CC'; ctx.fill();
         ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.stroke();
       }
+      ctx.restore();
     }
 
     const labelStep = this.getLabelStep(nPoints, plotW, opts.fontSize);

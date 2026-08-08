@@ -13,7 +13,7 @@ import type { GridStore } from './grid-store';
 import type { ColumnModel } from './column-model';
 import type { RowNode } from '../types/row.types';
 import type { FormulaGridAdapter } from '../formula/formula-grid-adapter';
-import { resolveFieldPath, assignFieldPath } from '../engines/editing/value-accessor';
+import { resolveFieldPath, assignFieldPath, getCellValue } from '../engines/editing/value-accessor';
 
 /**
  * Adapts {@link GridStore}/{@link ColumnModel} to the formula engine's port.
@@ -86,12 +86,28 @@ export class GridFormulaAdapter implements FormulaGridAdapter {
     return null;
   }
 
+  /**
+   * Reads a cell the way the grid *displays* it.
+   *
+   * Through {@link getCellValue}, so a column with a `valueGetter` resolves to
+   * the value the user can see rather than to the raw field behind it. Reading
+   * the field directly made `=A1` yield a blank over a cell showing a number —
+   * a formula and the cell it points at disagreeing about what is in it, which
+   * is indistinguishable from a broken formula.
+   *
+   * Identical to a raw field read for every column without a getter, which is
+   * almost all of them: `getCellValue` falls straight through in that case.
+   *
+   * No `api` is passed: the adapter is deliberately below the public API in the
+   * construction order, and a getter that needs the grid to compute a value the
+   * formula engine is mid-evaluation of would be re-entrant by definition.
+   */
   readCell(nodeId: string, colId: string): unknown {
     const row = this.findRow(nodeId);
     if (!row) return undefined;
-    const field = this.getFieldForCol(colId);
-    if (field === null) return undefined;
-    return resolveFieldPath(row.data, field);
+    const colDef = this.columnModel.getColumn(colId);
+    if (!colDef) return undefined;
+    return getCellValue(row.data, colDef);
   }
 
   writeCell(nodeId: string, colId: string, value: unknown): void {

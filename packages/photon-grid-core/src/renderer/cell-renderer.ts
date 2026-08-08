@@ -1,11 +1,15 @@
-import type { RowNode } from '../types/row.types';
+﻿import type { RowNode } from '../types/row.types';
 import type { ColumnDef } from '../types/column.types';
 import type { DisplayRendererParams } from '../types/renderer.types';
+import type {
+  BaseRendererOptions,
+  BuiltInRenderContext,
+} from '../types/built-in-renderer.types';
 import type { IconRenderer } from '../icons/icon-renderer';
-import { formatValue } from '../engines/editing/value-parser';
 import { getCellValue, resolveFieldPath, formatCellValue } from '../engines/editing/value-accessor';
 import { createDiv, toggleClass } from './dom-utils';
-import { resolveColumnRenderer } from './renderer-resolver';
+import { resolveDisplayRenderer } from './renderer-resolver';
+import { buildBooleanCellCheckbox } from './built-in/checkbox-element';
 import { SparklineRenderer } from '../chart/sparkline/sparkline-renderer';
 
 export interface CellRenderContext {
@@ -19,14 +23,35 @@ export interface CellRenderContext {
   currencySymbol?: string;
   locale?: string;
   api: unknown;
+  /**
+   * Whether the grid permits editing at all (`GridOptions.editing.mode !== 'none'`).
+   *
+   * Only `boolean` columns consult it, and only to decide whether their
+   * checkbox is interactive: a checkbox that looks clickable but silently
+   * refuses to commit is worse than one that is visibly disabled. Optional and
+   * treated as `true` when omitted, so a caller that renders a cell outside a
+   * configured grid (tests, one-off previews) gets the permissive default.
+   */
+  editingEnabled?: boolean;
 }
+
+// Re-exported from their leaf module so existing importers keep working. The
+// definitions themselves live in `built-in/checkbox-element.ts` because the
+// built-in `checkbox` renderer needs them, and importing them from here would
+// close a module cycle through the renderer registry.
+export {
+  BOOLEAN_CELL_CHECKBOX_CLASS,
+  buildBooleanCellCheckbox,
+  isBooleanCellEditable,
+  syncBooleanCellCheckbox,
+} from './built-in/checkbox-element';
 
 export class CellRenderer {
   renderCell(ctx: CellRenderContext): HTMLElement {
     const { row, colDef, rowIndex, colIndex, api } = ctx;
     // Logical value drives display; rawValue exposes the underlying field value
     // so custom renderers can access both (they differ only when a valueGetter
-    // is configured — otherwise a single read is shared to avoid extra work).
+    // is configured â€” otherwise a single read is shared to avoid extra work).
     const value = getCellValue(row.data, colDef, api);
     const rawValue = colDef.valueGetter ? resolveFieldPath(row.data, colDef.field) : value;
 
@@ -56,7 +81,7 @@ export class CellRenderer {
    *
    * Extracted from {@link renderCell} so the Virtual DOM's cell patcher can
    * re-render a changed cell **into its existing element** using the exact same
-   * code path as the initial render — a custom renderer, an HTML cell and a
+   * code path as the initial render â€” a custom renderer, an HTML cell and a
    * built-in type all behave identically whether the cell was just created or
    * patched in place. Existing children are discarded first, so the call is
    * idempotent.
@@ -77,21 +102,91 @@ export class CellRenderer {
     // Cheaper than innerHTML = '' and does not re-parse markup.
     while (inner.firstChild) inner.removeChild(inner.firstChild);
 
-    const displayFn = resolveColumnRenderer(colDef, 'display');
-    if (displayFn) {
+    const resolved = resolveDisplayRenderer(colDef);
+
+    if (resolved.custom) {
       const params: DisplayRendererParams = { value, rawValue, row: row.data, colDef, rowIndex, colIndex, api };
-      const rendered = displayFn(params);
+      const rendered = resolved.custom(params);
       if (typeof rendered === 'string') {
         inner.innerHTML = rendered;
       } else {
         inner.appendChild(rendered);
       }
-    } else if (colDef.renderHtml) {
-      inner.innerHTML = String(value ?? '');
-    } else {
-      inner.appendChild(this.renderDefaultCell(value, colDef, ctx));
+      return;
     }
+
+    if (resolved.kind === 'html') {
+      inner.innerHTML = String(value ?? '');
+      return;
+    }
+
+    if (resolved.builtIn) {
+      resolved.builtIn.render(this.buildRenderContext(inner, value, rawValue, ctx, resolved.options));
+      return;
+    }
+
+    // No renderer resolved â€” the column formats as plain text. Reached when a
+    // `valueFormatter` owns the string, or when a slim registry has no renderer
+    // registered for the column's type.
+    const span = document.createElement('span');
+    span.className = 'pg-cell__value';
+    const formatted = this.formatFor(value, ctx);
+    span.textContent = formatted;
+    span.title = formatted;
+    inner.appendChild(span);
   }
+
+  /**
+   * The string a text-producing renderer starts from.
+   *
+   * Routed through `formatCellValue`, so a column `valueFormatter` has already
+   * won over the type's default formatting by the time a renderer sees it â€”
+   * which is what lets `renderer: 'currency'` and a `valueFormatter` coexist
+   * instead of one silently discarding the other.
+   */
+  private formatFor(value: unknown, ctx: CellRenderContext): string {
+    return formatCellValue(
+      ctx.row.data,
+      ctx.colDef,
+      value,
+      {
+        locale: ctx.locale,
+        dateFormat: ctx.dateFormat,
+        timeZone: ctx.timeZone,
+        currencySymbol: ctx.currencySymbol,
+      },
+      ctx.api,
+    );
+  }
+
+  /** Adapts a {@link CellRenderContext} into the context a built-in renderer receives. */
+  private buildRenderContext(
+    inner: HTMLElement,
+    value: unknown,
+    rawValue: unknown,
+    ctx: CellRenderContext,
+    options: BaseRendererOptions,
+  ): BuiltInRenderContext {
+    return {
+      inner,
+      value,
+      rawValue,
+      formattedValue: this.formatFor(value, ctx),
+      row: ctx.row.data,
+      colDef: ctx.colDef,
+      rowIndex: ctx.rowIndex,
+      colIndex: ctx.colIndex,
+      options,
+      icons: ctx.iconRenderer ?? null,
+      locale: ctx.locale,
+      dateFormat: ctx.dateFormat,
+      timeZone: ctx.timeZone,
+      currencySymbol: ctx.currencySymbol,
+      editingEnabled: ctx.editingEnabled,
+      api: ctx.api,
+    };
+  }
+
 
   /**
    * Resolves the dynamic class contributed by `ColumnDef.cellCssClass`.
@@ -115,27 +210,14 @@ export class CellRenderer {
    * `true` when a column's cells render as plain text and can therefore be
    * patched by writing a single string, with no element creation at all.
    *
-   * Every other column (custom renderer, raw HTML, or a built-in type that
-   * produces elements — badges, images, sparklines, boolean icons) needs its
-   * content rebuilt through {@link renderCellContent}.
+   * Delegates to the resolved renderer's own `textOnly` declaration, so a
+   * newly-registered renderer is classified correctly without this method
+   * knowing it exists.
    *
    * @param colDef - Column to classify.
    */
   isTextOnlyColumn(colDef: ColumnDef): boolean {
-    if (resolveColumnRenderer(colDef, 'display')) return false;
-    if (colDef.renderHtml) return false;
-    if (colDef.valueFormatter) return true;
-    switch (colDef.type) {
-      case 'boolean':
-      case 'image':
-      case 'dropdown':
-      case 'object':
-      case 'array':
-      case 'sparkline':
-        return false;
-      default:
-        return true;
-    }
+    return resolveDisplayRenderer(colDef).textOnly;
   }
 
   renderCheckboxCell(row: RowNode, rowIndex: number): HTMLElement {
@@ -157,7 +239,7 @@ export class CellRenderer {
   /**
    * Renders a serial (row-number) gutter cell.
    *
-   * When `selectable` is `true` the cell becomes an AG Grid–style selection
+   * When `selectable` is `true` the cell becomes an AG Gridâ€“style selection
    * column entry: it carries the row's `data-node-id` and `aria-selected`, is
    * focusable, and gets the `pg-cell--serial-select` class so `GridRenderer`
    * can start a row drag-selection from it. Purely a display gutter otherwise.
@@ -191,142 +273,4 @@ export class CellRenderer {
     toggleClass(cell, 'pg-cell--active', active);
   }
 
-  private renderDefaultCell(
-    value: unknown,
-    colDef: ColumnDef,
-    ctx: CellRenderContext,
-  ): HTMLElement {
-    const span = document.createElement('span');
-    span.className = 'pg-cell__value';
-
-    // A column-level valueFormatter owns the textual presentation for every
-    // data type: honour it first so authors get full, predictable control over
-    // the displayed string (badges/icons/images remain opt-in via renderers).
-    if (colDef.valueFormatter) {
-      const formatted = formatCellValue(ctx.row.data, colDef, value, {
-        locale: ctx.locale,
-        dateFormat: ctx.dateFormat,
-        timeZone: ctx.timeZone,
-        currencySymbol: ctx.currencySymbol,
-      });
-      span.textContent = formatted;
-      span.title = formatted;
-      return span;
-    }
-
-    switch (colDef.type) {
-      case 'boolean': {
-        const bool = !!value;
-        span.innerHTML = bool
-          ? ctx.iconRenderer.renderToString('check', 14)
-          : '';
-        span.classList.add(bool ? 'pg-cell--bool-true' : 'pg-cell--bool-false');
-        break;
-      }
-      case 'image': {
-        if (value) {
-          const img = document.createElement('img');
-          img.src = String(value);
-          img.className = 'pg-cell__image';
-          img.style.cssText = 'width:32px;height:32px;object-fit:cover;border-radius:4px;';
-          img.alt = '';
-          span.appendChild(img);
-        }
-        break;
-      }
-      case 'dropdown':
-      case 'object': {
-        const lookup = colDef.type === 'object'
-          ? this.resolveObjectKey(value, colDef)
-          : value;
-        const option = colDef.dropdownOptions?.find(
-          (o) => String(o.value) === String(lookup ?? ''),
-        );
-        if (option?.color) {
-          const badge = createDiv('pg-badge');
-          badge.style.backgroundColor = option.color + '20';
-          badge.style.color = option.color;
-          badge.textContent = option.label;
-          span.appendChild(badge);
-        } else {
-          span.textContent = option?.label ?? String(lookup ?? '');
-        }
-        break;
-      }
-
-      case 'array': {
-        const values = Array.isArray(value) ? value.map(String) : [];
-        span.className = 'pg-cell__value pg-cell__value--tags';
-        const visible = values.slice(0, 3);
-        for (const v of visible) {
-          const opt = colDef.dropdownOptions?.find((o) => String(o.value) === v);
-          const badge = createDiv('pg-badge');
-          badge.textContent = opt?.label ?? v;
-          if (opt?.color) {
-            badge.style.backgroundColor = opt.color + '20';
-            badge.style.color = opt.color;
-          }
-          span.appendChild(badge);
-        }
-        if (values.length > visible.length) {
-          const more = createDiv('pg-badge pg-badge--overflow');
-          more.textContent = `+${values.length - visible.length}`;
-          span.appendChild(more);
-        }
-        break;
-      }
-
-      case 'sparkline': {
-        span.className = 'pg-cell__value pg-cell__value--sparkline';
-
-        const wrapper = createDiv('pg-sparkline-wrapper');
-        const canvas = document.createElement('canvas');
-        canvas.className = 'pg-sparkline';
-        // aria: sparkline is decorative; the raw value is available via cell text
-        canvas.setAttribute('aria-hidden', 'true');
-        wrapper.appendChild(canvas);
-        span.appendChild(wrapper);
-
-        const sparkConfig = colDef.sparkline ?? {};
-
-        // Defer rendering until the canvas has been mounted to the DOM and has
-        // non-zero CSS dimensions (guaranteed to be true before the next paint).
-        requestAnimationFrame(() => {
-          if (!canvas.isConnected) return;
-          const w = canvas.clientWidth;
-          const h = canvas.clientHeight;
-          if (w > 0 && h > 0) {
-            // Attach the renderer to the canvas element so external code
-            // (e.g. a real-time ticker) can call redraw() without needing
-            // to recreate the renderer or touch the grid refresh cycle.
-            (canvas as HTMLCanvasElement & { _pgSparkline?: SparklineRenderer })._pgSparkline =
-              new SparklineRenderer(canvas, value, sparkConfig);
-          }
-        });
-        break;
-      }
-
-      default: {
-        const formatted = formatValue(value, colDef, {
-          locale: ctx.locale,
-          dateFormat: ctx.dateFormat,
-          timeZone: ctx.timeZone,
-          currencySymbol: ctx.currencySymbol,
-        });
-        span.textContent = formatted ?? '';
-        span.title = formatted ?? '';
-        break;
-      }
-    }
-
-    return span;
-  }
-
-  private resolveObjectKey(value: unknown, colDef: ColumnDef): unknown {
-    if (typeof value === 'object' && value !== null) {
-      const key = colDef.objectValueKey ?? 'value';
-      return (value as Record<string, unknown>)[key];
-    }
-    return value;
-  }
 }

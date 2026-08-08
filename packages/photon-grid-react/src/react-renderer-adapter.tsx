@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import type {
   ColumnDef,
   ColumnDefInput,
+  ColumnRenderer,
   DetailComponent,
   DetailComponentConstructor,
   DetailContext,
@@ -63,7 +64,13 @@ type RendererSlotValue = ((params: unknown) => RendererOutput) | ReactRendererSp
  * `renderer` slots additionally accept React components/specs.
  */
 type PhotonGridColumnDef = Omit<ColumnDefInput, 'renderer'> & {
-  renderer?: {
+  /**
+   * Accepts everything the core does — a built-in renderer by name
+   * (`'country'`), a configured one (`{ name, options }`), a bare display
+   * function — plus the React component/spec forms in the slot map, which the
+   * adapter converts to plain functions.
+   */
+  renderer?: ColumnRenderer | {
     display?: RendererSlotValue;
     editor?: RendererSlotValue;
     option?: RendererSlotValue;
@@ -75,12 +82,23 @@ type PhotonGridColumnDef = Omit<ColumnDefInput, 'renderer'> & {
   };
 };
 
-function isComponentRenderer(value: RendererSlotValue): value is ReactRendererSpec | ComponentType<Record<string, unknown>> {
+/**
+ * Runtime probe for the React forms of a renderer slot.
+ *
+ * Takes `unknown` rather than {@link RendererSlotValue} on purpose: the slot map
+ * on {@link PhotonGridColumnDef} is a union with the core's `ColumnRendererMap`
+ * (both lack `name`, so neither the `typeof` nor the `'name' in` narrowing in
+ * {@link ReactRendererAdapter.adaptColumns} can separate them), which makes each
+ * slot read a union of the core's strongly-typed slot functions *and* the React
+ * forms. A structural check needs no static contract, so widening the parameter
+ * is more honest than casting at every call site.
+ */
+function isComponentRenderer(value: unknown): value is ReactRendererSpec | ComponentType<Record<string, unknown>> {
   if (!value) {
     return false;
   }
 
-  if (typeof value === 'object' && 'kind' in value && value.kind === 'component') {
+  if (typeof value === 'object' && value !== null && 'kind' in value && value.kind === 'component') {
     return true;
   }
 
@@ -89,7 +107,7 @@ function isComponentRenderer(value: RendererSlotValue): value is ReactRendererSp
   }
 
   if (typeof value === 'function') {
-    return /^[A-Z]/.test(value.name ?? '');
+    return /^[A-Z]/.test((value as { readonly name?: string }).name ?? '');
   }
 
   return false;
@@ -138,7 +156,21 @@ export class ReactRendererAdapter {
 
   adaptColumns(columns: PhotonGridColumnDef[]): ColumnDef[] {
     return columns.map((column) => {
-      if (!column.renderer) {
+      const { renderer } = column;
+      if (!renderer) {
+        return column as ColumnDef;
+      }
+
+      // A built-in renderer selected by name (`renderer: 'country'`), a
+      // configured one (`{ name, options }`), or a bare display function passes
+      // straight through — there is nothing React-flavoured to adapt.
+      //
+      // This must precede the slot loop: a string is truthy but has no slots,
+      // so the loop below would replace it with an empty object, which the core
+      // reads as "slot map with no display" and silently falls back to the
+      // column's inferred renderer. The named renderer would vanish with no
+      // error anywhere.
+      if (typeof renderer === 'string' || typeof renderer === 'function' || 'name' in renderer) {
         return column as ColumnDef;
       }
 
@@ -146,7 +178,7 @@ export class ReactRendererAdapter {
       const slots = ['display', 'editor', 'option', 'filter', 'tooltip', 'group', 'header', 'summary'] as const;
 
       for (const slot of slots) {
-        const value = column.renderer?.[slot];
+        const value = renderer[slot];
         if (isComponentRenderer(value)) {
           adaptedRenderer[slot] = (params: unknown) => this.mountComponent(value, params);
         } else if (typeof value === 'function') {

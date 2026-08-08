@@ -1,3 +1,4 @@
+﻿import { DIMENSION_COLUMN_TYPES, NUMERIC_COLUMN_TYPES } from '../types/column-type-traits';
 import type { GridContext } from '../core/grid-context';
 import type { CellRange } from '../types/grid.types';
 import type { ColumnDef } from '../types/column.types';
@@ -12,9 +13,9 @@ import {
 import { RangeChartController } from './range-chart-controller';
 
 /** Column data types that can be plotted as chart series. */
-const MEASURE_TYPES = new Set<string>(['number', 'currency', 'percentage']);
+const MEASURE_TYPES: ReadonlySet<string> = NUMERIC_COLUMN_TYPES;
 /** Column data types usable as a category axis. */
-const DIMENSION_TYPES = new Set<string>(['string', 'dropdown', 'date', 'boolean', 'email']);
+const DIMENSION_TYPES: ReadonlySet<string> = DIMENSION_COLUMN_TYPES;
 
 /** Parameters for {@link RangeChartService.createRangeChart}. */
 export interface CreateRangeChartParams {
@@ -205,7 +206,7 @@ export class RangeChartService {
       for (let i = lo; i <= hi; i++) inRange.add(i);
     }
     if (inRange.size === 0) return [...visible];
-    // Iterate the visible order once, keeping only spanned indices → ordered, de-duped.
+    // Iterate the visible order once, keeping only spanned indices â†’ ordered, de-duped.
     return visible.filter((_, i) => inRange.has(i));
   }
 }

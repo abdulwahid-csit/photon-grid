@@ -68,7 +68,7 @@ export const columnChooserCss = `/* ──────────────�
   background: transparent;
   color: var(--pg-colors-text-secondary, #64748b);
   cursor: pointer;
-  transition: background var(--pg-transitions-fast, 80ms ease), color var(--pg-transitions-fast, 80ms ease);
+  transition: background var(--pg-transitions-duration-fast, 80ms ease), color var(--pg-transitions-duration-fast, 80ms ease);
 }
 .pg-col-chooser__close:hover {
   background: var(--pg-colors-background-alt, #f1f5f9);
@@ -99,7 +99,7 @@ export const columnChooserCss = `/* ──────────────�
   font-family: inherit;
   font-size: inherit;
   outline: none;
-  transition: border-color var(--pg-transitions-fast, 80ms ease), box-shadow var(--pg-transitions-fast, 80ms ease);
+  transition: border-color var(--pg-transitions-duration-fast, 80ms ease), box-shadow var(--pg-transitions-duration-fast, 80ms ease);
 }
 .pg-col-chooser__search-input:focus {
   border-color: var(--pg-colors-primary, #2563eb);
@@ -107,6 +107,38 @@ export const columnChooserCss = `/* ──────────────�
 }
 .pg-col-chooser__search-input::placeholder {
   color: var(--pg-colors-text-secondary, #94a3b8);
+}
+
+/* ── Select all ──
+   A header row for the list rather than a member of it: it sits outside the
+   scrolling body, on the dialog's own surface, and is separated by a rule so it
+   reads as acting *on* the tree instead of being the tree's first item. */
+.pg-col-chooser__select-all {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  margin: 0 14px;
+  padding: 2px 6px;
+  border-bottom: 1px solid var(--pg-colors-border, #e2e8f0);
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--pg-transitions-duration-fast, 80ms ease);
+}
+.pg-col-chooser__select-all:hover {
+  background: var(--pg-colors-background-alt, #f1f5f9);
+}
+/* Nothing toggleable is listed — an empty search result, or a list of nothing
+   but always-visible columns. Dimmed and inert rather than removed, so the row
+   does not appear and disappear as the user types. */
+.pg-col-chooser__select-all--disabled {
+  opacity: 0.5;
+  cursor: default;
+  pointer-events: none;
+}
+.pg-col-chooser__label--select-all {
+  font-weight: var(--pg-typography-font-weight-medium, 500);
+  color: var(--pg-colors-text-primary, #0f172a);
 }
 
 /* ── Body / tree ── */
@@ -137,7 +169,7 @@ export const columnChooserCss = `/* ──────────────�
   border-radius: var(--pg-borders-radius-sm, 4px);
   cursor: pointer;
   user-select: none;
-  transition: background var(--pg-transitions-fast, 80ms ease);
+  transition: background var(--pg-transitions-duration-fast, 80ms ease);
 }
 .pg-col-chooser__row:hover {
   background: var(--pg-colors-background-alt, #f1f5f9);
@@ -182,14 +214,14 @@ export const columnChooserCss = `/* ──────────────�
   background: var(--pg-colors-background, #ffffff);
   color: transparent;
   cursor: pointer;
-  transition: background var(--pg-transitions-fast, 80ms ease), border-color var(--pg-transitions-fast, 80ms ease);
+  transition: background var(--pg-transitions-duration-fast, 80ms ease), border-color var(--pg-transitions-duration-fast, 80ms ease);
 }
 .pg-col-chooser__checkbox > .pg-icon,
 .pg-col-chooser__checkbox > svg {
   width: 12px;
   height: 12px;
   opacity: 0;
-  transition: opacity var(--pg-transitions-fast, 80ms ease);
+  transition: opacity var(--pg-transitions-duration-fast, 80ms ease);
 }
 .pg-col-chooser__checkbox--checked {
   background: var(--pg-colors-primary, #2563eb);

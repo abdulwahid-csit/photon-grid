@@ -1,5 +1,9 @@
 # AutoFill Engine
 
+<p align="center">
+  <img src="../../../../assets/logo.svg" alt="Photon Grid" width="180"/>
+</p>
+
 Intelligent drag-to-fill for Photon Grid. Dragging the fill handle **continues a
 pattern** instead of merely copying values — matching the behavior of Excel and
 Google Sheets.

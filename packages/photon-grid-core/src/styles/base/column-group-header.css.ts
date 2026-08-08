@@ -36,7 +36,7 @@ export const columnGroupHeaderCss = `/* ─────────────�
   background: var(--pg-colors-background-alt, #f1f5f9);
   justify-content: center;
 }
-// .pg-th--group--collapsed .pg-th__label { display: none; }
+/* .pg-th--group--collapsed .pg-th__label { display: none; } */
 .pg-th__collapse-btn {
   flex-shrink: 0;
   display: flex;
@@ -45,7 +45,7 @@ export const columnGroupHeaderCss = `/* ─────────────�
   width: 20px;
   height: 20px;
   margin-right: 4px;
-  border-radius: var(--pg-sizing-border-radius, 4px);
+  border-radius: var(--pg-borders-radius-sm, 4px);
   color: var(--pg-colors-text-secondary, #475569);
   transition: background var(--pg-transitions-duration-fast, 100ms),
               color var(--pg-transitions-duration-fast, 100ms);
@@ -70,6 +70,10 @@ export const columnGroupHeaderCss = `/* ─────────────�
   z-index: 6;
   transition: opacity var(--pg-transitions-duration-fast, 100ms);
 }
+/* The element carries the leaf handle's class too, for the shared pointer
+   wiring — but a group handle is a hover-revealed grab zone with no divider of
+   its own, so the line that class paints is suppressed here. */
+.pg-th__resize-handle--group::after { content: none; }
 .pg-th--group:hover .pg-th__resize-handle--group { opacity: 1; }
 
 /* ── Flat columns alongside grouped headers ── */
@@ -214,12 +218,21 @@ export const columnGroupHeaderCss = `/* ─────────────�
   transition: transform var(--pg-drag-transition, 180ms cubic-bezier(0.25, 0.46, 0.45, 0.94));
 }
 
-/* Column drag ghost (floating preview chip that follows the cursor) */
+/* Column drag ghost (floating preview chip that follows the cursor).
+ *
+ * Positioned by transform rather than left/top: a translation is resolved on the
+ * compositor, while left/top dirty layout and paint on every write. The drag
+ * handlers publish the cursor position as --pg-ghost-x / --pg-ghost-y (see
+ * DragGhost) and this rule composes it with the chip's own vertical centring, so
+ * that offset survives.
+ */
 .pg-col-drag-ghost {
   position: fixed;
+  top: 0;
+  left: 0;
   pointer-events: none;
   z-index: 9999;
-  height: var(--pg-drag-ghost-height, 28px);
+  height: var(--pg-drag-ghost-height, 40px);
   display: flex;
   align-items: center;
   gap: var(--pg-drag-ghost-gap, 8px);
@@ -236,7 +249,8 @@ export const columnGroupHeaderCss = `/* ─────────────�
   color: var(--pg-colors-header-text, #374151);
   white-space: nowrap;
   user-select: none;
-  transform: translateY(-50%);
+  transform: translate3d(var(--pg-ghost-x, -9999px), var(--pg-ghost-y, -9999px), 0) translateY(-50%);
+  will-change: transform;
   transition:
     border-color var(--pg-transitions-duration-fast, 100ms),
     box-shadow var(--pg-transitions-duration-fast, 100ms);
@@ -251,6 +265,7 @@ export const columnGroupHeaderCss = `/* ─────────────�
 .pg-col-drag-ghost__label {
   flex: 1;
   min-width: 0;
+  margin-top: -4px
 }
 
 /* Default icon visibility */

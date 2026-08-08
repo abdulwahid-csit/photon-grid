@@ -1,8 +1,9 @@
 import type { ChartData } from './chart-data-transformer';
 import type { ChartRenderOptions } from './chart-renderer';
-import { ChartRenderer } from './chart-renderer';
+import { ChartRenderer, DEFAULT_SERIES_PALETTE, resolveSeriesColors } from './chart-renderer';
 import { resolveChartTheme } from './chart-theme';
 import type { ChartToolbarItem } from '../types/grid.types';
+import type { IconRenderer } from '../icons/icon-renderer';
 
 /**
  * Chart types whose single dataset is drawn as one colored mark per category
@@ -45,16 +46,6 @@ export interface ChartPanelHost {
   onClose(): void;
 }
 
-const ICON_EMPTY_CHART = `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/><line x1="7" y1="15" x2="7" y2="17"/><line x1="12" y1="12" x2="12" y2="17"/><line x1="17" y1="14" x2="17" y2="17"/></svg>`;
-const ICON_CLOSE = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
-const ICON_FULLSCREEN = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>`;
-const ICON_FULLSCREEN_EXIT = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/></svg>`;
-const ICON_DOTS = `<svg width="4" height="16" viewBox="0 0 4 16" fill="currentColor"><circle cx="2" cy="2" r="1.5"/><circle cx="2" cy="8" r="1.5"/><circle cx="2" cy="14" r="1.5"/></svg>`;
-const ICON_DOWNLOAD = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`;
-const ICON_EDIT = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`;
-const ICON_SETTINGS = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>`;
-const ICON_UNLINK = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 5.64a5 5 0 0 1 0 7.07l-1.5 1.5"/><path d="M7.14 18.36a5 5 0 0 1 0-7.07l1.5-1.5"/><line x1="2" y1="2" x2="22" y2="22"/></svg>`;
-const ICON_LINK = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`;
 
 /** Toolbar-menu descriptor for the `⋮` dropdown. */
 interface ChartMenuEntry {
@@ -100,7 +91,22 @@ export class ChartPanel {
   /** Guards {@link close} against re-entrancy when the host disposes us. */
   private closing = false;
 
-  constructor(private containerEl: HTMLElement) {}
+  /**
+   * @param containerEl - Host element the panel mounts into.
+   * @param iconRenderer - Resolves chart chrome icons through the shared
+   *   registry, so they follow the active theme's icon pack like the rest of the
+   *   grid. Optional only so the panel stays constructible in isolation; when
+   *   absent, chrome renders without glyphs rather than with off-theme ones.
+   */
+  constructor(
+    private containerEl: HTMLElement,
+    private iconRenderer?: IconRenderer,
+  ) {}
+
+  /** Resolves a chrome icon, or `''` when no renderer was supplied. */
+  private icon(name: string, size = 13): string {
+    return this.iconRenderer?.renderToString(name, size) ?? '';
+  }
 
   /** Attaches the controlling host. Must be set before {@link open}. */
   setHost(host: ChartPanelHost): void {
@@ -235,13 +241,13 @@ export class ChartPanel {
     const fullscreenBtn = document.createElement('button');
     fullscreenBtn.className = 'pg-chart-panel__action-btn';
     fullscreenBtn.title = 'Toggle fullscreen';
-    fullscreenBtn.innerHTML = ICON_FULLSCREEN;
+    fullscreenBtn.innerHTML = this.icon('fullscreen', 14);
     fullscreenBtn.addEventListener('click', () => this.toggleFullscreen());
 
     const closeBtn = document.createElement('button');
     closeBtn.className = 'pg-chart-panel__action-btn';
     closeBtn.title = 'Close';
-    closeBtn.innerHTML = ICON_CLOSE;
+    closeBtn.innerHTML = this.icon('close', 14);
     closeBtn.addEventListener('click', () => this.close());
 
     actions.appendChild(fullscreenBtn);
@@ -265,7 +271,7 @@ export class ChartPanel {
       const emptyEl = document.createElement('div');
       emptyEl.className = 'pg-chart-panel__empty';
       emptyEl.innerHTML = `
-        <span class="pg-chart-panel__empty-icon">${ICON_EMPTY_CHART}</span>
+        <span class="pg-chart-panel__empty-icon">${this.icon('emptyChart', 48)}</span>
         <span class="pg-chart-panel__empty-text">No chart data available</span>
         <span class="pg-chart-panel__empty-sub">Select cells that include Number, Currency, or Percentage columns</span>
       `;
@@ -316,7 +322,7 @@ export class ChartPanel {
     const dotsBtn = document.createElement('button');
     dotsBtn.className = 'pg-chart-panel__dots-btn';
     dotsBtn.title = 'Chart menu';
-    dotsBtn.innerHTML = ICON_DOTS;
+    dotsBtn.innerHTML = this.icon('dots', 16);
 
     const dotsMenu = document.createElement('div');
     dotsMenu.className = 'pg-chart-panel__dots-menu';
@@ -353,10 +359,10 @@ export class ChartPanel {
     for (const item of items) {
       switch (item) {
         case 'edit':
-          entries.push({ item, label: 'Edit Chart', icon: ICON_EDIT, action: () => this.host?.onEditChart() });
+          entries.push({ item, label: 'Edit Chart', icon: this.icon('edit'), action: () => this.host?.onEditChart() });
           break;
         case 'advancedSettings':
-          entries.push({ item, label: 'Advanced Settings', icon: ICON_SETTINGS, action: () => this.host?.onAdvancedSettings() });
+          entries.push({ item, label: 'Advanced Settings', icon: this.icon('advancedSettings'), action: () => this.host?.onAdvancedSettings() });
           break;
         case 'unlink': {
           // A reversible toggle: show the inverse action for the current state.
@@ -364,14 +370,14 @@ export class ChartPanel {
           entries.push({
             item,
             label: unlinked ? 'Link to Grid' : 'Unlink from Grid',
-            icon: unlinked ? ICON_LINK : ICON_UNLINK,
+            icon: this.icon(unlinked ? 'link' : 'unlink'),
             action: () => this.host?.onToggleLink(),
           });
           break;
         }
         case 'download':
-          entries.push({ item, label: 'Download PNG', icon: ICON_DOWNLOAD, action: () => this.downloadChart('png') });
-          entries.push({ item, label: 'Download JPEG', icon: ICON_DOWNLOAD, action: () => this.downloadChart('jpeg') });
+          entries.push({ item, label: 'Download PNG', icon: this.icon('download'), action: () => this.downloadChart('png') });
+          entries.push({ item, label: 'Download JPEG', icon: this.icon('download'), action: () => this.downloadChart('jpeg') });
           break;
       }
     }
@@ -479,7 +485,7 @@ export class ChartPanel {
     if (!this.cardEl || !this.fullscreenBtnEl) return;
     this.isFullscreen = !this.isFullscreen;
     this.cardEl.classList.toggle('pg-chart-panel--fullscreen', this.isFullscreen);
-    this.fullscreenBtnEl.innerHTML = this.isFullscreen ? ICON_FULLSCREEN_EXIT : ICON_FULLSCREEN;
+    this.fullscreenBtnEl.innerHTML = this.icon(this.isFullscreen ? 'fullscreenExit' : 'fullscreen', 14);
     this.fullscreenBtnEl.title = this.isFullscreen ? 'Exit fullscreen' : 'Toggle fullscreen';
 
     if (this.isFullscreen) {
@@ -545,7 +551,21 @@ export class ChartPanel {
 
   /** The resolved theme series palette, used to color per-slice legend swatches. */
   private palette(): readonly string[] {
-    return this.canvasEl ? resolveChartTheme(this.canvasEl).palette : [];
+    const themed = this.canvasEl ? resolveChartTheme(this.canvasEl).palette : [];
+    return themed.length > 0 ? themed : DEFAULT_SERIES_PALETTE;
+  }
+
+  /**
+   * Per-series color overrides from the chart model, keyed by series label.
+   *
+   * Read straight off the host's render options — the same object the renderer
+   * is given — so the legend can never disagree with the canvas about an
+   * explicitly configured series color. The size passed in is irrelevant here:
+   * `seriesColors` is layout-independent, and this runs on legend rebuilds only,
+   * never per frame.
+   */
+  private seriesColorOverrides(): Readonly<Record<string, string>> {
+    return this.host?.getRenderOptions({ width: 0, height: 0 }).seriesColors ?? {};
   }
 
   /**
@@ -553,16 +573,25 @@ export class ChartPanel {
    * category (slice); for cartesian charts each item is a series. Clicking an
    * item toggles that slice/series in or out with an animation and dims the
    * entry.
+   *
+   * Swatch colors are resolved through {@link resolveSeriesColors} — the very
+   * chain `ChartRenderer` applies — because the renderer colors a private copy
+   * of the data and leaves `dataset.color` undefined on the panel's own
+   * `ChartData`. Reading that field directly is what previously painted every
+   * swatch in the same fallback blue while the bars were correctly varied.
    */
   private buildLegend(data: ChartData): void {
     if (!this.legendEl) return;
     this.legendEl.innerHTML = '';
 
     const categorical = this.isCategorical();
-    const pal = categorical ? this.palette() : [];
-    const entries: Array<{ label: string; color: string }> = categorical
-      ? data.labels.map((label, i) => ({ label, color: pal[i % Math.max(pal.length, 1)] ?? '#5470c6' }))
-      : data.datasets.map((ds, i) => ({ label: ds.label, color: ds.color ?? '#5470c6' }));
+    const pal = this.palette();
+    const entries: ReadonlyArray<{ label: string; color: string }> = categorical
+      ? data.labels.map((label, i) => ({ label, color: pal[i % pal.length] }))
+      : resolveSeriesColors(data.datasets, pal, this.seriesColorOverrides()).map((color, i) => ({
+          label: data.datasets[i].label,
+          color,
+        }));
 
     const hidden = categorical ? this.hiddenSlices : this.hiddenSeries;
 

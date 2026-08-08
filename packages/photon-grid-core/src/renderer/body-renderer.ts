@@ -13,6 +13,7 @@ import { ViewportVDom } from './vdom/viewport-vdom';
 import { CellPatcher } from './vdom/cell-patcher';
 import type { RenderedRowRef, VDomRenderContext, VDomStats } from './vdom/vdom.types';
 import { resolveColumnRenderer } from './renderer-resolver';
+import { LONG_TEXT_TOGGLE_ATTR } from './built-in/long-text';
 import { applyTreeToggle, syncTreeToggle, type TreeToggleRenderConfig } from './tree-cell-renderer';
 import { isTouchPointer, DRAG_THRESHOLD_TOUCH } from '../core/pointer-utils';
 
@@ -29,6 +30,62 @@ const GROUP_LABEL_COL_DEF: ColumnDef = {
   editable: false,
 };
 
+/**
+ * `data-col-id` of the virtual auto-group column.
+ *
+ * It carries a `data-col-id` so selection and clipboard treat it like a cell,
+ * but it is not a member of any panel's column list — {@link BodyRenderer}'s
+ * column reconciler must therefore never mistake it for a column that left the
+ * layout and delete it.
+ */
+const AUTO_GROUP_COL_ID = '__group__';
+
+/**
+ * Marker classes on the two virtual-scroll spacer cells of a center row.
+ *
+ * The reconciler needs to know exactly where a row's data cells begin and end
+ * without re-deriving the row's structure: the trailing spacer is the insertion
+ * anchor every cell is positioned against, and both spacers must be re-sized
+ * when the horizontal virtual window moves. A class is the cheapest stable
+ * handle for that — `pg-cell--h-spacer` alone cannot distinguish the two.
+ */
+const SPACER_START_CLASS = 'pg-cell--h-spacer-start';
+const SPACER_END_CLASS = 'pg-cell--h-spacer-end';
+
+/**
+ * Outcome of reconciling one panel row's cells against a new column list.
+ *
+ * `needsReadopt` is the only field the caller acts on: the Virtual DOM records
+ * each cell's element *and* its column index at adoption time, so a cell that
+ * was created, detached, or restamped with a new index invalidates the row's
+ * adopted map. A reconcile that changed nothing observable leaves it valid, and
+ * re-adopting anyway would be pure waste.
+ */
+interface CellReconcileResult {
+  /** `true` when the row's adopted Virtual DOM cell map no longer describes it. */
+  needsReadopt: boolean;
+}
+
+/**
+ * Builds the row-shape signature described by `BodyRenderer.lastRowShapeKey`.
+ *
+ * Only flags that add or remove a *non-column* element from a row belong here.
+ * Anything that merely changes a cell's contents (formatting, locale, a value)
+ * is handled by the Virtual DOM patch path and must not force a rebuild.
+ */
+function buildRowShapeKey(options: BodyRendererOptions): string {
+  return [
+    options.showSerialNumber ? 1 : 0,
+    options.serialColumnSelection ? 1 : 0,
+    options.showCheckboxes ? 1 : 0,
+    options.showVerticalBorders ? 1 : 0,
+    options.showGroupsColumn ? 1 : 0,
+    options.leafGroupColDef?.colId ?? '',
+    options.masterDetail?.toggleColumnId ?? '',
+    options.treeData?.toggleColumnId ?? '',
+  ].join('|');
+}
+
 export interface BodyRendererOptions {
   showCheckboxes?: boolean;
   showSerialNumber?: boolean;
@@ -36,6 +93,11 @@ export interface BodyRendererOptions {
   serialColumnSelection?: boolean;
   showVerticalBorders?: boolean;
   rowShading?: boolean;
+  /**
+   * Returns additional CSS classes for a data row. Re-evaluated whenever the
+   * row is rendered so classes stay current as virtualized DOM is reused.
+   */
+  rowClassFn?: (row: Record<string, unknown>, index: number) => string;
   rowHeight?: number;
   api?: unknown;
   dateFormat?: string;
@@ -63,6 +125,14 @@ export interface BodyRendererOptions {
    * renders no cell of its own while grouped.
    */
   allLeafColumns?: ColumnDef[];
+  /**
+   * `false` when `GridOptions.editing.mode` is `'none'`.
+   *
+   * Only `boolean` columns read it: their inline checkbox renders disabled when
+   * the grid cannot commit an edit, so it never looks clickable while being
+   * inert.
+   */
+  editingEnabled?: boolean;
   // Horizontal virtual scroll: centerCols is already the visible slice
   centerColStart?: number;       // index of first visible center col within all center cols
   centerLeftSpacerW?: number;    // px width of off-screen cols to the left
@@ -116,8 +186,66 @@ export class BodyRenderer {
   private serialColumnSelection = false;
 
   // Track last rendered center col range to detect changes
-  private lastCenterStart = -1;
-  private lastCenterEnd = -1;
+  private readonly lastCenterRange = { start: -1, end: -1 };
+
+  /**
+   * Widths of the two center virtual-scroll spacers as currently painted.
+   *
+   * Column widths can change without the visible column *set* changing (a
+   * resize of an off-screen column, a flex re-resolve), and the spacers stand in
+   * for exactly those off-screen widths — so they need a dirtiness signal of
+   * their own or the center panel silently drifts out of horizontal alignment.
+   */
+  private readonly lastSpacerW = { start: -1, end: -1 };
+
+  // ── Column reconciliation ─────────────────────────────────────────────────
+  /**
+   * The ordered column ids last painted into each panel, plus the global column
+   * index the panel started at.
+   *
+   * A column change is detected by comparing against these rather than by being
+   * told about it, so every path that alters the layout — a reorder, a pin, a
+   * hide, or the horizontal virtual window sliding by one column — takes the
+   * same in-place reconcile route with no caller opt-in.
+   */
+  private readonly lastPanelColIds: Record<'left' | 'center' | 'right', string[]> = {
+    left: [],
+    center: [],
+    right: [],
+  };
+  private readonly lastPanelColOffset: Record<'left' | 'center' | 'right', number> = {
+    left: -1,
+    center: -1,
+    right: -1,
+  };
+  /**
+   * Every visible column by id, refreshed at the top of each {@link renderRows}.
+   *
+   * Row-level delegated listeners resolve a clicked cell's `ColumnDef` through
+   * this map. Closing over the panel's column array instead would go stale the
+   * moment a row survives a column change — which, now that rows are reconciled
+   * rather than rebuilt, is the normal case rather than the exception.
+   */
+  private readonly colDefById = new Map<string, ColumnDef>();
+  /**
+   * The options of the most recent {@link renderRows} pass.
+   *
+   * Delegated listeners read this rather than a captured `options` object so a
+   * row that survives a re-render — which, with in-place column reconciliation,
+   * is now the normal case — never resolves against a stale `leafGroupColDef`.
+   */
+  private lastOptions: BodyRendererOptions = {};
+
+  /**
+   * Signature of the options that decide a row's *shape* rather than its cells.
+   *
+   * The column reconciler only knows how to add, move and remove data cells. A
+   * serial column, a checkbox, the auto-group cell and the tree/master-detail
+   * decorations are built once per row and sit outside that contract, so when
+   * one of them is switched on or off the rows have to be rebuilt outright —
+   * reconciling would leave the panels misaligned by exactly one cell.
+   */
+  private lastRowShapeKey = '';
 
   // Sticky-row overlay containers (Master/Detail) — siblings of the
   // `*Content` panels above, outside the scroll transform. `null` unless
@@ -312,15 +440,47 @@ export class BodyRenderer {
     // test resolves past the rows and clears the hover instead of re-applying it.
     this.refreshHoverAtPointer();
 
-    // When the visible center col range changes, invalidate all center panels
-    if (cStart !== this.lastCenterStart || cEnd !== this.lastCenterEnd) {
-      this.lastCenterStart = cStart;
-      this.lastCenterEnd = cEnd;
-      if (this.centerContent) this.centerContent.innerHTML = '';
-      for (const ps of this.renderedRowMap.values()) {
-        ps.center = null;
-      }
+    this.lastCenterRange.start = cStart;
+    this.lastCenterRange.end = cEnd;
+    this.lastOptions = options;
+
+    // A change to the row's fixed scaffolding invalidates every cached row; see
+    // `lastRowShapeKey`. Doing it here, before anything else reads the cache,
+    // means the rest of this method sees a clean slate and takes its ordinary
+    // "brand-new row" path.
+    const rowShapeKey = buildRowShapeKey(options);
+    if (rowShapeKey !== this.lastRowShapeKey) {
+      if (this.lastRowShapeKey !== '') this.clear();
+      this.lastRowShapeKey = rowShapeKey;
     }
+
+    // Delegated listeners resolve their ColumnDef through this map, so it has
+    // to be current before any row is built or reconciled below.
+    this.refreshColumnIndex(options, leftCols, centerCols, rightCols);
+
+    const totalCenterCols = options.totalCenterCols ?? centerCols.length;
+    const centerOffset = leftCols.length + cStart;
+    const rightOffset  = leftCols.length + totalCenterCols;
+
+    // ── Column-layout diff ────────────────────────────────────────────────────
+    // A reorder, a pin, a hide/show, or the horizontal virtual window sliding
+    // all surface here as "this panel's column ids (or its global index base)
+    // differ from what is painted". Reconciling the affected rows in place is
+    // what keeps a custom cell renderer — an <img> awaiting a server response, a
+    // sparkline canvas, a chart — alive across the change instead of being
+    // destroyed and re-created, which is what made columns visibly blink during
+    // a drag.
+    const spacerStartW = options.centerLeftSpacerW ?? 0;
+    const spacerEndW = options.centerRightSpacerW ?? 0;
+    const spacersDirty =
+      this.lastSpacerW.start !== spacerStartW || this.lastSpacerW.end !== spacerEndW;
+
+    const panelDirty = {
+      left:   this.panelNeedsReconcile('left', leftCols, 0),
+      center: this.panelNeedsReconcile('center', centerCols, centerOffset) || spacersDirty,
+      right:  this.panelNeedsReconcile('right', rightCols, rightOffset),
+    };
+    const anyPanelDirty = panelDirty.left || panelDirty.center || panelDirty.right;
 
     const newIds = new Set(rows.map((r) => r.nodeId));
 
@@ -338,9 +498,15 @@ export class BodyRenderer {
     const centerFrag = document.createDocumentFragment();
     const rightFrag = document.createDocumentFragment();
 
-    const totalCenterCols = options.totalCenterCols ?? centerCols.length;
-    const centerOffset = leftCols.length + cStart;
-    const rightOffset  = leftCols.length + totalCenterCols;
+    /** Rows whose adopted Virtual DOM cell map no longer describes their DOM. */
+    let readoptIds: string[] | null = null;
+
+    // Which side panels a data row must have. A panel appearing or disappearing
+    // (the first column pinned left, the last one unpinned) changes the row's
+    // *shape*, not just its cells, so those rows are rebuilt rather than
+    // reconciled — there is no element to reconcile into.
+    const needsLeft = !!(this.leftContent && (options.showCheckboxes || options.showSerialNumber || leftCols.length > 0));
+    const needsRight = !!(this.rightContent && rightCols.length > 0);
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
@@ -355,11 +521,28 @@ export class BodyRenderer {
       // Group header and footer rows carrying aggregated values must be fully
       // rebuilt on every pipeline run so that updated aggregations (e.g. after
       // filtering) are reflected in the DOM rather than served from the stale cache.
-      if (existing && (row.type === 'group' || row.type === 'group-footer') && row.aggregatedValues) {
+      //
+      // The same rebuild is the correct answer for ANY non-data row whose
+      // columns changed: their cells are derived from aggregates and group
+      // metadata rather than from `row.data`, so there is no per-column renderer
+      // state worth preserving and no blink to avoid.
+      const shapeChanged =
+        !!existing &&
+        row.type !== 'detail' &&
+        (needsLeft !== (existing.left !== null) || needsRight !== (existing.right !== null));
+      const rebuildForColumns =
+        anyPanelDirty && row.type !== 'data' && row.type !== 'detail';
+      if (
+        existing &&
+        ((row.type === 'group' || row.type === 'group-footer') && row.aggregatedValues ||
+          rebuildForColumns ||
+          shapeChanged)
+      ) {
         existing.left?.remove();
         existing.center?.remove();
         existing.right?.remove();
         this.renderedRowMap.delete(row.nodeId);
+        this.vdom.evict([row.nodeId]);
         existing = undefined;
       }
 
@@ -370,15 +553,29 @@ export class BodyRenderer {
         // mistake that for "needs rebuilding" on every single render pass
         // and spuriously build real cell content for a row type that must
         // never appear in these panels at all.
-      } else if (existing && existing.center !== null) {
-        // Normal update — row and center already in DOM
-        this.updatePanelRow(existing, row, displayIndex, options);
       } else if (existing) {
-        // Center was invalidated (col range changed) — rebuild center only
+        // Normal update — every panel of this row is already in the DOM.
         this.updatePanelRow(existing, row, displayIndex, options);
-        const newCenter = this.buildSingleRow(row, displayIndex, 'center', centerCols, centerOffset, options);
-        existing.center = newCenter;
-        centerFrag.appendChild(newCenter);
+
+        if (anyPanelDirty) {
+          let needsReadopt = false;
+          if (panelDirty.left && existing.left) {
+            needsReadopt =
+              this.reconcilePanelCells(existing.left, row, 'left', leftCols, 0, options)
+                .needsReadopt || needsReadopt;
+          }
+          if (panelDirty.center && existing.center) {
+            needsReadopt =
+              this.reconcilePanelCells(existing.center, row, 'center', centerCols, centerOffset, options)
+                .needsReadopt || needsReadopt;
+          }
+          if (panelDirty.right && existing.right) {
+            needsReadopt =
+              this.reconcilePanelCells(existing.right, row, 'right', rightCols, rightOffset, options)
+                .needsReadopt || needsReadopt;
+          }
+          if (needsReadopt) (readoptIds ??= []).push(row.nodeId);
+        }
       } else {
         // Entirely new row
         const ps = this.buildPanelRow(row, displayIndex, leftCols, centerCols, rightCols, centerOffset, rightOffset, options);
@@ -392,6 +589,14 @@ export class BodyRenderer {
     if (this.leftContent) this.leftContent.appendChild(leftFrag);
     this.centerContent?.appendChild(centerFrag);
     if (this.rightContent) this.rightContent.appendChild(rightFrag);
+
+    if (readoptIds) this.vdom.evict(readoptIds);
+
+    this.commitPanelColumns('left', leftCols, 0);
+    this.commitPanelColumns('center', centerCols, centerOffset);
+    this.commitPanelColumns('right', rightCols, rightOffset);
+    this.lastSpacerW.start = spacerStartW;
+    this.lastSpacerW.end = spacerEndW;
 
     // Freshly-built rows only carry `pg-row--selected` (from `row.selected`);
     // recompute the block-outline edge classes for the new window.
@@ -411,6 +616,187 @@ export class BodyRenderer {
     // moment the DOM is guaranteed to agree with the data, so it is where the
     // baseline values for future diffs are recorded.
     this.syncVirtualDom(rows, options);
+  }
+
+  // ─── Column reconciliation ──────────────────────────────────────────────────
+
+  /**
+   * Refreshes {@link colDefById} for the columns reachable from a rendered cell.
+   *
+   * Prefers `allLeafColumns` (which also carries columns hidden by horizontal
+   * virtualization) and falls back to the three panel slices when the caller did
+   * not supply it.
+   */
+  private refreshColumnIndex(
+    options: BodyRendererOptions,
+    leftCols: readonly ColumnDef[],
+    centerCols: readonly ColumnDef[],
+    rightCols: readonly ColumnDef[],
+  ): void {
+    this.colDefById.clear();
+    const all = options.allLeafColumns;
+    if (all && all.length > 0) {
+      for (let i = 0; i < all.length; i++) this.colDefById.set(all[i].colId, all[i]);
+      return;
+    }
+    for (const cols of [leftCols, centerCols, rightCols]) {
+      for (let i = 0; i < cols.length; i++) this.colDefById.set(cols[i].colId, cols[i]);
+    }
+  }
+
+  /**
+   * Resolves a clicked cell's `ColumnDef` from its `data-col-id`.
+   *
+   * @param colId - Value of the cell's `data-col-id` attribute.
+   * @param row   - Row the cell belongs to, used to pick the auto-group variant.
+   */
+  private resolveCellColumn(
+    colId: string,
+    row: RowNode,
+    options: BodyRendererOptions,
+  ): ColumnDef | null {
+    const col = this.colDefById.get(colId);
+    if (col) return col;
+    if (colId !== AUTO_GROUP_COL_ID) return null;
+    // For the virtual auto-group column:
+    //   • data rows          → the real leaf group ColumnDef (supports editing)
+    //   • group/footer rows  → the non-editable sentinel (editing blocked at startCellEdit)
+    return row.type === 'data' ? (options.leafGroupColDef ?? null) : GROUP_LABEL_COL_DEF;
+  }
+
+  /**
+   * `true` when a panel's painted columns no longer match the requested ones.
+   *
+   * Compares the global index base as well as the id sequence: a change to the
+   * number of columns in an earlier panel shifts every `data-col-index` in this
+   * one even though its own ids are untouched.
+   */
+  private panelNeedsReconcile(
+    panel: 'left' | 'center' | 'right',
+    cols: readonly ColumnDef[],
+    colOffset: number,
+  ): boolean {
+    if (this.lastPanelColOffset[panel] !== colOffset) return true;
+    const prev = this.lastPanelColIds[panel];
+    if (prev.length !== cols.length) return true;
+    for (let i = 0; i < cols.length; i++) {
+      if (prev[i] !== cols[i].colId) return true;
+    }
+    return false;
+  }
+
+  /** Records the columns just painted into a panel, reusing the stored array. */
+  private commitPanelColumns(
+    panel: 'left' | 'center' | 'right',
+    cols: readonly ColumnDef[],
+    colOffset: number,
+  ): void {
+    const target = this.lastPanelColIds[panel];
+    target.length = cols.length;
+    for (let i = 0; i < cols.length; i++) target[i] = cols[i].colId;
+    this.lastPanelColOffset[panel] = colOffset;
+  }
+
+  /**
+   * Brings one already-rendered panel row's data cells in line with a new
+   * ordered column list, **without rebuilding the row**.
+   *
+   * Every column that survives keeps its exact cell element — and with it the
+   * DOM produced by a custom renderer, an in-flight `<img>`, a `<canvas>` a
+   * sparkline has already painted, an open editor, and the focus ring. Only
+   * columns that genuinely entered the layout get a new element, and only
+   * columns that genuinely left it are detached.
+   *
+   * Cells are placed with a single right-to-left pass anchored on the trailing
+   * virtual-scroll spacer, so a cell that is already in the right place costs a
+   * sibling comparison and no DOM write at all: reordering *n* columns by one
+   * position moves one node, not *n*.
+   *
+   * @param rowEl     - The panel's row element.
+   * @param row       - Row being reconciled (always a `'data'` row).
+   * @param panel     - Which panel `rowEl` belongs to.
+   * @param cols      - Columns this panel must show, in display order.
+   * @param colOffset - Global index of this panel's first column.
+   * @returns Whether any cell element was created or detached.
+   */
+  private reconcilePanelCells(
+    rowEl: HTMLElement,
+    row: RowNode,
+    panel: 'left' | 'center' | 'right',
+    cols: readonly ColumnDef[],
+    colOffset: number,
+    options: BodyRendererOptions,
+  ): CellReconcileResult {
+    // Index the cells currently in the row. The auto-group cell carries a
+    // data-col-id but belongs to no panel column list, so it is skipped here and
+    // therefore never treated as a departed column.
+    const present = new Map<string, HTMLElement>();
+    let anchor: Node | null = null;
+    for (let el = rowEl.firstElementChild; el !== null; el = el.nextElementSibling) {
+      const cellEl = el as HTMLElement;
+      if (panel === 'center') {
+        // Spacer widths encode the columns scrolled off either side; they move
+        // with the virtual window, so refresh them while the row is walked.
+        if (cellEl.classList.contains(SPACER_START_CLASS)) {
+          this.sizeSpacer(cellEl, options.centerLeftSpacerW ?? 0);
+          continue;
+        }
+        if (cellEl.classList.contains(SPACER_END_CLASS)) {
+          this.sizeSpacer(cellEl, options.centerRightSpacerW ?? 0);
+          anchor = cellEl;
+          continue;
+        }
+      }
+      const colId = cellEl.getAttribute('data-col-id');
+      if (colId !== null && colId !== AUTO_GROUP_COL_ID) present.set(colId, cellEl);
+    }
+
+    let needsReadopt = false;
+
+    // Right-to-left so each cell is inserted before the one that must follow it;
+    // `next` walks backwards through the target order and doubles as the
+    // "already correctly placed" test.
+    let next: Node | null = anchor;
+    for (let i = cols.length - 1; i >= 0; i--) {
+      const col = cols[i];
+      const colIndex = colOffset + i;
+      let cellEl = present.get(col.colId);
+
+      if (cellEl) {
+        present.delete(col.colId);
+        // A reorder changes a surviving cell's position in the grid, which is
+        // the coordinate every selection, keyboard-navigation and clipboard
+        // lookup keys off — and which the Virtual DOM recorded when it adopted
+        // the cell, so a change here invalidates that record too.
+        if (cellEl.getAttribute('data-col-index') !== String(colIndex)) {
+          cellEl.setAttribute('data-col-index', String(colIndex));
+          needsReadopt = true;
+        }
+      } else {
+        cellEl = this.buildDataCell(row, col, colIndex, options);
+        needsReadopt = true;
+      }
+
+      if (cellEl.nextSibling !== next || cellEl.parentNode !== rowEl) {
+        rowEl.insertBefore(cellEl, next);
+      }
+      next = cellEl;
+    }
+
+    // Whatever is left never appeared in the target order — it scrolled out of
+    // the horizontal window, was hidden, or moved to another panel.
+    for (const stale of present.values()) {
+      stale.remove();
+      needsReadopt = true;
+    }
+
+    return { needsReadopt };
+  }
+
+  /** Applies a virtual-scroll spacer's pixel width without touching its class list. */
+  private sizeSpacer(el: HTMLElement, width: number): void {
+    el.style.width = `${width}px`;
+    el.style.minWidth = `${width}px`;
   }
 
   /**
@@ -457,6 +843,7 @@ export class BodyRenderer {
       currencySymbol: options.currencySymbol,
       locale: options.locale,
       api: options.api ?? null,
+      editingEnabled: options.editingEnabled,
     };
   }
 
@@ -547,7 +934,9 @@ export class BodyRenderer {
     const els = [ps.left, ps.center, ps.right].filter((e): e is HTMLElement => e !== null);
     for (const el of els) {
       toggleClass(el, 'pg-row--selected', selected);
-      const cb = el.querySelector<HTMLInputElement>('.pg-checkbox');
+      // Scoped by `[data-node-id]` for the same reason as the click handler:
+      // a `boolean` column's cell checkbox must not be driven by row selection.
+      const cb = el.querySelector<HTMLInputElement>('.pg-checkbox[data-node-id]');
       if (cb) cb.checked = selected;
       // Keep the serial-column selection entry's ARIA state in sync.
       const serial = el.querySelector<HTMLElement>('.pg-cell--serial-select');
@@ -559,17 +948,17 @@ export class BodyRenderer {
    * Advances the tracked virtual-column range without touching any DOM.
    *
    * Call this when the column range has logically changed but the body rows must
-   * NOT be rebuilt — specifically during an active column resize where CSS rules
-   * already handle width changes via `ColumnStyleManager`. Keeping the tracked
-   * range current prevents the next normal `renderRows` call (on `mouseup`) from
-   * seeing a false "range changed" signal and wiping all center panels.
+   * NOT be rebuilt — specifically during an active column resize, where
+   * `ColumnStyleManager` has already re-sized every cell through CSS. The next
+   * ordinary `renderRows` reconciles whatever the range actually became, in
+   * place, so nothing here needs to anticipate it.
    *
    * @param cStart - New first visible center-column index.
    * @param cEnd   - New last visible center-column index (exclusive).
    */
   syncCenterRange(cStart: number, cEnd: number): void {
-    this.lastCenterStart = cStart;
-    this.lastCenterEnd = cEnd;
+    this.lastCenterRange.start = cStart;
+    this.lastCenterRange.end = cEnd;
   }
 
   clear(): void {
@@ -581,8 +970,17 @@ export class BodyRenderer {
     this.renderedRowMap.clear();
     // The virtual tree must never outlive the elements it references.
     this.vdom.clear();
-    this.lastCenterStart = -1;
-    this.lastCenterEnd = -1;
+    this.lastCenterRange.start = -1;
+    this.lastCenterRange.end = -1;
+    this.lastSpacerW.start = -1;
+    this.lastSpacerW.end = -1;
+    // No row DOM survives, so nothing is left to reconcile against — the next
+    // render must treat every panel as freshly built rather than diffing
+    // against columns that are no longer painted anywhere.
+    for (const panel of ['left', 'center', 'right'] as const) {
+      this.lastPanelColIds[panel].length = 0;
+      this.lastPanelColOffset[panel] = -1;
+    }
   }
 
   /**
@@ -674,12 +1072,7 @@ export class BodyRenderer {
 
       if (panel === 'center') {
         // Left virtual spacer (mirrors the data-row spacer for correct scroll alignment)
-        const leftSpacerW = options.centerLeftSpacerW ?? 0;
-        if (leftSpacerW > 0) {
-          const sp = createDiv('pg-cell--h-spacer');
-          sp.style.cssText = `width:${leftSpacerW}px;min-width:${leftSpacerW}px;flex-shrink:0;`;
-          el.appendChild(sp);
-        }
+        el.appendChild(this.buildSpacer(SPACER_START_CLASS, options.centerLeftSpacerW ?? 0));
         if (row.type === 'group') {
           this.buildGroupRowContent(el, row, options);
         } else {
@@ -693,15 +1086,10 @@ export class BodyRenderer {
 
       if (panel === 'center') {
         // Right virtual spacer
-        const rightSpacerW = options.centerRightSpacerW ?? 0;
-        if (rightSpacerW > 0) {
-          const sp = createDiv('pg-cell--h-spacer');
-          sp.style.cssText = `width:${rightSpacerW}px;min-width:${rightSpacerW}px;flex-shrink:0;`;
-          el.appendChild(sp);
-        }
+        el.appendChild(this.buildSpacer(SPACER_END_CLASS, options.centerRightSpacerW ?? 0));
       }
 
-      this.attachRowListeners(el, row, cols, colOffset, options);
+      this.attachRowListeners(el, row);
       return el;
     }
 
@@ -720,12 +1108,7 @@ export class BodyRenderer {
 
     if (panel === 'center') {
       // Left virtual spacer (columns scrolled off to the left)
-      const leftSpacerW = options.centerLeftSpacerW ?? 0;
-      if (leftSpacerW > 0) {
-        const sp = createDiv('pg-cell--h-spacer');
-        sp.style.cssText = `width:${leftSpacerW}px;min-width:${leftSpacerW}px;flex-shrink:0;`;
-        el.appendChild(sp);
-      }
+      el.appendChild(this.buildSpacer(SPACER_START_CLASS, options.centerLeftSpacerW ?? 0));
 
       if (options.showGroupsColumn) {
         this.buildLeafGroupCell(el, row, options);
@@ -733,48 +1116,81 @@ export class BodyRenderer {
     }
 
     for (let i = 0; i < cols.length; i++) {
-      const cellEl = this.cellRenderer.renderCell({
-        row,
-        colDef: cols[i],
-        rowIndex: row.rowIndex,
-        colIndex: colOffset + i,   // global index across all panels
-        iconRenderer: this.iconRenderer,
-        dateFormat: options.dateFormat,
-        timeZone: options.timeZone,
-        currencySymbol: options.currencySymbol,
-        locale: options.locale,
-        api: options.api ?? null,
-      });
-      if (options.showVerticalBorders) cellEl.classList.add('pg-cell--v-border');
-      if (cols[i].rowDrag && row.type !== 'summary') {
-        const handle = createDiv('pg-row-drag-handle');
-        handle.setAttribute('data-row-drag', '');
-        handle.setAttribute('data-drag-label', String(row.data[cols[i].field] ?? ''));
-        handle.innerHTML = this.iconRenderer.renderToString('drag', 14);
-        const inner = cellEl.querySelector<HTMLElement>('.pg-cell__inner');
-        if (inner) {
-          inner.insertBefore(handle, inner.firstChild);
-        } else {
-          cellEl.insertBefore(handle, cellEl.firstChild);
-        }
-      }
-      this.applyMasterDetailToggle(cellEl, row, cols[i], options);
-      applyTreeToggle(cellEl, row, cols[i], options.treeData, this.iconRenderer, this.eventBus);
-      el.appendChild(cellEl);
+      el.appendChild(this.buildDataCell(row, cols[i], colOffset + i, options));
     }
 
     if (panel === 'center') {
       // Right virtual spacer (columns scrolled off to the right)
-      const rightSpacerW = options.centerRightSpacerW ?? 0;
-      if (rightSpacerW > 0) {
-        const sp = createDiv('pg-cell--h-spacer');
-        sp.style.cssText = `width:${rightSpacerW}px;min-width:${rightSpacerW}px;flex-shrink:0;`;
-        el.appendChild(sp);
-      }
+      el.appendChild(this.buildSpacer(SPACER_END_CLASS, options.centerRightSpacerW ?? 0));
     }
 
-    this.attachRowListeners(el, row, cols, colOffset, options);
+    this.attachRowListeners(el, row);
     return el;
+  }
+
+  /**
+   * Builds one data-row cell, fully decorated.
+   *
+   * Shared by the initial row build and by {@link reconcilePanelCells} so a cell
+   * created because its column just entered the layout is byte-for-byte the same
+   * element the initial render would have produced — there is no second, subtly
+   * different construction path to drift.
+   *
+   * @param row      - Row the cell belongs to.
+   * @param col      - Column being rendered.
+   * @param colIndex - Global column index across all panels.
+   */
+  private buildDataCell(
+    row: RowNode,
+    col: ColumnDef,
+    colIndex: number,
+    options: BodyRendererOptions,
+  ): HTMLElement {
+    const cellEl = this.cellRenderer.renderCell({
+      row,
+      colDef: col,
+      rowIndex: row.rowIndex,
+      colIndex,
+      iconRenderer: this.iconRenderer,
+      dateFormat: options.dateFormat,
+      timeZone: options.timeZone,
+      currencySymbol: options.currencySymbol,
+      locale: options.locale,
+      api: options.api ?? null,
+      editingEnabled: options.editingEnabled,
+    });
+    if (options.showVerticalBorders) cellEl.classList.add('pg-cell--v-border');
+    if (col.rowDrag && row.type !== 'summary') {
+      const handle = createDiv('pg-row-drag-handle');
+      handle.setAttribute('data-row-drag', '');
+      handle.setAttribute('data-drag-label', String(row.data[col.field] ?? ''));
+      handle.innerHTML = this.iconRenderer.renderToString('drag', 14);
+      const inner = cellEl.querySelector<HTMLElement>('.pg-cell__inner');
+      if (inner) {
+        inner.insertBefore(handle, inner.firstChild);
+      } else {
+        cellEl.insertBefore(handle, cellEl.firstChild);
+      }
+    }
+    this.applyMasterDetailToggle(cellEl, row, col, options);
+    applyTreeToggle(cellEl, row, col, options.treeData, this.iconRenderer, this.eventBus);
+    return cellEl;
+  }
+
+  /**
+   * Builds a horizontal virtual-scroll spacer.
+   *
+   * Always emitted — even at zero width — so {@link reconcilePanelCells} has a
+   * stable anchor to position cells against and a stable element to re-size when
+   * the window moves, instead of having to synthesise one mid-reconcile.
+   *
+   * @param markerClass - {@link SPACER_START_CLASS} or {@link SPACER_END_CLASS}.
+   * @param width       - Combined px width of the columns this spacer stands in for.
+   */
+  private buildSpacer(markerClass: string, width: number): HTMLElement {
+    const sp = createDiv(`pg-cell--h-spacer ${markerClass}`);
+    sp.style.cssText = `width:${width}px;min-width:${width}px;flex-shrink:0;`;
+    return sp;
   }
 
   /**
@@ -818,6 +1234,7 @@ export class BodyRenderer {
       currencySymbol: options.currencySymbol,
       locale: options.locale,
       api: options.api ?? null,
+      editingEnabled: options.editingEnabled,
     });
 
     // Override to virtual group column identity so selection/keyboard navigation
@@ -867,7 +1284,7 @@ export class BodyRenderer {
         groupValue: row.groupValue,
         childCount: row.childCount ?? 0,
         collapsed: !row.expanded,
-        api: null,
+        api: options.api ?? null,
       });
       if (typeof rendered === 'string') label.innerHTML = rendered;
       else label.appendChild(rendered);
@@ -960,7 +1377,7 @@ export class BodyRenderer {
             value: aggVal,
             aggregation: col.aggFunc!,
             label: col.summaryLabel,
-            api: null,
+            api: options.api ?? null,
           });
           if (typeof rendered === 'string') inner.innerHTML = rendered;
           else inner.appendChild(rendered);
@@ -1018,19 +1435,32 @@ export class BodyRenderer {
     const els = [ps.left, ps.center, ps.right].filter((e): e is HTMLElement => e !== null);
     const rowIndexStr = String(row.rowIndex);
     for (const el of els) {
-      el.className = cls;
-      el.setAttribute('data-row-index', rowIndexStr);
-      if (row.type === 'group') el.setAttribute('data-level', String(row.level));
-      if (options.treeData && row.type === 'data') el.setAttribute('data-level', String(row.level));
+      // Assigning className invalidates style for the entire row subtree. The
+      // class calculation is still performed on every render (so dynamic row
+      // classes retain their current semantics), but the DOM write is needed
+      // only when its result differs.
+      if (el.className !== cls) el.className = cls;
+      // A row normally keeps the same display index while it remains in the
+      // virtual window during scrolling. Avoid querying and rewriting every
+      // child cell in that common case: doing so creates O(visible rows ×
+      // visible cells) DOM mutations for each scroll frame. When the index
+      // genuinely changes (sort, filter, expansion, or a detail row being
+      // inserted), keep the existing full restamp so every consumer of the
+      // cell-level attribute observes exactly the same state as before.
+      const rowIndexChanged = el.getAttribute('data-row-index') !== rowIndexStr;
+      if (rowIndexChanged) el.setAttribute('data-row-index', rowIndexStr);
+      if (row.type === 'group') this.setAttributeIfChanged(el, 'data-level', String(row.level));
+      if (options.treeData && row.type === 'data') this.setAttributeIfChanged(el, 'data-level', String(row.level));
 
-      // Re-stamp every cell's own `data-row-index` too. Cells set it at build
-      // time and are reused across renders — but a row's index can shift while
-      // its cached DOM is kept (e.g. a Master/Detail detail row being injected
-      // above it, or a group expanding). Selection/keyboard/clipboard all match
-      // cells by this attribute, so leaving it stale silently breaks cell
-      // selection on any row whose index moved without a full rebuild.
-      const cells = el.querySelectorAll<HTMLElement>('.pg-cell[data-row-index]');
-      for (const cell of cells) cell.setAttribute('data-row-index', rowIndexStr);
+      if (rowIndexChanged) {
+        // Cells set this attribute at build time and are reused across renders.
+        // A row's index can shift while its cached DOM is kept (e.g. a
+        // Master/Detail detail row being injected above it, or a group
+        // expanding), so selection/keyboard/clipboard still require a full
+        // restamp in that less-common case.
+        const cells = el.querySelectorAll<HTMLElement>('.pg-cell[data-row-index]');
+        for (const cell of cells) cell.setAttribute('data-row-index', rowIndexStr);
+      }
     }
 
     // Keep the serial-number cell in sync. Its value is a display POSITION
@@ -1041,7 +1471,8 @@ export class BodyRenderer {
     // first built and silently drift out of order.
     if (options.showSerialNumber && ps.left) {
       const serial = ps.left.querySelector<HTMLElement>('.pg-cell__serial');
-      if (serial) serial.textContent = String(displayIndex + 1);
+      const serialText = String(displayIndex + 1);
+      if (serial && serial.textContent !== serialText) serial.textContent = serialText;
     }
 
     // Sync expand/collapse icon — expanded state can change without a full row rebuild.
@@ -1136,15 +1567,20 @@ export class BodyRenderer {
     cellEl.insertBefore(el, inner ?? cellEl.firstChild);
   }
 
-  private attachRowListeners(
-    el: HTMLElement,
-    row: RowNode,
-    cols: ColumnDef[],
-    colOffset: number,
-    options: BodyRendererOptions,
-  ): void {
+  /**
+   * Delegated row listeners resolve a clicked cell's column and formatting
+   * options at event time, not at build time.
+   *
+   * @param el  - Panel row element the listeners are delegated from.
+   * @param row - Row the element represents.
+   */
+  private attachRowListeners(el: HTMLElement, row: RowNode): void {
     el.addEventListener('click', (e) => {
-      const checkboxEl = (e.target as HTMLElement).closest('.pg-checkbox');
+      // `[data-node-id]` narrows this to the row-selection checkbox. A `boolean`
+      // column renders a checkbox of its own in an ordinary data cell, and
+      // without the attribute test clicking one would toggle the row's selection
+      // instead of the cell's value.
+      const checkboxEl = (e.target as HTMLElement).closest('.pg-checkbox[data-node-id]');
       if (checkboxEl) {
         e.stopPropagation();
         this.rowSelectionEngine.toggleRowSelection(row.nodeId, this.store.get('allRows'));
@@ -1163,17 +1599,15 @@ export class BodyRenderer {
       // cell selection — it emits its own click event (see
       // applyMasterDetailToggle) and stops there.
       if ((e.target as HTMLElement).closest('[data-detail-toggle]')) return;
+      // Same for a `longText` cell's expand control, and for a sharper reason:
+      // selecting the cell mounts the fill handle in the very corner the
+      // toggle occupies, moving it out from under the cursor between press and
+      // release — so the click that was supposed to open the panel never fires.
+      if ((e.target as HTMLElement).closest(`[${LONG_TEXT_TOGGLE_ATTR}]`)) return;
       const cellEl = (e.target as HTMLElement).closest<HTMLElement>('[data-col-index][data-col-id]');
       if (!cellEl) return;
       const globalColIndex = Number(cellEl.getAttribute('data-col-index'));
-      const colId = cellEl.getAttribute('data-col-id') ?? '';
-      // For the virtual auto-group column (colId '__group__'):
-      //   • data rows  → use the real leaf group ColumnDef (supports editing)
-      //   • group/footer rows → use the non-editable sentinel (editing blocked at startCellEdit)
-      const colDef = cols.find((c) => c.colId === colId)
-        ?? (colId === '__group__'
-          ? (row.type === 'data' ? (options.leafGroupColDef ?? null) : GROUP_LABEL_COL_DEF)
-          : null);
+      const colDef = this.resolveCellColumn(cellEl.getAttribute('data-col-id') ?? '', row, this.lastOptions);
       if (!colDef) return;
 
       const emit = (ev: MouseEvent): void => {
@@ -1219,7 +1653,7 @@ export class BodyRenderer {
       const globalColIndex = Number(cellEl.getAttribute('data-col-index'));
       this.eventBus.emit(GridEventType.CELL_CONTEXT_MENU, {
         row,
-        rowIndex: row.rowIndex, 
+        rowIndex: row.rowIndex,
         colIndex: globalColIndex,
         x: e.clientX,
         y: e.clientY,
@@ -1231,11 +1665,7 @@ export class BodyRenderer {
       const cellEl = (e.target as HTMLElement).closest<HTMLElement>('[data-col-index][data-col-id]');
       if (!cellEl) return;
       const globalColIndex = Number(cellEl.getAttribute('data-col-index'));
-      const colId = cellEl.getAttribute('data-col-id') ?? '';
-      const colDef = cols.find((c) => c.colId === colId)
-        ?? (colId === '__group__'
-          ? (row.type === 'data' ? (options.leafGroupColDef ?? null) : GROUP_LABEL_COL_DEF)
-          : null);
+      const colDef = this.resolveCellColumn(cellEl.getAttribute('data-col-id') ?? '', row, this.lastOptions);
       if (!colDef) return;
       this.eventBus.emit(GridEventType.CELL_DOUBLE_CLICKED, {
         row,
@@ -1246,6 +1676,11 @@ export class BodyRenderer {
         event: e,
       });
     });
+  }
+
+  /** Avoids a DOM mutation when an attribute already has the required value. */
+  private setAttributeIfChanged(el: HTMLElement, name: string, value: string): void {
+    if (el.getAttribute(name) !== value) el.setAttribute(name, value);
   }
 
   private getRowClass(row: RowNode, displayIndex: number, options: BodyRendererOptions): string {
@@ -1273,6 +1708,8 @@ export class BodyRenderer {
     if (row.isTreeFiller) cls.push('pg-row--tree-filler');
     if (options.rowShading && displayIndex % 2 === 1) cls.push('pg-row--alt');
     if (row.cssClass) cls.push(row.cssClass);
+    const dynamicClass = options.rowClassFn?.(row.data, displayIndex);
+    if (dynamicClass) cls.push(dynamicClass);
     return cls.join(' ');
   }
 }

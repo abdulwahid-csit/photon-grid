@@ -71,7 +71,10 @@ const PAGE_ENTER_OFFSET_PX = 14;
  * regardless of how many rows happened to overlap. At 1.0-overlap (no
  * pagination, or a same-page reorder) the classic FLIP is always used.
  */
-const PAGE_REPLACE_SHARE_THRESHOLD = 0.5;
+// Preserve true row movement whenever even a small part of a virtual window
+// survives a large reorder. The viewport fallback is only meaningful when no
+// rendered row existed before the operation.
+const PAGE_REPLACE_SHARE_THRESHOLD = 0;
 
 /**
  * Row-movement durations, in milliseconds.
@@ -177,6 +180,12 @@ export class RowAnimator {
    */
   private readonly active = new Map<HTMLElement, (e: TransitionEvent) => void>();
 
+  /** Elements inverted for the next frame but not yet transitioning. */
+  private readonly pending = new Set<HTMLElement>();
+
+  /** The scheduled play frame, if the animator is currently between FLIP phases. */
+  private playFrame: number | null = null;
+
   /**
    * `true` between the invert phase and the frame that starts the transitions.
    *
@@ -269,7 +278,7 @@ export class RowAnimator {
     if (total === 0) return;
 
     const localizedToggle = this.animationType === 'group' || this.animationType === 'detail';
-    const pageReplaced = !localizedToggle && carried / total < PAGE_REPLACE_SHARE_THRESHOLD;
+    const pageReplaced = !localizedToggle && carried / total <= PAGE_REPLACE_SHARE_THRESHOLD;
 
     for (const [nodeId, parts] of rendered) {
       const newTop = newTopMap.get(nodeId);
@@ -328,11 +337,12 @@ export class RowAnimator {
       el.style.transform = `translate3d(0, ${PAGE_ENTER_OFFSET_PX}px, 0)`;
     }
 
-    // Exactly one forced style flush for the entire batch, so the browser
-    // commits every inverted position above as the animation's start state.
-    // Any element works; the first one written is guaranteed to exist here.
-    const probe = toFlip[0] ?? toFadeIn[0] ?? toSlideIn[0];
-    void probe.offsetHeight;
+    // A rapid second operation can arrive before the next animation frame.
+    // Keep these elements separately from `active` so that pending frame can
+    // be cancelled and its inverted styles released before the next FLIP pass.
+    for (const el of toFlip) this.pending.add(el);
+    for (const el of toFadeIn) this.pending.add(el);
+    for (const el of toSlideIn) this.pending.add(el);
 
     // Mark the animation as live from here, not from the play phase below:
     // `active` does not fill until the next frame, and a caller polling
@@ -341,35 +351,46 @@ export class RowAnimator {
     this.playPending = true;
 
     // ── Play phase ───────────────────────────────────────────────────────────
-    // Next frame: enable transitions and release every element to its natural
-    // resting place. Only `transform`/`opacity` are transitioned — never `top`,
+    // Two frames out, not one. The browser has to commit every inverted
+    // position above as the animation's start state before transitions are
+    // enabled, or it coalesces the invert and the release into a single style
+    // recalculation and the rows jump straight to their resting places with no
+    // movement. The first frame buys that commit without the synchronous
+    // layout a forced `offsetHeight` read would cost; the second starts the
+    // transitions. Only `transform`/`opacity` are transitioned — never `top`,
     // which the position stylesheet owns and which would force layout per frame.
-    requestAnimationFrame(() => {
-      this.playPending = false;
-      const moveTransition = `transform ${duration}ms ${EASING}`;
-      const fadeTransition = `opacity ${duration}ms ${EASING}, transform ${duration}ms ${EASING}`;
+    this.playFrame = requestAnimationFrame(() => {
+      this.playFrame = requestAnimationFrame(() => {
+        this.playFrame = null;
+        this.playPending = false;
+        const moveTransition = `transform ${duration}ms ${EASING}`;
+        const fadeTransition = `opacity ${duration}ms ${EASING}, transform ${duration}ms ${EASING}`;
 
-      for (const el of toFlip) {
-        el.style.transition = moveTransition;
-        el.style.transform = '';
-        this.trackUntilDone(el);
-      }
-      for (const el of toFadeIn) {
-        el.style.transition = fadeTransition;
-        el.style.opacity = '';
-        el.style.transform = '';
-        this.trackUntilDone(el);
-      }
-      for (const el of toSlideIn) {
-        el.style.transition = moveTransition;
-        el.style.transform = '';
-        this.trackUntilDone(el);
-      }
+        for (const el of toFlip) {
+          this.pending.delete(el);
+          el.style.transition = moveTransition;
+          el.style.transform = '';
+          this.trackUntilDone(el);
+        }
+        for (const el of toFadeIn) {
+          this.pending.delete(el);
+          el.style.transition = fadeTransition;
+          el.style.opacity = '';
+          el.style.transform = '';
+          this.trackUntilDone(el);
+        }
+        for (const el of toSlideIn) {
+          this.pending.delete(el);
+          el.style.transition = moveTransition;
+          el.style.transform = '';
+          this.trackUntilDone(el);
+        }
 
-      toFlip.length = 0;
-      flipDeltas.length = 0;
-      toFadeIn.length = 0;
-      toSlideIn.length = 0;
+        toFlip.length = 0;
+        flipDeltas.length = 0;
+        toFadeIn.length = 0;
+        toSlideIn.length = 0;
+      });
     });
   }
 
@@ -412,7 +433,13 @@ export class RowAnimator {
    * class avoid timer-based cleanup entirely.
    */
   private finishAll(): void {
-    if (this.active.size === 0) return;
+    if (this.playFrame !== null) {
+      cancelAnimationFrame(this.playFrame);
+      this.playFrame = null;
+    }
+    this.playPending = false;
+    for (const el of this.pending) this.release(el);
+    this.pending.clear();
     for (const el of Array.from(this.active.keys())) this.release(el);
   }
 
@@ -439,7 +466,6 @@ export class RowAnimator {
   destroy(): void {
     this.finishAll();
     this.snapshot = null;
-    this.playPending = false;
   }
 }
 

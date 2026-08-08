@@ -18,13 +18,19 @@ export const rowDragCss = `/* ────────────────�
   cursor: grab;
   opacity: 0.35;
   color: var(--pg-colors-text-secondary, #475569);
-  margin-right: 4px;
+  margin-right: 8px;
 }
 .pg-row-drag-handle:hover { opacity: 0.7; }
 .pg-row-drag-handle:active { cursor: grabbing; }
 
+/* Positioned by transform rather than left/top: a translation is resolved on the
+ * compositor, while left/top dirty layout and paint on every write. RowDragRenderer
+ * publishes the cursor position as --pg-ghost-x / --pg-ghost-y (see DragGhost);
+ * the chip's own (12px, -50%) offset is composed on top so it is preserved. */
 .pg-row-drag-ghost {
   position: fixed;
+  top: 0;
+  left: 0;
   pointer-events: none;
   z-index: 9999;
   display: inline-flex;
@@ -33,14 +39,15 @@ export const rowDragCss = `/* ────────────────�
   padding: 5px 10px;
   height: var(--pg-drag-ghost-height, 28px);
   border-radius: var(--pg-borders-radius-sm, 4px);
-  // border: 1.5px solid var(--pg-colors-primary, #2563eb);
+  /* border: 1.5px solid var(--pg-colors-primary, #2563eb); */
   border: 2px solid var(--pg-colors-drag-ghost-border-color, #ddd);
   background: var(--pg-colors-surface, #fff);
   color: var(--pg-colors-row-drag-ghost, #2c2c2c);
   font-size: var(--pg-typography-font-size-sm, 12px);
   font-weight: 500;
   box-shadow: 0 6px 24px rgba(37,99,235,0.13), 0 2px 8px rgba(37,99,235,0.12);
-  transform: translate(12px, -50%);
+  transform: translate3d(var(--pg-ghost-x, -9999px), var(--pg-ghost-y, -9999px), 0) translate(12px, -50%);
+  will-change: transform;
   white-space: nowrap;
   max-width: 240px;
   overflow: hidden;

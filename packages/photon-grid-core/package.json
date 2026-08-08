@@ -1,25 +1,36 @@
 {
   "name": "photon-grid-core",
-  "version": "3.0.2",
+  "version": "2.0.15",
   "description": "Professional zero-dependency TypeScript data grid with enterprise-grade features.",
   "author": "Abdul Wahid",
   "license": "MIT",
-  "access": "public",
   "type": "module",
-  "main": "./dist/index.js",
+  "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "browser": "./dist/index.js",
+  "unpkg": "./dist/photon-grid.min.js",
+  "jsdelivr": "./dist/photon-grid.min.js",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
+      "require": "./dist/index.cjs",
       "default": "./dist/index.js"
     },
     "./import/sheetjs": {
       "types": "./dist/engines/import/adapters/sheetjs-workbook-parser.d.ts",
       "import": "./dist/engines/import/adapters/sheetjs-workbook-parser.js",
       "default": "./dist/engines/import/adapters/sheetjs-workbook-parser.js"
+    },
+    "./export/excel": {
+      "types": "./dist/export/excel.d.ts",
+      "import": "./dist/export/excel.js",
+      "default": "./dist/export/excel.js"
+    },
+    "./export/pdf": {
+      "types": "./dist/export/pdf.d.ts",
+      "import": "./dist/export/pdf.js",
+      "default": "./dist/export/pdf.js"
     },
     "./styles/*": "./styles/*",
     "./package.json": "./package.json"
@@ -35,9 +46,12 @@
     "styles/*.css"
   ],
   "scripts": {
-    "clean": "npx rimraf dist",
-    "build": "tsc && npm run build:cdn && node scripts/make-dist-pkg.mjs",
-    "build:cdn": "esbuild src/index.ts --bundle --minify --platform=browser --format=iife --global-name=PhotonGrid --outfile=dist/photon-grid.min.js",
+    "clean": "rimraf dist",
+    "build": "npm run clean && tsc && npm run build:cjs && npm run build:cdn && node scripts/make-dist-pkg.mjs",
+    "build:cjs": "esbuild src/index.ts --bundle --platform=node --format=cjs --outfile=dist/index.cjs",
+
+    "build:cdn": "esbuild src/index.ts --bundle --minify --platform=browser --target=es2020 --format=iife --global-name=PhotonGrid --outfile=dist/photon-grid.min.js",
+
     "build:watch": "tsc --project tsconfig.json --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -48,10 +62,7 @@
     "demo:tree": "esbuild demo/tree-data-demo.ts --bundle --outfile=demo/tree-data-demo.bundle.js --format=iife --global-name=PhotonGridTreeDemo --target=es2020 --platform=browser --sourcemap",
     "prepare": "npm run build",
     "prepublishOnly": "npm run build",
-    "pack:check": "npm pack --dry-run",
-    "browser": "./dist/photon-grid.min.js",
-    "unpkg": "./dist/photon-grid.min.js",
-    "jsdelivr": "./dist/photon-grid.min.js"
+    "pack:check": "npm pack --dry-run"
   },
   "keywords": [
     "grid",

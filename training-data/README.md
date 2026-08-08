@@ -1,5 +1,9 @@
 # Photon AI Training Dataset
 
+<p align="center">
+  <img src="../assets/logo.svg" alt="Photon Grid" width="180"/>
+</p>
+
 A generated, versioned training dataset for Photon AI's natural-language
 command layer — intent recognition, entity/parameter extraction, and action
 execution — covering the full data-grid feature surface (sorting, filtering,

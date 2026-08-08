@@ -1,25 +1,52 @@
+import { DragGhost } from './drag-ghost';
+import { portalHostFor } from '../theme/overlay-portal';
+
+/**
+ * Content of the floating chip shown while a {@link DragDropEngine} drag is in
+ * progress. Every field is optional; omitted parts are simply not built.
+ */
 export interface DragPreviewOptions {
+  /** Text shown in the chip. Defaults to `'Dragging'`. */
   label?: string;
+  /** Pre-rendered icon markup, injected before the label. */
   icon?: string;
+  /** Multi-item badge. Only rendered when greater than `1`. */
   count?: number;
+  /** Avatar image source. Implies an avatar slot even without `shape`. */
   avatarUrl?: string;
+  /** Avatar silhouette. Defaults to `'circle'`. */
   shape?: 'circle' | 'square';
 }
 
+/**
+ * The floating chip that follows the cursor during a generic drag.
+ *
+ * Structure is rebuilt per gesture (the label, icon, and badge differ each time);
+ * positioning is delegated to {@link DragGhost}, so movement is a compositor-only
+ * transform rather than a layout-dirtying `left` / `top` write.
+ *
+ * Visual styling belongs entirely to the `.pg-drag-preview` rules in the theme
+ * stylesheet — this class only builds semantic children and data-driven classes.
+ */
 export class DragPreview {
-  private el: HTMLElement | null = null;
+  private readonly ghost = new DragGhost();
   private offsetX = 12;
   private offsetY = 12;
 
   /**
-   * Create a theme-styled floating drag preview.
+   * Builds a chip, appends it to the owning grid's portal host, and takes
+   * ownership of its position.
    *
-   * Visual styling belongs to `.pg-drag-preview` CSS rules; this method only
-   * builds semantic children and data-driven classes.
+   * Any previous chip is destroyed first, so a re-entrant drag start cannot leak
+   * an orphaned element.
    *
    * @param options - Label, icon, count badge, and optional avatar metadata.
+   * @param originEl - The dragged element, used to resolve which grid's portal
+   *                   host the chip belongs to so it wears that grid's theme.
+   *                   Omit outside a grid; the chip then falls back to `<body>`.
+   * @returns The created element, for callers that need to decorate it further.
    */
-  create(options: DragPreviewOptions = {}): HTMLElement {
+  create(options: DragPreviewOptions = {}, originEl?: HTMLElement | null): HTMLElement {
     this.destroy();
 
     const preview = document.createElement('div');
@@ -57,18 +84,30 @@ export class DragPreview {
       preview.appendChild(badge);
     }
 
-    document.body.appendChild(preview);
-    this.el = preview;
+    portalHostFor(originEl).appendChild(preview);
+    this.ghost.attach(preview, this.offsetX, this.offsetY);
     return preview;
   }
 
+  /**
+   * Moves the chip to a cursor position.
+   *
+   * Safe to call at pointer-event frequency: an unchanged position performs no
+   * DOM write, and a changed one costs two custom-property assignments that the
+   * compositor resolves without layout.
+   *
+   * @param x - Client x coordinate of the cursor.
+   * @param y - Client y coordinate of the cursor.
+   */
   moveTo(x: number, y: number): void {
-    if (!this.el) return;
-    this.el.style.transform = `translate(${x + this.offsetX}px, ${y + this.offsetY}px)`;
+    this.ghost.moveTo(x, y);
   }
 
   /**
-   * Set the cursor-relative offset used by {@link moveTo}.
+   * Sets the cursor-relative offset used by {@link moveTo}.
+   *
+   * Takes effect on the next {@link create}, and immediately for an already-live
+   * chip.
    *
    * @param x - Horizontal offset in CSS pixels.
    * @param y - Vertical offset in CSS pixels.
@@ -76,13 +115,17 @@ export class DragPreview {
   setOffset(x: number, y: number): void {
     this.offsetX = x;
     this.offsetY = y;
+    const el = this.ghost.element;
+    if (el) this.ghost.attach(el, x, y);
   }
 
-  /** Remove the current preview element from the DOM. */
+  /** The live chip element, or `null` when no drag is in progress. */
+  get element(): HTMLElement | null {
+    return this.ghost.element;
+  }
+
+  /** Removes the current chip from the DOM. Safe to call when none exists. */
   destroy(): void {
-    if (this.el) {
-      this.el.remove();
-      this.el = null;
-    }
+    this.ghost.detach();
   }
 }

@@ -57,10 +57,13 @@ function resolveColorCategory(key: string): ThemeCategory {
   if (key === 'borderFocus') return ThemeCategory.Focus;
   if (key.startsWith('border')) return ThemeCategory.Borders;
   if (key.startsWith('surface') || key.startsWith('background')) return ThemeCategory.Surface;
+  if (key.startsWith('overlay')) return ThemeCategory.Surface;
   if (key.startsWith('text')) return ThemeCategory.Fonts;
   if (key === 'headerHover') return ThemeCategory.Hover;
   if (key.startsWith('header')) return ThemeCategory.Header;
   if (key === 'rowHover') return ThemeCategory.Hover;
+  // Checked ahead of the generic `row` rule, which would otherwise claim it.
+  if (key === 'rowDragGhost') return ThemeCategory.Drag;
   if (key.startsWith('row')) return ThemeCategory.Rows;
   if (key.startsWith('cellEdit')) return ThemeCategory.Cells;
   if (key.startsWith('selection')) return ThemeCategory.Selection;
@@ -71,10 +74,12 @@ function resolveColorCategory(key: string): ThemeCategory {
   if (key.startsWith('resizeHandle')) return ThemeCategory.Borders;
   if (key.startsWith('drag')) return ThemeCategory.Drag;
   if (key.startsWith('checkbox')) return ThemeCategory.Checkbox;
-  if (key.startsWith('badge')) return ThemeCategory.Status;
-  if (key.startsWith('groupRow')) return ThemeCategory.Grouping;
+  if (key.startsWith('badge') || key.startsWith('chip')) return ThemeCategory.Status;
+  // `group*` covers the grouping bar, group rows, their footers and toggles.
+  if (key.startsWith('group') || key === 'aggText') return ThemeCategory.Grouping;
+  if (key.startsWith('skeleton')) return ThemeCategory.Rows;
   if (key.startsWith('tooltip')) return ThemeCategory.Tooltip;
-  return ThemeCategory.Status; // success/warning/error/info(+Light)
+  return ThemeCategory.Status; // success/warning/error/info/danger(+Light/Soft/Subtle)
 }
 
 /** Derives the functional category for any token from its group + key. */
@@ -103,6 +108,8 @@ function resolveCategory(group: string, key: string): ThemeCategory {
       if (key.startsWith('scrollbar')) return ThemeCategory.Scrollbar;
       if (key.startsWith('checkbox')) return ThemeCategory.Checkbox;
       return ThemeCategory.Spacing;
+    case 'opacity':
+      return ThemeCategory.Surface;
     default:
       return ThemeCategory.Surface;
   }

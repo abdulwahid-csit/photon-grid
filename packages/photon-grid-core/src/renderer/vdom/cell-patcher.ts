@@ -1,4 +1,4 @@
-/**
+﻿/**
  * In-place cell updates for the viewport Virtual DOM.
  *
  * The patcher never creates or replaces a `.pg-cell` element. It writes into
@@ -15,20 +15,12 @@ import type { ColumnDef } from '../../types/column.types';
 import type { RowNode } from '../../types/row.types';
 import type { CellRenderer, CellRenderContext } from '../cell-renderer';
 import type { IconRenderer } from '../../icons/icon-renderer';
-import type { SparklineRenderer } from '../../chart/sparkline/sparkline-renderer';
 import { resolveFieldPath, formatCellValue } from '../../engines/editing/value-accessor';
 import { formatValue } from '../../engines/editing/value-parser';
+import { resolveDisplayRenderer } from '../renderer-resolver';
 import { CellPatchKind } from './vdom.types';
 import type { VirtualCell, VDomRenderContext } from './vdom.types';
 import { snapshotCellValue } from './cell-value-equality';
-
-/**
- * A sparkline `<canvas>` carrying its renderer.
- *
- * `CellRenderer` attaches the instance to the element precisely so live
- * updates can reach it without rebuilding the cell.
- */
-type SparklineCanvas = HTMLCanvasElement & { _pgSparkline?: SparklineRenderer };
 
 /**
  * Class marking a cell whose editor is open. A cell carrying it is never
@@ -59,10 +51,10 @@ export class CellPatcher {
    * Writes a cell's new value into its existing element.
    *
    * Chooses the cheapest correct strategy:
-   * 1. **Deferred** — the cell is being edited; the DOM is left alone.
-   * 2. **Text** — a plain-text column: one `textContent` write, no allocation
+   * 1. **Deferred** â€” the cell is being edited; the DOM is left alone.
+   * 2. **Text** â€” a plain-text column: one `textContent` write, no allocation
    *    and no element creation.
-   * 3. **Content** — a custom renderer or a rich built-in type: the cell's
+   * 3. **Content** â€” a custom renderer or a rich built-in type: the cell's
    *    inner content is rebuilt in place, leaving the cell element (and its
    *    state) intact.
    *
@@ -99,11 +91,12 @@ export class CellPatcher {
       currencySymbol: ctx.currencySymbol,
       locale: ctx.locale,
       api: ctx.api,
+      editingEnabled: ctx.editingEnabled,
     };
 
     this.syncDynamicClass(vcell, value, rawValue, renderCtx);
 
-    // Text fast path — the common case for numeric/string/date columns, which
+    // Text fast path â€” the common case for numeric/string/date columns, which
     // is where high-frequency streams concentrate.
     if (vcell.valueEl) {
       const text = this.formatText(value, colDef, renderCtx);
@@ -114,10 +107,35 @@ export class CellPatcher {
       return CellPatchKind.TEXT;
     }
 
-    // Canvas fast path — a sparkline redraws into its existing canvas.
-    if (this.patchSparkline(vcell, value)) {
-      vcell.value = snapshotCellValue(value);
-      return CellPatchKind.TEXT;
+    // Checkbox / sparkline / progress / image / â€¦ â€” a renderer whose element
+    // holds state the DOM cannot cheaply recreate updates it in place through
+    // its own `patch`. Dispatching through the registry rather than a chain of
+    // hardcoded probes is what lets a newly-registered renderer participate
+    // without this file knowing it exists.
+    const resolved = resolveDisplayRenderer(colDef);
+    if (resolved.builtIn?.patch) {
+      const patched = resolved.builtIn.patch(el, {
+        inner: (el.firstElementChild as HTMLElement | null) ?? el,
+        value,
+        rawValue,
+        formattedValue: this.formatText(value, colDef, renderCtx),
+        row: row.data,
+        colDef,
+        rowIndex: row.rowIndex,
+        colIndex: renderCtx.colIndex,
+        options: resolved.options,
+        icons: this.iconRenderer,
+        locale: ctx.locale,
+        dateFormat: ctx.dateFormat,
+        timeZone: ctx.timeZone,
+        currencySymbol: ctx.currencySymbol,
+        editingEnabled: ctx.editingEnabled,
+        api: ctx.api,
+      });
+      if (patched) {
+        vcell.value = snapshotCellValue(value);
+        return CellPatchKind.TEXT;
+      }
     }
 
     const inner = el.firstElementChild as HTMLElement | null;
@@ -126,28 +144,6 @@ export class CellPatcher {
     this.cellRenderer.renderCellContent(inner, value, rawValue, renderCtx);
     vcell.value = snapshotCellValue(value);
     return CellPatchKind.CONTENT;
-  }
-
-  /**
-   * Redraws a live sparkline in place, reusing its `<canvas>`.
-   *
-   * Rebuilding the cell's content would discard the canvas and create a new
-   * one, and a new canvas cannot paint until it has been laid out and measured
-   * — `CellRenderer` defers that first draw to the next animation frame. At any
-   * meaningful update rate that leaves a blank canvas on screen every tick,
-   * which reads as flicker. Drawing into the canvas that is already mounted has
-   * no such gap, and allocates nothing.
-   *
-   * @param vcell - The cell being patched.
-   * @param value - The new series.
-   * @returns `true` when the cell was a sparkline and has been redrawn.
-   */
-  private patchSparkline(vcell: VirtualCell, value: unknown): boolean {
-    const canvas = vcell.el.querySelector<HTMLCanvasElement>('canvas.pg-sparkline');
-    const renderer = (canvas as SparklineCanvas | null)?._pgSparkline;
-    if (!renderer) return false;
-    renderer.setData(value);
-    return true;
   }
 
   /**
@@ -196,7 +192,7 @@ export class CellPatcher {
    * it actually changed.
    *
    * A value-dependent class (e.g. red for a falling price) is part of the
-   * cell's appearance, so it must track the value — but the class list is
+   * cell's appearance, so it must track the value â€” but the class list is
    * shared with selection, hover and alignment classes, so only the previously
    * applied dynamic class is removed rather than resetting `className`.
    */
@@ -216,7 +212,7 @@ export class CellPatcher {
 
   /**
    * Produces the display string for a text-only column, matching
-   * `CellRenderer.renderDefaultCell`'s default branch exactly — a column-level
+   * `CellRenderer.renderDefaultCell`'s default branch exactly â€” a column-level
    * `valueFormatter` wins, otherwise the built-in type formatting applies.
    */
   private formatText(value: unknown, colDef: ColumnDef, ctx: CellRenderContext): string {

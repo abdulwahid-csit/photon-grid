@@ -4,10 +4,16 @@ import type { IconRenderer } from '../icons/icon-renderer';
 import type { RowNode } from '../types/row.types';
 import { GridEventType } from '../types/event.types';
 import { createDiv } from './dom-utils';
+import { portalHostFor } from '../theme/overlay-portal';
 import { computeRowDragPreview, previewTopFor } from './row-drag-preview';
+import { DragFrameScheduler } from '../drag-drop/drag-frame-scheduler';
+import { DragGhost } from '../drag-drop/drag-ghost';
+import { DragStyleWriter } from '../drag-drop/drag-style-writer';
 
-const SCROLL_ZONE = 64;    // px from body edge to engage auto-scroll
-const MAX_SCROLL_SPD = 24; // px/frame at extreme edge
+const SCROLL_ZONE = 64;      // px from body edge to engage auto-scroll
+const MAX_SCROLL_SPD = 1440; // px/**second** at the extreme edge
+/** Upper bound on one frame's delta time (s), so a backgrounded tab does not lurch. */
+const MAX_FRAME_DELTA = 0.1;
 
 /**
  * A slot in the published row array. A demand-loading row model publishes a
@@ -24,7 +30,17 @@ interface RenderWindow {
 }
 
 export class RowDragRenderer {
-  private ghostEl: HTMLElement | null = null;
+  /** Positions the drag chip with a compositor-only transform. */
+  private readonly ghost = new DragGhost();
+  /**
+   * Owns the stylesheet carrying the previewed row `top` overrides and skips the
+   * assignment when the generated CSS is unchanged.
+   *
+   * The previous implementation looked the element up with a document-wide
+   * `document.querySelector` on every read *and* every clear, then rewrote it
+   * unconditionally.
+   */
+  private readonly topStyles = new DragStyleWriter('data-pg-row-drag-tops');
   private draggingNodeId: string | null = null;
   private dragLabel = '';
   private isDragging = false;
@@ -38,8 +54,40 @@ export class RowDragRenderer {
   private treeReparentHandler: ((draggedId: string, targetId: string, position: 'before' | 'after' | 'inside') => boolean) | null = null;
   private scrollFn: ((dy: number) => void) | null = null;
   private autoScrollRAF: number | null = null;
+  private autoScrollLastTs = 0;
   private cursorX = 0;
   private cursorY = 0;
+
+  /**
+   * Body-viewport bounds, captured at drag start and refreshed only when the
+   * layout can have moved (a re-render, an auto-scroll step).
+   *
+   * Both the drop-target hit test and the auto-scroll tick used to call
+   * `getBoundingClientRect()` — the hit test on every pointer event, immediately
+   * after the chip's position had been written, which forces a synchronous
+   * layout flush each time.
+   */
+  private bodyRect: DOMRect | null = null;
+
+  /**
+   * Coalesces `pointermove` into one frame of work.
+   *
+   * Hit-testing the render window, regenerating the row-`top` sheet, and
+   * renumbering the serial column now happen once per painted frame against the
+   * newest sample instead of once per pointer event.
+   */
+  private readonly frames: DragFrameScheduler;
+
+  /**
+   * Serial-number `<span>`s by node id, plus the pool of values to redistribute.
+   *
+   * Built once at drag start and after each `ROWS_RENDERED`, rather than
+   * re-queried, re-parsed, and re-sorted on every drop-target change.
+   */
+  private serialSpans = new Map<string, HTMLElement>();
+  private serialValues: number[] = [];
+  /** `false` when {@link serialSpans} must be rebuilt before the next renumber. */
+  private serialCacheValid = false;
 
   /**
    * `false` when the grid must not rewrite row order itself — the application
@@ -67,6 +115,7 @@ export class RowDragRenderer {
     this.boundMouseDown = this.onMouseDown.bind(this);
     this.boundMouseMove = this.onMouseMove.bind(this);
     this.boundMouseUp = this.onMouseUp.bind(this);
+    this.frames = new DragFrameScheduler((x, y) => this.applyDragFrame(x, y));
   }
 
   mount(gridEl: HTMLElement, bodyWrapEl: HTMLElement, scrollFn: (dy: number) => void): void {
@@ -81,7 +130,13 @@ export class RowDragRenderer {
     // `pg-row--row-dragging` opacity placeholder, the tree-mode drop-target
     // highlight, and the previewed serial order — as soon as auto-scroll (or a
     // wheel) advances the window mid-drag. Re-stamp them after every render.
-    this.unsubscribeRowsRendered = this.eventBus.on(GridEventType.ROWS_RENDERED, () => this.reapplyDragVisuals());
+    this.unsubscribeRowsRendered = this.eventBus.on(GridEventType.ROWS_RENDERED, () => {
+      // The re-render replaces the serial cells this drag caches and can move
+      // the body viewport, so both caches are dropped before the re-stamp.
+      this.serialCacheValid = false;
+      this.bodyRect = null;
+      this.reapplyDragVisuals();
+    });
   }
 
   /**
@@ -183,15 +238,24 @@ export class RowDragRenderer {
     ghost.appendChild(dragIcon);
     ghost.appendChild(blockIcon);
     ghost.appendChild(labelSpan);
-    ghost.style.left = `${e.clientX}px`;
-    ghost.style.top = `${e.clientY}px`;
-    document.body.appendChild(ghost);
-    this.ghostEl = ghost;
+    // Portaled out of the grid container, so it goes into the owning grid's host
+    // or it paints in light-mode fallbacks. See theme/overlay-portal.
+    portalHostFor(this.gridEl).appendChild(ghost);
+    // The chip is moved by transform from here on — no layout, no paint. The
+    // theme rule composes this translation with the chip's own `-50%` centring.
+    this.ghost.attach(ghost);
+    this.ghost.moveTo(e.clientX, e.clientY);
 
     this.setDraggingClass(nodeId, true);
     this.gridEl?.classList.add('pg-grid--row-dragging');
 
-    document.addEventListener('pointermove', this.boundMouseMove);
+    this.topStyles.mount();
+    // Read once, in one batch, rather than on every pointer event inside the
+    // drop-target hit test.
+    this.bodyRect = this.bodyWrapEl?.getBoundingClientRect() ?? null;
+    this.serialCacheValid = false;
+
+    document.addEventListener('pointermove', this.boundMouseMove, { passive: true });
     document.addEventListener('pointerup', this.boundMouseUp);
     document.body.style.userSelect = 'none';
     document.body.style.cursor = 'grabbing';
@@ -206,30 +270,35 @@ export class RowDragRenderer {
 
   // ─── Mouse move ───────────────────────────────────────────────────────────
 
+  /**
+   * Records the pointer sample. All work is deferred to {@link applyDragFrame},
+   * which the scheduler runs at most once per painted frame.
+   */
   private onMouseMove(e: MouseEvent): void {
     if (!this.isDragging) return;
+    this.frames.sample(e.clientX, e.clientY);
+  }
 
-    this.cursorX = e.clientX;
-    this.cursorY = e.clientY;
-
-    if (this.ghostEl) {
-      this.ghostEl.style.left = `${e.clientX}px`;
-      this.ghostEl.style.top = `${e.clientY}px`;
-    }
-
+  /** The row drag's per-frame workload: move the chip, then re-resolve the drop slot. */
+  private applyDragFrame(x: number, y: number): void {
+    if (!this.isDragging) return;
+    this.cursorX = x;
+    this.cursorY = y;
+    this.ghost.moveTo(x, y);
     this.updateDropTarget();
   }
 
   private updateDropTarget(): void {
     if (!this.bodyWrapEl || !this.draggingNodeId) return;
 
-    const bodyRect = this.bodyWrapEl.getBoundingClientRect();
+    const bodyRect = this.ensureBodyRect();
+    if (!bodyRect) return;
     const isOutside =
       this.cursorX < bodyRect.left || this.cursorX > bodyRect.right ||
       this.cursorY < bodyRect.top  || this.cursorY > bodyRect.bottom;
 
     if (isOutside) {
-      this.ghostEl?.classList.add('pg-row-drag-ghost--outside');
+      this.ghost.setFlag('pg-row-drag-ghost--outside', true);
       if (this.targetNodeId !== null) {
         this.targetNodeId = null;
         this.targetRow = null;
@@ -237,7 +306,7 @@ export class RowDragRenderer {
       }
       return;
     }
-    this.ghostEl?.classList.remove('pg-row-drag-ghost--outside');
+    this.ghost.setFlag('pg-row-drag-ghost--outside', false);
 
     const scrollTop = this.getScrollTop();
     const cursorContentY = (this.cursorY - bodyRect.top) + scrollTop;
@@ -344,6 +413,10 @@ export class RowDragRenderer {
   // ─── Mouse up ─────────────────────────────────────────────────────────────
 
   private onMouseUp(_e: MouseEvent): void {
+    // Apply any sample still queued so the drop resolves against the pointer's
+    // final position rather than one up to a frame stale.
+    this.frames.flushNow();
+
     if (!this.isDragging) { this.cleanup(); return; }
 
     const draggedRow = this.draggedRow;
@@ -420,33 +493,69 @@ export class RowDragRenderer {
 
   private startAutoScrollLoop(): void {
     if (this.autoScrollRAF !== null) return;
-    this.autoScrollRAF = requestAnimationFrame(() => this.autoScrollTick());
+    this.autoScrollLastTs = 0;
+    this.autoScrollRAF = requestAnimationFrame(this.autoScrollTick);
   }
 
-  private autoScrollTick(): void {
+  /**
+   * One auto-scroll frame.
+   *
+   * Two changes from the previous implementation:
+   *
+   * - The body rect comes from {@link ensureBodyRect} instead of a fresh
+   *   `getBoundingClientRect()` per frame. Scrolling changes the body's content
+   *   offset, not its position on screen, so the cached rect stays valid for the
+   *   whole drag unless a re-render invalidates it.
+   * - Speed is px/**second** scaled by real elapsed time rather than px/frame, so
+   *   an identical gesture scrolls at the same rate on a 60 Hz and a 120 Hz
+   *   display. The previous fixed-per-frame model ran twice as fast on the latter.
+   *
+   * Bound as an arrow field so it can be handed straight to `requestAnimationFrame`.
+   */
+  private readonly autoScrollTick = (ts: number): void => {
     this.autoScrollRAF = null;
     if (!this.isDragging || !this.bodyWrapEl || !this.scrollFn) return;
 
-    const rect = this.bodyWrapEl.getBoundingClientRect();
+    const dt = this.autoScrollLastTs === 0
+      ? 0
+      : Math.min((ts - this.autoScrollLastTs) / 1000, MAX_FRAME_DELTA);
+    this.autoScrollLastTs = ts;
+
+    const rect = this.ensureBodyRect();
+    if (!rect) return;
+
     const distTop = this.cursorY - rect.top;
     const distBot = rect.bottom - this.cursorY;
 
-    let dy = 0;
+    let speed = 0;
     if (distTop >= 0 && distTop < SCROLL_ZONE) {
-      dy = -MAX_SCROLL_SPD * Math.pow(1 - distTop / SCROLL_ZONE, 2);
+      speed = -MAX_SCROLL_SPD * Math.pow(1 - distTop / SCROLL_ZONE, 2);
     } else if (distBot >= 0 && distBot < SCROLL_ZONE) {
-      dy = MAX_SCROLL_SPD * Math.pow(1 - distBot / SCROLL_ZONE, 2);
+      speed = MAX_SCROLL_SPD * Math.pow(1 - distBot / SCROLL_ZONE, 2);
     }
 
-    if (dy !== 0) {
-      this.scrollFn(dy);
-      // Re-evaluate drop slot after content moved
+    if (speed !== 0 && dt > 0) {
+      this.scrollFn(speed * dt);
+      // Re-evaluate the drop slot: the content moved, the cursor did not.
       this.updateDropTarget();
     }
 
     if (this.isDragging) {
-      this.autoScrollRAF = requestAnimationFrame(() => this.autoScrollTick());
+      this.autoScrollRAF = requestAnimationFrame(this.autoScrollTick);
     }
+  };
+
+  /**
+   * The body viewport's bounds, read at most once per invalidation.
+   *
+   * Invalidated at drag start and on every `ROWS_RENDERED` — the only events
+   * during a drag that can move the viewport on screen.
+   */
+  private ensureBodyRect(): DOMRect | null {
+    if (!this.bodyRect && this.bodyWrapEl) {
+      this.bodyRect = this.bodyWrapEl.getBoundingClientRect();
+    }
+    return this.bodyRect;
   }
 
   // ─── Live top animation ───────────────────────────────────────────────────
@@ -491,12 +600,12 @@ export class RowDragRenderer {
     const originY = this.getRowOriginY();
     const rule = (nodeId: string, top: number): string =>
       // specificity (0,3,0) > RowPositionSheet (0,2,0) → always wins
-      `.pg-grid--row-dragging .pg-row[data-node-id="${nodeId}"]{top:${top - originY}px;}\n`;
+      `.pg-grid--row-dragging .pg-row[data-node-id="${nodeId}"]{top:${top - originY}px;}`;
 
     // The dragged row is pinned into the DOM by GridRenderer even once
     // auto-scroll carries its real position out of the window, so its rule is
     // emitted outside the window loop.
-    let css = rule(this.draggingNodeId, preview.draggedTop);
+    const rules: string[] = [rule(this.draggingNodeId, preview.draggedTop)];
 
     // Previewed visual order, for the serial column. Every painted row goes in,
     // moved or not, so the ordering is complete for what is on screen.
@@ -508,14 +617,22 @@ export class RowDragRenderer {
       const row = w.rows[i];
       if (!row || i === fromIdx) continue;
       const newTop = previewTopFor(preview, i, fromIdx, row.top);
-      if (newTop !== null) css += rule(row.nodeId, newTop);
+      if (newTop !== null) rules.push(rule(row.nodeId, newTop));
       order.push({ row, top: newTop ?? row.top });
     }
 
-    this.getOrCreateTopStyle().textContent = css;
+    // Elided entirely when the previewed positions are unchanged — which is the
+    // common case, since this runs every frame but the drop slot moves rarely.
+    this.topStyles.write(`${rules.join('\n')}\n`);
 
     // Keep the serial-number column consistent with the live preview: the rows
     // have just been repositioned, so their serials must follow suit.
+    //
+    // Deliberately *not* gated on the write above. `reapplyDragVisuals` calls
+    // this after a re-render precisely because virtualization recycled the row
+    // elements and wiped their serials — the CSS is identical then, but the
+    // serials still need re-stamping. `renumberSerialCells` guards its own
+    // writes per span instead.
     order.sort((a, b) => a.top - b.top);
     this.renumberSerialCells(order.map((e) => e.row));
   }
@@ -557,8 +674,7 @@ export class RowDragRenderer {
   }
 
   private clearDragTops(): void {
-    const s = document.querySelector<HTMLStyleElement>('style[data-pg-row-drag-tops]');
-    if (s) s.textContent = '';
+    this.topStyles.clear();
     this.bodyWrapEl?.querySelectorAll<HTMLElement>('.pg-row--drop-target')
       .forEach((el) => el.classList.remove('pg-row--drop-target', 'pg-row--drop-inside', 'pg-row--drop-before', 'pg-row--drop-after'));
 
@@ -590,43 +706,56 @@ export class RowDragRenderer {
    * no serial to renumber. No-op when the serial column is disabled (no serial
    * cells present).
    *
+   * ### Performance
+   * The span lookup table is built once per render (see {@link ensureSerialCache})
+   * rather than re-queried, re-parsed, and re-sorted here — this used to run a
+   * `querySelectorAll` plus a `closest` and a `parseInt` per serial cell on every
+   * drop-target change *and* every `ROWS_RENDERED`. Each span is written only
+   * when its value actually changes, so a frame that shifts nothing is free.
+   *
    * @param order - Painted row nodes in the desired visual order (previewed
    *                order while dragging; real order to restore).
    */
   private renumberSerialCells(order: ReadonlyArray<RowNode>): void {
-    if (!this.bodyWrapEl) return;
-
-    const spanByNode = new Map<string, HTMLElement>();
-    const values: number[] = [];
-    this.bodyWrapEl.querySelectorAll<HTMLElement>('.pg-cell--serial').forEach((cell) => {
-      const nodeId = cell.closest<HTMLElement>('[data-node-id]')?.getAttribute('data-node-id');
-      const span = cell.querySelector<HTMLElement>('.pg-cell__serial');
-      if (!nodeId || !span || spanByNode.has(nodeId)) return;
-      const n = parseInt(span.textContent ?? '', 10);
-      if (Number.isNaN(n)) return;
-      spanByNode.set(nodeId, span);
-      values.push(n);
-    });
-    if (spanByNode.size === 0) return;
+    this.ensureSerialCache();
+    if (this.serialSpans.size === 0) return;
 
     // Ascending values assigned to rows in visual order → serials always count
     // up the screen regardless of which row moved.
-    values.sort((a, b) => a - b);
     let k = 0;
     for (const row of order) {
-      const span = spanByNode.get(row.nodeId);
-      if (span) span.textContent = String(values[k++]);
+      if (k >= this.serialValues.length) break;
+      const span = this.serialSpans.get(row.nodeId);
+      if (!span) continue;
+      const next = String(this.serialValues[k++]);
+      if (span.textContent !== next) span.textContent = next;
     }
   }
 
-  private getOrCreateTopStyle(): HTMLStyleElement {
-    let s = document.querySelector<HTMLStyleElement>('style[data-pg-row-drag-tops]');
-    if (!s) {
-      s = document.createElement('style');
-      s.setAttribute('data-pg-row-drag-tops', '');
-      document.head.appendChild(s);
-    }
-    return s;
+  /**
+   * Rebuilds the serial-cell lookup table if it is stale.
+   *
+   * Invalidated at drag start and on every `ROWS_RENDERED`, which are the only
+   * points at which the rendered serial cells — or the pool of values they carry
+   * — can change.
+   */
+  private ensureSerialCache(): void {
+    if (this.serialCacheValid || !this.bodyWrapEl) return;
+    this.serialCacheValid = true;
+    this.serialSpans.clear();
+    this.serialValues.length = 0;
+
+    this.bodyWrapEl.querySelectorAll<HTMLElement>('.pg-cell--serial').forEach((cell) => {
+      const nodeId = cell.closest<HTMLElement>('[data-node-id]')?.getAttribute('data-node-id');
+      const span = cell.querySelector<HTMLElement>('.pg-cell__serial');
+      if (!nodeId || !span || this.serialSpans.has(nodeId)) return;
+      const n = parseInt(span.textContent ?? '', 10);
+      if (Number.isNaN(n)) return;
+      this.serialSpans.set(nodeId, span);
+      this.serialValues.push(n);
+    });
+
+    this.serialValues.sort((a, b) => a - b);
   }
 
   // ─── Row reorder (committed on drop) ─────────────────────────────────────
@@ -706,13 +835,17 @@ export class RowDragRenderer {
       cancelAnimationFrame(this.autoScrollRAF);
       this.autoScrollRAF = null;
     }
+    this.autoScrollLastTs = 0;
+    // Discards any sample queued for the next frame — a torn-down drag must not
+    // apply one last move.
+    this.frames.reset();
     if (this.draggingNodeId) this.setDraggingClass(this.draggingNodeId, false);
-    this.ghostEl?.remove();
-    this.ghostEl = null;
+    this.ghost.detach();
     this.draggingNodeId = null;
     this.targetNodeId = null;
     this.draggedRow = null;
     this.targetRow = null;
+    this.bodyRect = null;
     this.isDragging = false;
     document.body.style.userSelect = '';
     document.body.style.cursor = '';
@@ -724,6 +857,12 @@ export class RowDragRenderer {
   private cleanupVisuals(): void {
     this.gridEl?.classList.remove('pg-grid--row-dragging');
     this.clearDragTops();
+    // The sheet is removed rather than merely emptied: an empty `<style>` per
+    // grid instance would otherwise accumulate in `document.head`.
+    this.topStyles.dispose();
+    this.serialSpans.clear();
+    this.serialValues.length = 0;
+    this.serialCacheValid = false;
   }
 
   private cleanup(): void {

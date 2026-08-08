@@ -1,4 +1,11 @@
 import type { GridContext } from './grid-context';
+import type {
+  CellEditorConstructor,
+  CellEditorFactory,
+  FrameworkEditorAdapter,
+} from '../editing/types/cell-editor.types';
+import type { ValidationResult, ValidatorFactory } from '../editing/types/validation.types';
+import { getCellValue } from '../engines/editing/value-accessor';
 import type { ColumnDef, ColumnDefInput, ColumnState, ColumnPinPosition } from '../types/column.types';
 import type { RowNode } from '../types/row.types';
 import type { FilterModel, ColumnFilter } from '../types/filter.types';
@@ -10,7 +17,13 @@ import type {
   RefreshCellsParams,
   FlashCellsParams,
 } from '../types/grid.types';
-import type { GridEventType } from '../types/event.types';
+import { GridEventType } from '../types/event.types';
+import type {
+  SummaryAggregateFn,
+  SummaryRowDef,
+  SummaryRowSnapshot,
+} from '../summary/summary.types';
+import type { GridResizeConfig, GridSize } from '../types/grid-resize.types';
 import type {
   GridImportSink,
   ImportOptions,
@@ -20,6 +33,13 @@ import { ImportSourceType } from '../types/import.types';
 import type { Workbook } from '../engines/import/model/workbook';
 import type { WorkbookParser } from '../engines/import/parser/workbook-parser';
 import type { ToastService } from '../toast/toast-service';
+import type {
+  ExportFormat,
+  ExportOptions,
+  GridExporter,
+  PreparedExportData,
+} from '../export/export.types';
+
 import type { EventHandler } from '../event-bus/event-bus';
 import type { ChartConfig } from '../chart/chart-engine';
 import type { ChartModel } from '../chart/model/chart-model';
@@ -29,7 +49,12 @@ import type { ColumnGroupSerialState, ColumnGroupSystemState, ColumnTreeNode } f
 import { ColumnGroupStateManager } from '../column-groups/column-group-state-manager';
 import type { PhotonCommandResult } from '../photon-ai/photon-ai.types';
 import type { ThemeMode, ThemeVariant } from '../types/theme.types';
+import type { IconSet } from '../types/icon.types';
 import type { ServerSideDatasource } from '../types/server-side.types';
+import type {
+  LoadingOverlayConfig,
+  ResolvedLoadingOverlayConfig,
+} from '../types/loading.types';
 import { ServerRowModel } from '../row-models/server/server-row-model';
 import { InfiniteRowModel } from '../row-models/infinite/infinite-row-model';
 import type { InfiniteStats } from '../types/infinite.types';
@@ -47,6 +72,16 @@ export class GridApi {
   /** Handle for the pending `requestAnimationFrame` flush, or `null` when none is scheduled. */
   private _txnFlushHandle: number | null = null;
 
+  /**
+   * Whether the previous summary computation produced any rows.
+   *
+   * Lets {@link computeSummaries} stay silent for the vast majority of grids
+   * (which define no summary rows) while still emitting the one final
+   * `SUMMARY_CHANGED` that reports the transition to empty when the last row is
+   * removed.
+   */
+  private _hadSummaries = false;
+
   constructor(private ctx: GridContext) {
     // Wire the filter panel so the renderer can read/write filter state and
     // trigger the sort/filter pipeline after each user interaction.
@@ -63,6 +98,39 @@ export class GridApi {
   setColumnGroupModel(model: ColumnGroupModel): void {
     this._columnGroupModel = model;
     this._groupStateManager = new ColumnGroupStateManager(this.ctx.columnModel, model);
+  }
+
+  // ──────────────────── Context ────────────────────
+
+  /**
+   * The application state shared with the grid, from `GridOptions.context`.
+   *
+   * Read by everything the grid calls back into — an `actions` column's
+   * predicates reach it as `params.context` — so it is the seam for what a
+   * callback needs but a row does not carry: permissions, feature flags, the
+   * current user.
+   *
+   * Returns the live object, not a copy; never `undefined`, so a caller can
+   * read through it without a guard.
+   */
+  getContext(): Record<string, unknown> {
+    return (this.ctx.options.context ??= {});
+  }
+
+  /**
+   * Replaces the shared context wholesale.
+   *
+   * Use when the change should be atomic — a permission set arriving after
+   * login, say. Mutating the object from {@link getContext} works too and is
+   * visible immediately; this exists so a caller does not have to mutate to be
+   * seen.
+   *
+   * Callbacks read the context when they run, so already-rendered cells pick
+   * the new value up on their next paint. Follow with
+   * `refreshCells({ force: true })` when the change must be visible now.
+   */
+  setContext(context: Record<string, unknown>): void {
+    this.ctx.options.context = context;
   }
 
   // ──────────────────── Data ────────────────────
@@ -636,6 +704,16 @@ export class GridApi {
 
   // ──────────────────── Editing ────────────────────
 
+  /**
+   * Opens the editor on a cell, as a double-click would.
+   *
+   * No-op when the row or column does not exist, the cell is not currently
+   * rendered, or the column resolves to no editor (`editable: false`, `locked`,
+   * or a per-row `editable` predicate returning `false`).
+   *
+   * @param rowNodeId - Stable row identity.
+   * @param colId - Column identity.
+   */
   startCellEditing(rowNodeId: string, colId: string): void {
     const row = this.ctx.rowModel.getRowNode(rowNodeId);
     const col = this.ctx.columnModel.getColumn(colId);
@@ -643,11 +721,127 @@ export class GridApi {
     const cellEl = this.ctx.containerEl.querySelector<HTMLElement>(
       `[data-node-id="${rowNodeId}"] [data-col-id="${colId}"]`,
     );
-    if (cellEl) this.ctx.cellEditorEngine.startEditing(row, col, cellEl);
+    if (cellEl) this.ctx.editorManager.startEdit({ rowNode: row, colDef: col, cellEl, trigger: 'api' });
   }
 
+  /**
+   * Closes the open editor.
+   *
+   * @param cancel - `true` restores the original value; `false` (default)
+   *   validates and commits, exactly as pressing Enter would.
+   */
   stopEditing(cancel = false): void {
-    this.ctx.cellEditorEngine.stopEditing(cancel);
+    this.ctx.editorManager.stopEditing(cancel);
+  }
+
+  /**
+   * Registers a cell editor under a key, so columns can select it by name.
+   *
+   * Registering a key that already exists replaces it — which is how an
+   * application restyles a built-in (`registerEditor('text', MyTextEditor)`)
+   * without the grid needing an override mechanism.
+   *
+   * Callable at any time: a column already declaring the key picks the editor up
+   * on its next edit, which is the hook a lazily-loaded editor bundle uses.
+   *
+   * @param name - Key used by `ColumnDef.cellEditor`.
+   * @param editor - An editor class, or a factory returning a fresh instance.
+   *
+   * @example
+   * ```ts
+   * gridApi.registerEditor('currency', CurrencyEditor);
+   * // then:  { field: 'total', editable: true, cellEditor: 'currency' }
+   * ```
+   */
+  registerEditor<
+    TValue = unknown,
+    TData = Record<string, unknown>,
+    TParams = Record<string, unknown>,
+  >(
+    name: string,
+    editor: CellEditorConstructor<TValue, TData, TParams> | CellEditorFactory<TValue, TData, TParams>,
+  ): void {
+    this.ctx.editorRegistry.register(name, editor);
+  }
+
+  /**
+   * Registers a framework adapter, teaching the grid to build editors out of
+   * components it otherwise knows nothing about.
+   *
+   * The Angular, React and Vue wrappers each call this during setup; a plain
+   * application never needs it.
+   *
+   * @returns Unregister function.
+   */
+  registerEditorAdapter(adapter: FrameworkEditorAdapter): () => void {
+    return this.ctx.editorAdapters.register(adapter);
+  }
+
+  /**
+   * Registers a named validation rule, usable as `validation: { <name>: config }`
+   * on any column.
+   *
+   * @param name - Rule name.
+   * @param factory - Builds the validator from whatever the column declared;
+   *   return `null` to mean "this config disables the rule".
+   *
+   * @example
+   * ```ts
+   * gridApi.registerValidator('iban', (enabled) =>
+   *   enabled === false ? null : ({ value, label }) =>
+   *     isValidIban(String(value))
+   *       ? { valid: true }
+   *       : { valid: false, message: `${label} is not a valid IBAN`, code: 'iban' });
+   * // then:  { field: 'account', editable: true, validation: { iban: true } }
+   * ```
+   */
+  registerValidator(name: string, factory: ValidatorFactory): void {
+    this.ctx.validationEngine.registerValidator(name, factory);
+  }
+
+  /**
+   * Runs a column's validation rules against a value without opening an editor.
+   *
+   * The same engine, rules and ordering a real commit uses, so an API check and
+   * an edit can never disagree. Returns a promise only when the column declares
+   * an asynchronous rule.
+   *
+   * @param rowNodeId - Row to validate against (rules may read sibling fields).
+   * @param colId - Column whose rules to run.
+   * @param value - Candidate value. Defaults to the cell's current value.
+   */
+  validateCell(
+    rowNodeId: string,
+    colId: string,
+    value?: unknown,
+  ): ValidationResult | Promise<ValidationResult> {
+    const row = this.ctx.rowModel.getRowNode(rowNodeId);
+    const col = this.ctx.columnModel.getColumn(colId);
+    if (!row || !col) {
+      return { valid: false, message: `Unknown cell ${rowNodeId}/${colId}`, code: 'unknown-cell' };
+    }
+    const candidate = value === undefined ? getCellValue(row.data, col, this) : value;
+    return this.ctx.editorManager.validateValue(row, col, candidate);
+  }
+
+  /**
+   * Runs the configured row validator (`GridOptions.editing.rowValidator`)
+   * against a row.
+   *
+   * For cross-field rules no single column can express — "end date must be after
+   * start date". Returns `{ valid: true }` when no row validator is configured.
+   *
+   * @param rowNodeId - Row to validate.
+   */
+  validateRow(
+    rowNodeId: string,
+  ): ValidationResult | Readonly<Record<string, ValidationResult>>
+    | Promise<ValidationResult | Readonly<Record<string, ValidationResult>>> {
+    const row = this.ctx.rowModel.getRowNode(rowNodeId);
+    if (!row) return { valid: false, message: `Unknown row ${rowNodeId}`, code: 'unknown-row' };
+    const validator = this.ctx.editorManager.getConfig().rowValidator;
+    if (!validator) return { valid: true };
+    return this.ctx.validationEngine.validateRow(row.data, row, validator);
   }
 
   // ──────────────────── Pagination ────────────────────
@@ -962,6 +1156,15 @@ export class GridApi {
 
   // ──────────────────── Export ────────────────────
 
+  /**
+   * Exports the grid as CSV using the original export engine.
+   *
+   * Unchanged and fully supported. `export('csv')` produces the same document
+   * through the pluggable system and additionally honours row/column scope
+   * options — prefer it in new code.
+   *
+   * @param fileName - Base name without the extension.
+   */
   exportCsv(fileName?: string): void {
     this.ctx.exportEngine.exportToCsv(
       this.ctx.store.get('visibleRows'),
@@ -970,6 +1173,16 @@ export class GridApi {
     );
   }
 
+  /**
+   * Exports the grid as a SpreadsheetML `.xlsx` file using the original export
+   * engine.
+   *
+   * This writes the legacy XML spreadsheet format, which Excel opens but which
+   * is not a real OOXML workbook. For a genuine `.xlsx`, register the SheetJS
+   * exporter and call {@link export}`('excel')`.
+   *
+   * @param fileName - Base name without the extension.
+   */
   exportXlsx(fileName?: string): void {
     this.ctx.exportEngine.exportToXlsx(
       this.ctx.store.get('visibleRows'),
@@ -977,6 +1190,95 @@ export class GridApi {
       { fileName: fileName ?? this.ctx.options.exportConfig?.fileName ?? 'export' },
     );
   }
+
+  /**
+   * Exports the grid in any registered format.
+   *
+   * `'csv'` and `'json'` always work — Photon Grid Core implements them itself.
+   * `'excel'` and `'pdf'` require a one-time exporter registration, because the
+   * core is zero-dependency by contract and will not bundle `xlsx` or `jspdf`:
+   *
+   * ```ts
+   * import * as XLSX from 'xlsx';
+   * import { createExcelExporter } from 'photon-grid-core/export/excel';
+   * api.registerExporter('excel', createExcelExporter(XLSX));
+   * ```
+   *
+   * Asking for an unregistered format shows a toast naming the packages to
+   * install and rejects with a typed {@link ExportError} — it never fails
+   * silently or with an opaque library error.
+   *
+   * @param format  - `'csv'`, `'json'`, `'excel'`, `'pdf'`, or any registered format.
+   * @param options - Per-call options, merged over `GridOptions.export`.
+   * @returns Resolves once the file has been produced.
+   *
+   * @example
+   * ```ts
+   * await api.export('json', { fileName: 'employees.json', pretty: true });
+   * await api.export('excel', { onlySelectedRows: true });
+   * await api.export('pdf', { fileName: 'employees.pdf', orientation: 'landscape' });
+   * ```
+   */
+  export(format: ExportFormat, options?: ExportOptions): Promise<void> {
+    return this.ctx.exportService.export(format, options);
+  }
+
+  /**
+   * Registers an exporter for **this grid only**, outranking any global
+   * registration for the same format.
+   *
+   * Use the module-level `registerExporter` instead to enable a format for
+   * every grid on the page — the usual choice, made once at app bootstrap.
+   *
+   * @param format   - The format key, e.g. `'excel'`, `'pdf'`, `'xml'`.
+   * @param exporter - The implementation.
+   */
+  registerExporter(format: ExportFormat, exporter: GridExporter): void {
+    this.ctx.exportService.registerExporter(format, exporter);
+  }
+
+  /**
+   * Removes a grid-local exporter registration, revealing any global one again.
+   *
+   * @returns `true` when a registration was removed.
+   */
+  unregisterExporter(format: ExportFormat): boolean {
+    return this.ctx.exportService.unregisterExporter(format);
+  }
+
+  /** Whether this grid can currently export the format (grid-local, then global). */
+  hasExporter(format: ExportFormat): boolean {
+    return this.ctx.exportService.hasExporter(format);
+  }
+
+  /** Resolves the exporter this grid would use for a format, or `undefined`. */
+  getExporter(format: ExportFormat): GridExporter | undefined {
+    return this.ctx.exportService.getExporter(format);
+  }
+
+  /** Every format this grid can export, sorted. */
+  getExportFormats(): ExportFormat[] {
+    return this.ctx.exportService.getFormats();
+  }
+
+  /**
+   * Builds the export payload — columns, headers and normalised cells — without
+   * writing a file.
+   *
+   * The seam for hosts that upload rather than download, and the easiest way to
+   * unit-test what an export *would* contain.
+   *
+   * @param options - The same scope options {@link export} accepts.
+   */
+  prepareExportData(options?: ExportOptions): PreparedExportData {
+    return this.ctx.exportService.prepare(options);
+  }
+
+  /** Opens the toolbar's Export dropdown, if the feature is enabled. */
+  openExportMenu(): void {
+    this.ctx.renderer.openExportMenu();
+  }
+
 
   // ──────────────────── Import ────────────────────
   /**
@@ -1142,6 +1444,18 @@ export class GridApi {
     this.ctx.renderer.scrollToRow(rowIndex);
   }
 
+  /**
+   * Scrolls the centre region to an absolute horizontal offset, in content
+   * pixels.
+   *
+   * Use {@link ensureColumnVisible} when the target is a column. This is for
+   * content whose horizontal extent is not columns -- a plugin timeline
+   * scrolling to a date, say -- where the caller has already computed the pixel.
+   */
+  scrollToX(px: number): void {
+    this.ctx.renderer.scrollToX(px);
+  }
+
   scrollToTop(): void {
     this.ctx.renderer.scrollToTop();
   }
@@ -1184,6 +1498,48 @@ export class GridApi {
 
   toggleDarkMode(): void {
     this.ctx.themeManager.toggleDarkMode();
+  }
+
+  // ── Icons ──────────────────────────────────────────────────────────────────
+
+  /**
+   * Registers host icon overrides and repaints anything already on screen.
+   *
+   * These sit at the **top** of the resolution stack, so they survive a theme
+   * change — a variant's pack can never replace a glyph the application
+   * supplied. Names not registered here still follow the active theme.
+   *
+   * @example
+   * ```ts
+   * gridApi.registerIcons({ check: '<svg viewBox="0 0 16 16">…</svg>' });
+   * ```
+   */
+  registerIcons(icons: IconSet): void {
+    this.ctx.iconRegistry.registerAll(icons);
+    this.ctx.iconThemeController.repaint();
+  }
+
+  /**
+   * Replaces (or clears, with `null`) one variant's icon pack at runtime.
+   *
+   * Repaints only when that variant is the one currently applied — editing an
+   * inactive pack changes nothing on screen until it is selected.
+   */
+  setVariantIcons(variant: ThemeVariant, icons: IconSet | null): void {
+    this.ctx.iconThemeController.setVariantIcons(variant, icons);
+  }
+
+  /**
+   * Re-renders every registry-drawn icon in the grid and its portaled overlays.
+   *
+   * An escape hatch: icon swaps that go through {@link registerIcons},
+   * {@link setVariantIcons} or {@link setVariant} repaint themselves. Reach for
+   * this only after mutating the registry directly.
+   *
+   * @returns How many icons were repainted.
+   */
+  repaintIcons(): number {
+    return this.ctx.iconThemeController.repaint();
   }
 
   /**
@@ -1339,6 +1695,97 @@ export class GridApi {
     return this.ctx.summaryEngine.compute(rows, cols);
   }
 
+  // ──────────────────── Loading state ────────────────────
+
+  /**
+   * Puts the grid into — or takes it out of — its loading state.
+   *
+   * While loading, the configured indicator (spinner by default, or skeleton
+   * placeholder rows) covers the body; the header stays visible and
+   * interactive, and row rendering is skipped entirely, so a grid waiting on a
+   * fetch costs nothing to paint.
+   *
+   * Idempotent: setting the value it already has does nothing and emits
+   * nothing. Each real transition emits exactly one `LOADING_STARTED` or
+   * `LOADING_STOPPED`, whoever caused it.
+   *
+   * Grids on the Server-Side or Infinite row model drive this flag themselves;
+   * calling it manually there will be overwritten by the next fetch.
+   *
+   * @param loading - `true` to show the loading indicator, `false` to hide it.
+   *
+   * @example
+   * ```ts
+   * api.setLoading(true);
+   * const rows = await fetchRows();
+   * api.setData(rows);
+   * api.setLoading(false);
+   * ```
+   *
+   * @see {@link isLoading}
+   * @see {@link updateLoadingOverlay}
+   */
+  setLoading(loading: boolean): void {
+    // The store de-duplicates unchanged writes, and `GridCore` watches this key
+    // to emit the events and schedule the repaint — so this is the whole
+    // implementation, not a shortcut.
+    this.ctx.store.set('loading', loading);
+  }
+
+  /**
+   * Whether the grid is currently in its loading state.
+   *
+   * @returns `true` while the loading indicator is showing.
+   * @see {@link setLoading}
+   */
+  isLoading(): boolean {
+    return this.ctx.store.get('loading');
+  }
+
+  /** Shows the loading indicator. Equivalent to `setLoading(true)`. */
+  showLoadingOverlay(): void {
+    this.setLoading(true);
+  }
+
+  /** Hides the loading indicator. Equivalent to `setLoading(false)`. */
+  hideLoadingOverlay(): void {
+    this.setLoading(false);
+  }
+
+  /**
+   * The loading overlay configuration currently in force, with every default
+   * applied.
+   *
+   * @returns The resolved configuration.
+   * @see {@link updateLoadingOverlay}
+   */
+  getLoadingOverlayConfig(): ResolvedLoadingOverlayConfig {
+    return this.ctx.renderer.getLoadingOverlayConfig();
+  }
+
+  /**
+   * Changes the loading overlay's appearance at runtime — swapping the spinner
+   * for skeleton placeholders mid-session, for example.
+   *
+   * The patch merges onto the configuration the host originally supplied, so
+   * omitted keys fall back to their documented defaults rather than sticking at
+   * whatever an earlier patch resolved them to. Repaints immediately when the
+   * overlay is on screen.
+   *
+   * @param config - Partial configuration to merge over the current one.
+   *
+   * @example
+   * ```ts
+   * api.updateLoadingOverlay({ indicator: LoadingIndicator.Skeleton });
+   * ```
+   *
+   * @see {@link LoadingOverlayConfig}
+   */
+  updateLoadingOverlay(config: LoadingOverlayConfig): void {
+    this.ctx.renderer.setLoadingOverlayConfig(config);
+    if (this.isLoading()) this.ctx.renderer.forceRender();
+  }
+
   // ──────────────────── Lifecycle ────────────────────
 
   refresh(): void {
@@ -1475,6 +1922,232 @@ export class GridApi {
     // server = datasource fetch). See RowModelStrategy / ClientRowModel /
     // ServerRowModel.
     this.ctx.rowModelStrategy.buildDisplayedRows();
+
+    // Summaries last: every scope they can read (`all` / `filtered` / `visible`
+    // / `selected`) is settled only once the displayed rows have been rebuilt,
+    // so computing earlier would total the previous pipeline's output.
+    if (this.ctx.options.summary?.autoRefresh !== false) this.computeSummaries();
+  }
+
+  // ──────────────────── Container size ────────────────────
+
+  /**
+   * Sets the grid container's width.
+   *
+   * Writes through the same controller the resize handles use, so a
+   * programmatic size and a dragged one cannot disagree, and both emit
+   * `GRID_RESIZED`. The change propagates to the columns automatically: the
+   * scroll controller observes the body panels and re-resolves `flex` widths on
+   * the next frame.
+   *
+   * @param width - A pixel number, any CSS length (`'60%'`, `'40rem'`,
+   *                `'calc(100% - 2rem)'`), or `null` to drop the override and
+   *                return to the stylesheet's width.
+   */
+  setGridWidth(width: number | string | null): void {
+    this.ctx.renderer.resizeController.setSize({ width });
+  }
+
+  /**
+   * Sets the grid container's height.
+   *
+   * @param height - A pixel number, any CSS length, or `null` to drop the override.
+   */
+  setGridHeight(height: number | string | null): void {
+    this.ctx.renderer.resizeController.setSize({ height });
+  }
+
+  /**
+   * Sets both dimensions in a single write.
+   *
+   * Preferred over calling {@link setGridWidth} then {@link setGridHeight}:
+   * those are two style mutations and two `GRID_RESIZED` events, this is one of
+   * each — which matters when a listener persists the size or re-lays out
+   * around the grid.
+   *
+   * @param size - Omitted properties are left unchanged; `null` clears that override.
+   */
+  setGridSize(size: { width?: number | string | null; height?: number | string | null }): void {
+    this.ctx.renderer.resizeController.setSize(size);
+  }
+
+  /**
+   * @returns The container's current outer size in CSS pixels, measured from
+   *          the DOM — so it reflects percentage and `calc()` widths, not just
+   *          explicitly set ones.
+   */
+  getGridSize(): GridSize {
+    return this.ctx.renderer.resizeController.getSize();
+  }
+
+  /**
+   * Drops both size overrides, returning the grid to whatever size its
+   * stylesheet and surrounding layout give it.
+   *
+   * Also clears the margin compensation a top/left handle drag applied, so a
+   * reset really does restore the original box rather than leaving the grid
+   * offset by however far it was dragged.
+   */
+  resetGridSize(): void {
+    this.ctx.renderer.resizeController.reset();
+  }
+
+  /**
+   * Turns handle dragging on or off at runtime, keeping the rest of the resize
+   * configuration intact.
+   *
+   * @param enabled - `false` removes the handles; `true` restores them.
+   */
+  setGridResizeEnabled(enabled: boolean): void {
+    this.ctx.renderer.resizeController.setEnabled(enabled);
+  }
+
+  /**
+   * Merges a patch into the active resize configuration — which handles are
+   * shown, the min/max bounds, the snap step — and rebuilds the handles.
+   *
+   * @param config - Merged over the current configuration.
+   */
+  updateGridResizeConfig(config: GridResizeConfig): void {
+    this.ctx.renderer.resizeController.updateConfig(config);
+  }
+
+  /** `true` while the user is dragging a container resize handle. */
+  isGridResizing(): boolean {
+    return this.ctx.renderer.resizeController.isResizing;
+  }
+
+  // ──────────────────── Summary Rows ────────────────────
+
+  /**
+   * Recomputes every summary row immediately and repaints the bands.
+   *
+   * Only needed when `GridOptions.summary.autoRefresh` is `false`, or after
+   * mutating row data in place through a path the grid cannot observe (a direct
+   * write to a `RowNode.data` object, say). Every ordinary change — data,
+   * filters, sorting, grouping, pagination, cell edits, selection — already
+   * refreshes summaries on its own.
+   */
+  refreshSummary(): void {
+    this.computeSummaries();
+    this.ctx.renderer.scheduleRender();
+  }
+
+  /**
+   * Returns the most recently computed summary rows.
+   *
+   * Values are read from the last refresh rather than recomputed, so this is a
+   * cheap read that can safely be called from a render loop. Call
+   * {@link refreshSummary} first if you need to force a recompute.
+   *
+   * @param rowId - Restrict the result to one row's snapshot.
+   * @returns All snapshots in declaration order, or the single matching one
+   *          (`null` when no row has that id).
+   */
+  getSummary(): readonly SummaryRowSnapshot[];
+  getSummary(rowId: string): SummaryRowSnapshot | null;
+  getSummary(rowId?: string): readonly SummaryRowSnapshot[] | SummaryRowSnapshot | null {
+    return rowId === undefined
+      ? this.ctx.summaryModel.getSnapshots()
+      : this.ctx.summaryModel.getSnapshot(rowId);
+  }
+
+  /**
+   * Replaces the entire set of summary row definitions, recomputes, and
+   * repaints.
+   *
+   * Takes permanent ownership of the definitions: a grid that was deriving its
+   * summary from `ColumnDef.showSummary` stops doing so, so a later column
+   * change can never overwrite what was set here.
+   *
+   * @param rows - The new definitions. Pass `[]` to remove every summary row.
+   */
+  setSummaryRows(rows: readonly SummaryRowDef[]): void {
+    this.ctx.summaryModel.setRows(rows);
+    this.emitSummaryRowsChanged('set', null);
+    this.refreshSummary();
+  }
+
+  /**
+   * Shallow-merges a patch into one summary row definition, recomputes, and
+   * repaints.
+   *
+   * `cells` merges one level deep, so patching a single column's cell leaves
+   * every other column's definition intact. The row's `id` is never changed by a
+   * patch.
+   *
+   * @param rowId - Id of the row to patch.
+   * @param patch - Properties to overwrite.
+   * @returns `true` when a row with that id existed and was updated.
+   */
+  updateSummaryRow(rowId: string, patch: Partial<SummaryRowDef>): boolean {
+    if (!this.ctx.summaryModel.updateRow(rowId, patch)) return false;
+    this.emitSummaryRowsChanged('update', rowId);
+    this.refreshSummary();
+    return true;
+  }
+
+  /**
+   * Removes one summary row definition, recomputes, and repaints.
+   *
+   * @param rowId - Id of the row to remove.
+   * @returns `true` when a row with that id existed and was removed.
+   */
+  removeSummaryRow(rowId: string): boolean {
+    if (!this.ctx.summaryModel.removeRow(rowId)) return false;
+    this.emitSummaryRowsChanged('remove', rowId);
+    this.refreshSummary();
+    return true;
+  }
+
+  /**
+   * Registers a named summary aggregation at runtime, resolvable from any
+   * cell's `aggregate` / `defaultAggregate` by that name.
+   *
+   * The counterpart to `GridOptions.summary.aggregations` for functions that are
+   * not known at construction time. Does **not** recompute on its own — call
+   * {@link refreshSummary}, or register before the rows that use it.
+   *
+   * @param name - Name to register under. Shadows a built-in of the same name.
+   * @param fn   - The reducer. Must be pure.
+   */
+  registerSummaryAggregation(name: string, fn: SummaryAggregateFn): void {
+    this.ctx.summaryAggregationEngine.register(name, fn);
+  }
+
+  /**
+   * Recomputes summaries and announces the result.
+   *
+   * `SUMMARY_CHANGED` is emitted only when there is (or was) something to
+   * report, so a grid with no summary rows — the vast majority — never emits it
+   * despite this running on every single pipeline pass. `_hadSummaries` is what
+   * makes the *last* refresh after the rows are removed still fire, so a
+   * listener sees the transition to empty.
+   */
+  private computeSummaries(): void {
+    if (this.ctx.options.summary?.enabled === false) {
+      if (this._hadSummaries) {
+        this._hadSummaries = false;
+        this.ctx.summaryModel.setSnapshots([]);
+        this.ctx.eventBus.emit(GridEventType.SUMMARY_CHANGED, { summaries: [] });
+      }
+      return;
+    }
+
+    const summaries = this.ctx.summaryService.compute();
+    if (summaries.length === 0 && !this._hadSummaries) return;
+
+    this._hadSummaries = summaries.length > 0;
+    this.ctx.eventBus.emit(GridEventType.SUMMARY_CHANGED, { summaries });
+  }
+
+  /** Announces a change to the summary row *definitions* (not their values). */
+  private emitSummaryRowsChanged(action: 'set' | 'update' | 'remove', rowId: string | null): void {
+    this.ctx.eventBus.emit(GridEventType.SUMMARY_ROWS_CHANGED, {
+      action,
+      rowId,
+      rowCount: this.ctx.summaryModel.getRows().length,
+    });
   }
 
 

@@ -559,12 +559,13 @@ export class InfiniteRowModel implements RowModelStrategy {
     this.setLoading(false);
   }
 
+  /**
+   * Writes the shared loading flag. `GridCore` watches this store key and is
+   * the single emitter of `LOADING_STARTED` / `LOADING_STOPPED`, so this must
+   * not emit them itself — doing so would double-fire for every page load.
+   */
   private setLoading(loading: boolean): void {
     this.ctx.store.set('loading', loading);
-    this.ctx.eventBus.emit(
-      loading ? GridEventType.LOADING_STARTED : GridEventType.LOADING_STOPPED,
-      {},
-    );
   }
 }
 

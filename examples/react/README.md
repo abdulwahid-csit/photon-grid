@@ -1,16 +1,28 @@
-# React + Vite
+# Photon Grid — React example
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+<p align="center">
+  <img src="../../assets/logo.svg" alt="Photon Grid" width="180"/>
+</p>
 
-Currently, two official plugins are available:
+A runnable React + Vite app demonstrating [`photon-grid-react`](../../packages/photon-grid-react).
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Run it
 
-## React Compiler
+From the **repository root** — this builds the core in watch mode alongside the app, so a change to the engine is picked up live:
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```bash
+npm run setup      # once: installs workspaces + example apps
+npm run dev:react
+```
 
-## Expanding the ESLint configuration
+To run only the app against whatever is already built:
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+```bash
+npm --prefix examples/react run dev
+```
+
+Vite prints the local URL it picked.
+
+## Where to look
+
+[`src/App.tsx`](src/App.tsx) holds the grid: columns, row data, options and the React cell renderers passed through the `renderer` slots.

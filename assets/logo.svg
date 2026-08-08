@@ -1,46 +1,57 @@
-<svg width="180" height="180" viewBox="0 0 180 180" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Photon Grid logo">
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <linearGradient id="pg-bg" x1="0" y1="0" x2="180" y2="180" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#4F46E5"/>
-      <stop offset="1" stop-color="#0EA5E9"/>
+    <!-- Background -->
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0B1220"></stop>
+      <stop offset="100%" stop-color="#111827"></stop>
     </linearGradient>
-    <linearGradient id="pg-photon" x1="40" y1="150" x2="150" y2="30" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#22D3EE"/>
-      <stop offset="0.5" stop-color="#A78BFA"/>
-      <stop offset="1" stop-color="#F0ABFC"/>
+
+    <!-- Lightning -->
+    <linearGradient id="bolt" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#22D3EE"></stop>
+      <stop offset="100%" stop-color="#2563EB"></stop>
     </linearGradient>
-    <filter id="pg-glow" x="-40%" y="-40%" width="180%" height="180%">
-      <feGaussianBlur stdDeviation="4" result="b"/>
+
+    <!-- Glow -->
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="8" result="blur"></feGaussianBlur>
       <feMerge>
-        <feMergeNode in="b"/>
-        <feMergeNode in="SourceGraphic"/>
+        <feMergeNode in="blur"></feMergeNode>
+        <feMergeNode in="SourceGraphic"></feMergeNode>
       </feMerge>
     </filter>
   </defs>
 
-  <!-- Badge -->
-  <rect x="6" y="6" width="168" height="168" rx="38" fill="url(#pg-bg)"/>
+  <!-- Background -->
+  <rect width="512" height="512" rx="48" fill="url(#bg)"></rect>
 
-  <!-- Grid lines -->
-  <g stroke="#FFFFFF" stroke-opacity="0.20" stroke-width="3" stroke-linecap="round">
-    <line x1="40" y1="46" x2="140" y2="46"/>
-    <line x1="40" y1="76" x2="140" y2="76"/>
-    <line x1="40" y1="106" x2="140" y2="106"/>
-    <line x1="40" y1="136" x2="140" y2="136"/>
-    <line x1="66" y1="40" x2="66" y2="140"/>
-    <line x1="90" y1="40" x2="90" y2="140"/>
-    <line x1="114" y1="40" x2="114" y2="140"/>
+  <!-- Grid -->
+  <g stroke="#2B74FF" stroke-width="5">
+    <!-- Row 1 -->
+    <rect x="88" y="88" width="90" height="90" rx="14"></rect>
+    <rect x="211" y="88" width="90" height="90" rx="14"></rect>
+    <rect x="334" y="88" width="90" height="90" rx="14"></rect>
+
+    <!-- Row 2 -->
+    <rect x="88" y="211" width="90" height="90" rx="14"></rect>
+    <rect x="211" y="211" width="90" height="90" rx="14"></rect>
+    <rect x="334" y="211" width="90" height="90" rx="14"></rect>
+
+    <!-- Row 3 -->
+    <rect x="88" y="334" width="90" height="90" rx="14"></rect>
+    <rect x="211" y="334" width="90" height="90" rx="14"></rect>
+    <rect x="334" y="334" width="90" height="90" rx="14"></rect>
   </g>
 
-  <!-- Header row highlight -->
-  <rect x="38" y="38" width="104" height="16" rx="6" fill="#FFFFFF" fill-opacity="0.28"/>
+  <!-- Lightning -->
+  <path d="M288 58
+       L190 240
+       L255 240
+       L210 455
+       L333 250
+       L265 250
+       L322 58Z" fill="url(#bolt)" filter="url(#glow)"></path>
 
-  <!-- Photon streak cutting diagonally through the grid -->
-  <path d="M44 148 L96 96 L84 96 L136 32"
-        stroke="url(#pg-photon)" stroke-width="9"
-        stroke-linecap="round" stroke-linejoin="round"
-        fill="none" filter="url(#pg-glow)"/>
-
-  <!-- Photon spark -->
-  <circle cx="136" cy="32" r="8" fill="#F0ABFC" filter="url(#pg-glow)"/>
+  <!-- Subtle glow circle -->
+  <circle cx="256" cy="256" r="130" stroke="#22D3EE" stroke-opacity="0.15" stroke-width="2"></circle>
 </svg>

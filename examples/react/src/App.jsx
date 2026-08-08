@@ -1,140 +1,93 @@
-import { useMemo } from 'react';
-import { PhotonGrid } from 'photon-grid-react';
+import { lazy, Suspense, useState } from 'react';
+
 import './App.css';
 
-const COUNTRY_FLAGS = {
-  USA: 'us',
-  Canada: 'ca',
-  Germany: 'de',
-  UK: 'gb',
-  Pakistan: 'pk',
-  India: 'in',
-  Australia: 'au',
-  Japan: 'jp',
-};
+/**
+ * Photon Grid — React example.
+ *
+ * Ports every demo from the Angular example. Each one is code-split and mounted
+ * on demand: the grids here range from a 100 000-row client-side dataset to a
+ * million-row infinite feed, and mounting them all at once would measure the
+ * page rather than the grid.
+ */
 
-function generateData(count) {
-  const firstNames = [
-    'Alice', 'Brian', 'Carla', 'David', 'Ella', 'Frank', 'Grace', 'Henry',
-    'Isabella', 'Jack', 'Kevin', 'Linda', 'Michael', 'Nina', 'Oliver',
-    'Paul', 'Queen', 'Ryan', 'Sophia', 'Thomas', 'Sara', 'Abu',
-  ];
+const DEMOS = [
+  {
+    id: 'realtime',
+    label: 'Real-Time',
+    blurb: 'Viewport Virtual DOM patched cell-by-cell by a simulated market feed.',
+    Component: lazy(() => import('./demos/RealtimeGrid')),
+  },
+  {
+    id: 'master-detail',
+    label: 'Master / Detail',
+    blurb: 'Rows expanding into a nested grid or a React component, lazily fetched.',
+    Component: lazy(() => import('./demos/MasterDetailGrid')),
+  },
+  {
+    id: 'infinite',
+    label: 'Infinite',
+    blurb: 'A million rows behind a mock backend, LRU-cached and skeleton-filled.',
+    Component: lazy(() => import('./demos/InfiniteGrid')),
+  },
+  {
+    id: 'basic',
+    label: 'Basic',
+    blurb: '100 000 client-side rows, component + function cell renderers, toolbar.',
+    Component: lazy(() => import('./demos/BasicGrid')),
+  },
+  {
+    id: 'formula',
+    label: 'Formula',
+    blurb: 'Excel-style formulas with a live dependency graph.',
+    Component: lazy(() => import('./demos/FormulaGrid')),
+  },
+  {
+    id: 'server-side',
+    label: 'Server-Side & AI Theme',
+    blurb: 'Sorting, filtering and paging delegated to a datasource; AI theming.',
+    Component: lazy(() => import('./demos/ServerSideGrid')),
+  },
+  {
+    id: 'nested-columns',
+    label: 'Grouped Headers',
+    blurb: 'Multi-row header built from nested column definitions.',
+    Component: lazy(() => import('./demos/NestedColumnsGrid')),
+  },
+];
 
-  const lastNames = [
-    'Johnson', 'Smith', 'Brown', 'Wilson', 'Taylor', 'Anderson', 'Lee',
-    'Clark', 'Lewis', 'Walker', 'Hall', 'Young', 'Allen', 'King', 'Khatak', 'Bakkar',
-  ];
-
-  const departments = [
-    'Engineering', 'Sales', 'Marketing', 'Finance', 'Design', 'HR', 'Support', 'Operations',
-  ];
-
-  const jobTitles = [
-    'Software Engineer', 'Senior Engineer', 'Product Manager', 'UI Designer',
-    'QA Engineer', 'DevOps Engineer', 'Business Analyst', 'Sales Executive',
-  ];
-
-  const countries = ['USA', 'Canada', 'Germany', 'UK', 'Pakistan', 'India', 'Australia', 'Japan'];
-  const cities = ['New York', 'Toronto', 'Berlin', 'London', 'Lahore', 'Karachi', 'Sydney', 'Tokyo'];
-  const performance = ['Excellent', 'Good', 'Average', 'Needs Improvement'];
-  const managers = ['Sarah Connor', 'John Carter', 'Emma Watson', 'Chris Evans', 'Sophia Brown'];
-
-  const rand = (arr) => arr[Math.floor(Math.random() * arr.length)];
-
-  return Array.from({ length: count }, (_, i) => {
-    const firstName = rand(firstNames);
-    const lastName = rand(lastNames);
-
-    return {
-      id: i + 1,
-      firstName,
-      lastName,
-      fullName: `${firstName} ${lastName}`,
-      email: `${firstName.toLowerCase()}.${lastName.toLowerCase()}${i}@example.com`,
-      department: rand(departments),
-      jobTitle: rand(jobTitles),
-      salary: 50000 + Math.floor(Math.random() * 100000),
-      age: 20 + Math.floor(Math.random() * 45),
-      experience: Math.floor(Math.random() * 25),
-      country: rand(countries),
-      city: rand(cities),
-      phone: `+1-555-${1000 + Math.floor(Math.random() * 9000)}`,
-      joinDate: new Date(
-        2015 + Math.floor(Math.random() * 11),
-        Math.floor(Math.random() * 12),
-        1 + Math.floor(Math.random() * 28),
-      ),
-      active: Math.random() > 0.25,
-      rating: +(Math.random() * 5).toFixed(1),
-      bonus: Math.floor(Math.random() * 15000),
-      projects: 1 + Math.floor(Math.random() * 20),
-      performance: rand(performance),
-      manager: rand(managers),
-      remote: Math.random() > 0.5,
-    };
-  });
-}
-
-function App() {
-  const data = useMemo(() => generateData(100), []);
-
-  const columns = useMemo(() => [
-    {
-      colId: 'fullName',
-      field: 'fullName',
-      header: 'Full Name',
-      type: 'string',
-      width: 220,
-      rowDrag: true, 
-    },
-    {
-      colId: 'email',
-      field: 'email',
-      header: 'Email',
-      type: 'string',
-      width: 240,
-    },
-    { colId: 'department', field: 'department', header: 'Department', type: 'string', width: 160, groupable: true },
-    { colId: 'jobTitle', field: 'jobTitle', header: 'Job Title', type: 'string', width: 180, groupable: true },
-    { colId: 'salary', field: 'salary', header: 'Salary', type: 'currency', width: 140 },
-    { colId: 'age', field: 'age', header: 'Age', type: 'number', width: 90 },
-    { colId: 'experience', field: 'experience', header: 'Experience', type: 'number', width: 120 },
-    {
-      colId: 'country',
-      field: 'country',
-      header: 'Country',
-      type: 'dropdown',
-      editable: true,
-      width: 160,
-      groupable: true,
-      enumOptions: Object.keys(COUNTRY_FLAGS),
-    },
-    { colId: 'city', field: 'city', header: 'City', type: 'string', width: 150, groupable: true },
-    { colId: 'phone', field: 'phone', header: 'Phone', type: 'string', width: 170 },
-    { colId: 'joinDate', field: 'joinDate', header: 'Join Date', type: 'date', width: 140 },
-    { colId: 'active', field: 'active', header: 'Active', type: 'boolean', width: 100 },
-    { colId: 'rating', field: 'rating', header: 'Rating', type: 'number', width: 100 },
-  ], []);
-
-  const options = useMemo(() => ({
-    showCheckboxes: false,
-    showSerialNumber: false,
-    rowShading: false,
-    showGroupingBar: true,
-    selection: { mode: 'multiple' },
-  }), []);
+export function App() {
+  const [activeId, setActiveId] = useState(DEMOS[0].id);
+  const active = DEMOS.find((demo) => demo.id === activeId) ?? DEMOS[0];
+  const ActiveDemo = active.Component;
 
   return (
     <main className="page">
       <header className="page__header">
         <h1 className="page__title">Photon Grid — React example</h1>
-        <p className="page__subtitle">
-          A basic example of the Photon Grid component from the photon-grid-react package.
-        </p>
+        <p className="page__subtitle">{active.blurb}</p>
       </header>
-      <section className="grid-wrapper">
-        <PhotonGrid columns={columns} dataSet={data}  />
-      </section>
+
+      <nav className="page__nav" aria-label="Demos">
+        {DEMOS.map((demo) => (
+          <button
+            key={demo.id}
+            type="button"
+            className={`page__nav-item${demo.id === activeId ? ' page__nav-item--on' : ''}`}
+            aria-current={demo.id === activeId ? 'page' : undefined}
+            onClick={() => setActiveId(demo.id)}
+          >
+            {demo.label}
+          </button>
+        ))}
+      </nav>
+
+      {/* Keyed on the demo id so switching unmounts the previous grid outright —
+          each demo owns timers, datasources and an event-bus subscription that
+          must be torn down, not reused. */}
+      <Suspense fallback={<p className="page__loading">Loading demo…</p>}>
+        <ActiveDemo key={active.id} />
+      </Suspense>
     </main>
   );
 }

@@ -45,10 +45,35 @@ class StubClassList {
     return this.set.has(name);
   }
 
+  /**
+   * Adds or removes `name`, or flips it when `force` is omitted.
+   *
+   * Returns the resulting membership, matching `DOMTokenList.toggle`.
+   */
+  toggle(name: string, force?: boolean): boolean {
+    const next = force ?? !this.set.has(name);
+    if (next) this.set.add(name);
+    else this.set.delete(name);
+    this.sync();
+    return next;
+  }
+
   /** Replaces the whole list — used when `className` is assigned directly. */
   reset(value: string): void {
     this.set.clear();
     for (const n of value.split(/\s+/)) if (n) this.set.add(n);
+  }
+
+  /**
+   * Iterates the class names, as `DOMTokenList` does.
+   *
+   * Needed because production code walks `classList` directly (`for (const c of
+   * el.classList)`, `[...el.classList]`) to find classes by shape rather than
+   * by exact name — a variant skin, say. Without this the stub throws where the
+   * real DOM would not.
+   */
+  [Symbol.iterator](): IterableIterator<string> {
+    return this.set.values();
   }
 
   values(): ReadonlySet<string> {
@@ -64,10 +89,35 @@ export class StubElement {
   readonly tagName: string;
   /** Element node type, matching the DOM constant `Node.ELEMENT_NODE`. */
   readonly nodeType = 1;
+  /** `true` for nodes produced by `document.createDocumentFragment`. */
+  readonly isFragment: boolean;
   readonly children: StubElement[] = [];
   readonly classList: StubClassList;
   readonly attributes = new Map<string, string>();
-  readonly style: Record<string, string> = {};
+  /**
+   * Inline styles, as a plain bag.
+   *
+   * `setProperty`/`getPropertyValue`/`removeProperty` are included because
+   * custom properties (`--pg-progress-fraction`) can only be written that way,
+   * and several renderers drive their value-dependent visuals through them
+   * rather than through inline declarations. Reading a property back is
+   * therefore something tests genuinely need.
+   */
+  readonly style: Record<string, string> & {
+    setProperty(name: string, value: string): void;
+    getPropertyValue(name: string): string;
+    removeProperty(name: string): void;
+  } = Object.assign(Object.create(null) as Record<string, string>, {
+    setProperty(this: Record<string, string>, name: string, value: string): void {
+      this[name] = value;
+    },
+    getPropertyValue(this: Record<string, string>, name: string): string {
+      return this[name] ?? '';
+    },
+    removeProperty(this: Record<string, string>, name: string): void {
+      delete this[name];
+    },
+  });
   parent: StubElement | null = null;
 
   /** Listeners registered through {@link addEventListener}, by event type. */
@@ -81,8 +131,7 @@ export class StubElement {
   type = '';
   disabled = false;
 
-  /**
-   * Natural content height, in px. Settable by tests so measurement-driven
+  /** Natural content height, in px. Settable by tests so measurement-driven
    * code (detail auto-height) has something deterministic to read — the real
    * value comes from layout, which no stub can compute.
    */
@@ -91,8 +140,20 @@ export class StubElement {
   /** Rendered box height, in px. Companion to {@link scrollHeight}; see the note there. */
   offsetHeight = 0;
 
+  /**
+   * `false` once the element has been taken out of the tree it was in.
+   *
+   * The real property means "this node's root is the document", which a stub
+   * with no document tree cannot answer. What the code under test actually asks
+   * is "is this element still mounted, or has a repaint recycled it" — so
+   * detachment is what is modelled: `true` until `remove()`/`removeChild`, and
+   * `true` again once re-appended.
+   */
+  isConnected = true;
+
   constructor(tagName: string) {
     this.tagName = tagName;
+    this.isFragment = tagName === '#fragment';
     this.classList = new StubClassList(this);
     elementsCreated++;
   }
@@ -136,10 +197,57 @@ export class StubElement {
     return this.children[0] ?? null;
   }
 
+  /**
+   * Parent element, under the DOM's `parentNode` name.
+   *
+   * `BodyRenderer`'s column reconciler compares `cell.parentNode` against the
+   * row it is placing cells into, so the stub has to answer to both spellings.
+   */
+  get parentNode(): StubElement | null {
+    return this.parent;
+  }
+
+  /** Next sibling in the parent's child list, or `null` at the end. */
+  get nextSibling(): StubElement | null {
+    if (!this.parent) return null;
+    const i = this.parent.children.indexOf(this);
+    return i === -1 ? null : this.parent.children[i + 1] ?? null;
+  }
+
+  /** Element-only sibling walk — identical to {@link nextSibling} for this stub, which has no text nodes. */
+  get nextElementSibling(): StubElement | null {
+    return this.nextSibling;
+  }
+
   appendChild(child: StubElement): StubElement {
+    // A document fragment empties into its new parent rather than being
+    // inserted itself — the property `BodyRenderer` relies on to append a batch
+    // of freshly built rows in one write.
+    if (child.isFragment) {
+      for (const grandChild of [...child.children]) this.appendChild(grandChild);
+      return child;
+    }
     child.parent?.removeChild(child);
     child.parent = this;
+    child.isConnected = true;
     this.children.push(child);
+    return child;
+  }
+
+  /**
+   * Inserts `child` before `ref`, or appends when `ref` is `null`.
+   *
+   * Mirrors the real DOM's move semantics: a node that already has a parent is
+   * detached first, which is exactly what makes a reorder a move rather than a
+   * duplication.
+   */
+  insertBefore(child: StubElement, ref: StubElement | null): StubElement {
+    child.parent?.removeChild(child);
+    child.parent = this;
+    child.isConnected = true;
+    const i = ref ? this.children.indexOf(ref) : -1;
+    if (i === -1) this.children.push(child);
+    else this.children.splice(i, 0, child);
     return child;
   }
 
@@ -147,12 +255,14 @@ export class StubElement {
     const i = this.children.indexOf(child);
     if (i !== -1) this.children.splice(i, 1);
     child.parent = null;
+    child.isConnected = false;
     return child;
   }
 
   /** Detaches this element from its parent, if it has one. */
   remove(): void {
     this.parent?.removeChild(this);
+    this.isConnected = false;
   }
 
   /** Only `height` is meaningful — it mirrors {@link offsetHeight}, which tests set directly. */
@@ -166,6 +276,14 @@ export class StubElement {
 
   getAttribute(name: string): string | null {
     return this.attributes.get(name) ?? null;
+  }
+
+  removeAttribute(name: string): void {
+    this.attributes.delete(name);
+  }
+
+  hasAttribute(name: string): boolean {
+    return this.attributes.has(name);
   }
 
   matches(selector: string): boolean {
@@ -265,7 +383,11 @@ export function installDomStub(): () => void {
   const frames = new Map<number, () => void>();
   let nextHandle = 1;
 
-  g['document'] = { createElement: (tag: string) => new StubElement(tag) };
+  g['document'] = {
+    createElement: (tag: string) => new StubElement(tag),
+    createDocumentFragment: () => new StubElement('#fragment'),
+  };
+
   g['requestAnimationFrame'] = (fn: () => void): number => {
     const handle = nextHandle++;
     frames.set(handle, fn);

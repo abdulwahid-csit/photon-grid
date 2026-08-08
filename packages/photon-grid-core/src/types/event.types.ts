@@ -1,4 +1,5 @@
 import type { ColumnDef, ColumnState } from './column.types';
+import type { GridAction } from './cell-action.types';
 import type {
   ColumnGroupHeaderCollapsedEvent,
   ColumnGroupHeaderExpandedEvent,
@@ -56,6 +57,16 @@ export const GridEventType = {
   CELL_EDIT_START: 'cell:editStart',
   CELL_EDIT_STOP: 'cell:editStop',
   CELL_SELECTION_CHANGED: 'cell:selectionChanged',
+  /** A `button` cell renderer's button was activated. @see CellButtonClickedEvent */
+  CELL_BUTTON_CLICKED: 'cell:buttonClicked',
+  /** A member row in an `avatarGroup` roster was activated. @see AvatarGroupMemberClickedEvent */
+  AVATAR_GROUP_MEMBER_CLICKED: 'cell:avatarGroupMemberClicked',
+  /** A `longText` cell's expand control opened its panel. @see CellTextExpandedEvent */
+  CELL_TEXT_EXPANDED: 'cell:textExpanded',
+  /** An `actions` cell's command was activated and confirmed. @see CellActionClickedEvent */
+  CELL_ACTION_CLICKED: 'cell:actionClicked',
+  /** An `actions` cell's `onClick` threw or rejected. @see CellActionErrorEvent */
+  CELL_ACTION_ERROR: 'cell:actionError',
 
   COLUMN_RESIZED: 'column:resized',
   COLUMN_MOVED: 'column:moved',
@@ -129,6 +140,18 @@ export const GridEventType = {
 
   TOOLBAR_TAB_CHANGED: 'toolbar:tabChanged',
   TOOLBAR_SEARCH_CHANGED: 'toolbar:searchChanged',
+
+  /** Summary row values were recomputed. @see SummaryChangedEvent */
+  SUMMARY_CHANGED: 'summary:changed',
+  /** The set of summary row *definitions* changed. @see SummaryRowsChangedEvent */
+  SUMMARY_ROWS_CHANGED: 'summary:rowsChanged',
+
+  /** A container resize-handle drag began. @see GridResizeStartEvent */
+  GRID_RESIZE_START: 'grid:resizeStart',
+  /** The grid container's size changed, by drag or by API. @see GridResizedEvent */
+  GRID_RESIZED: 'grid:resized',
+  /** A container resize-handle drag finished. @see GridResizeEndEvent */
+  GRID_RESIZE_END: 'grid:resizeEnd',
 
   SERVER_REQUEST: 'server:request',
   SERVER_SUCCESS: 'server:success',
@@ -260,6 +283,107 @@ export interface RowMenuItemErrorEvent {
 export interface CellSelectionChangedEvent {
   ranges: CellRange[];
 }
+
+/**
+ * Emitted when a `button` cell renderer's button is activated.
+ *
+ * The grid does nothing with the click beyond reporting it — a button column is
+ * an application action, and only the application knows what it means.
+ */
+/**
+ * Emitted when a member row in an `avatarGroup` roster overlay is activated.
+ *
+ * Only fires when the column's renderer opted into interactive rows; a purely
+ * informational roster emits nothing.
+ */
+export interface AvatarGroupMemberClickedEvent {
+  /** The resolved member, including the original item as `source`. */
+  member: import('./built-in-renderer.types').AvatarGroupMember;
+  row: RowNode;
+  colDef: ColumnDef;
+  rowIndex: number;
+  event: MouseEvent;
+}
+
+/**
+ * Emitted when a `longText` cell's expand control opens its panel.
+ *
+ * The grid does nothing with it beyond reporting it — the hook for logging that
+ * a value was actually read, or for lazily fetching a fuller version of it.
+ * Closing emits nothing: a dismissal is not a decision.
+ */
+export interface CellTextExpandedEvent {
+  /** The untruncated text the panel is showing. */
+  text: string;
+  /** The `action` declared in the renderer's options, or `''`. */
+  action: string;
+  row: RowNode;
+  colDef: ColumnDef;
+  rowIndex: number;
+  event: MouseEvent;
+}
+
+export interface CellButtonClickedEvent {  /**
+   * The `action` declared in the renderer's options, or `''`.
+   *
+   * Lets one handler serve several button columns without comparing `colDef`.
+   */
+  action: string;
+  row: RowNode;
+  colDef: ColumnDef;
+  /** Cell value, before any `label` option was applied. */
+  value: unknown;
+  rowIndex: number;
+  event: MouseEvent;
+}
+
+/**
+ * Emitted when an `actions` cell's command is activated.
+ *
+ * Fired *after* any declared confirmation is accepted and immediately before
+ * the action's own `onClick` runs, so a column can be handled entirely through
+ * the event bus — `onClick` is optional precisely because of this. An action
+ * the user dismissed at the confirmation emits nothing: a "no" is not a
+ * command.
+ */
+export interface CellActionClickedEvent {
+  /** `GridAction.id` of the activated command. */
+  actionId: string;
+  /** The declaration itself, for a handler that needs more than the id. */
+  action: GridAction;
+  /**
+   * The `group` declared in the renderer's options, or `''`.
+   *
+   * Lets one handler serve several action columns without comparing `colDef`.
+   */
+  group: string;
+  /** Where it was invoked from — a cell button, or a row in the overflow menu. */
+  source: 'button' | 'menu';
+  row: RowNode;
+  colDef: ColumnDef;
+  /** The cell's own value, post `valueGetter`. */
+  value: unknown;
+  rowIndex: number;
+  event: MouseEvent;
+}
+
+/**
+ * Emitted when an `actions` command's `onClick` throws or rejects.
+ *
+ * The grid surfaces the failure rather than swallowing it — an action that
+ * silently does nothing is indistinguishable from one that worked, which is the
+ * worst possible outcome for a Delete button.
+ */
+export interface CellActionErrorEvent {
+  actionId: string;
+  action: GridAction;
+  group: string;
+  /** Whatever was thrown or rejected with. */
+  error: unknown;
+  row: RowNode;
+  colDef: ColumnDef;
+  rowIndex: number;
+}
 export interface ColumnResizedEvent {
   colDef: ColumnDef;
   newWidth: number;
@@ -291,10 +415,36 @@ export interface ThemeChangedEvent {
   themeName: string;
 }
 export interface ExportEvent {
-  format: 'csv' | 'xlsx';
+  /**
+   * The format that was written.
+   *
+   * Widened from the original `'csv' | 'xlsx'` when the pluggable export system
+   * landed: `'json'`, `'excel'`, `'pdf'` and any host-registered format now flow
+   * through the same events. The two legacy values still appear — they are what
+   * `GridApi.exportCsv()` / `exportXlsx()` emit.
+   */
+  format: 'csv' | 'xlsx' | (string & {});
   fileName: string;
   rowCount: number;
 }
+
+/**
+ * Emitted when an export fails — including the common case of asking for Excel
+ * or PDF before registering an exporter for it.
+ *
+ * @see {@link import('../export/export.types').ExportError}
+ */
+export interface ExportErrorEvent {
+  /** The format that was requested. */
+  format: string;
+  /** Developer-facing explanation, identical to the thrown error's message. */
+  message: string;
+  /** Machine-readable cause, from `ExportErrorCode`. */
+  code: string;
+  /** npm packages the host must install, when an exporter was missing. */
+  requiredPackages: readonly string[];
+}
+
 export interface ColumnsStateChangedEvent {
   states: ColumnState[];
 }
@@ -358,6 +508,36 @@ export interface ToolbarTabChangedEvent {
 export interface ToolbarSearchChangedEvent {
   /** The current, trimmed search query (empty string when cleared). */
   readonly query: string;
+}
+
+/**
+ * Payload of `SUMMARY_CHANGED` — fired after summary row values are recomputed,
+ * whether automatically or via `GridApi.refreshSummary()`.
+ *
+ * Emitted once per refresh, after the new values are stored and before the
+ * bands repaint, so a listener reading `GridApi.getSummary()` sees the values
+ * that are about to appear on screen.
+ */
+export interface SummaryChangedEvent {
+  /** The freshly computed snapshots, in row declaration order. */
+  readonly summaries: readonly import('../summary/summary.types').SummaryRowSnapshot[];
+}
+
+/**
+ * Payload of `SUMMARY_ROWS_CHANGED` — fired when the summary row *definitions*
+ * change through `setSummaryRows` / `updateSummaryRow` / `removeSummaryRow`.
+ *
+ * Distinct from `SUMMARY_CHANGED`, which reports new *values* for an unchanged
+ * set of rows. A definition change emits both: this one first, then
+ * `SUMMARY_CHANGED` once the new definitions have been computed.
+ */
+export interface SummaryRowsChangedEvent {
+  /** What changed the definitions. */
+  readonly action: 'set' | 'update' | 'remove';
+  /** The affected row's id, or `null` for a wholesale `set`. */
+  readonly rowId: string | null;
+  /** Number of summary rows now defined. */
+  readonly rowCount: number;
 }
 
 /**
@@ -443,6 +623,11 @@ export type GridEventMap = {
   [GridEventType.ROW_MENU_ITEM_ERROR]: RowMenuItemErrorEvent;
   [GridEventType.ROW_MENU_CLOSED]: RowMenuClosedEvent;
   [GridEventType.CELL_SELECTION_CHANGED]: CellSelectionChangedEvent;
+  [GridEventType.CELL_BUTTON_CLICKED]: CellButtonClickedEvent;
+  [GridEventType.AVATAR_GROUP_MEMBER_CLICKED]: AvatarGroupMemberClickedEvent;
+  [GridEventType.CELL_TEXT_EXPANDED]: CellTextExpandedEvent;
+  [GridEventType.CELL_ACTION_CLICKED]: CellActionClickedEvent;
+  [GridEventType.CELL_ACTION_ERROR]: CellActionErrorEvent;
   [GridEventType.COLUMN_RESIZED]: ColumnResizedEvent;
   [GridEventType.COLUMN_MOVED]: ColumnMovedEvent;
   [GridEventType.COLUMN_SORTED]: ColumnSortedEvent;
@@ -456,6 +641,7 @@ export type GridEventMap = {
   [GridEventType.THEME_CHANGED]: ThemeChangedEvent;
   [GridEventType.EXPORT_START]: ExportEvent;
   [GridEventType.EXPORT_COMPLETE]: ExportEvent;
+  [GridEventType.EXPORT_ERROR]: ExportErrorEvent;
   [GridEventType.IMPORT_START]: ImportStartEvent;
   [GridEventType.IMPORT_PROGRESS]: ImportProgressEvent;
   [GridEventType.IMPORT_COMPLETE]: ImportCompleteEvent;
@@ -481,6 +667,11 @@ export type GridEventMap = {
   [GridEventType.CHART_DESTROYED]: ChartDestroyedEvent;
   [GridEventType.TOOLBAR_TAB_CHANGED]: ToolbarTabChangedEvent;
   [GridEventType.TOOLBAR_SEARCH_CHANGED]: ToolbarSearchChangedEvent;
+  [GridEventType.SUMMARY_CHANGED]: SummaryChangedEvent;
+  [GridEventType.SUMMARY_ROWS_CHANGED]: SummaryRowsChangedEvent;
+  [GridEventType.GRID_RESIZE_START]: import('./grid-resize.types').GridResizeStartEvent;
+  [GridEventType.GRID_RESIZED]: import('./grid-resize.types').GridResizedEvent;
+  [GridEventType.GRID_RESIZE_END]: import('./grid-resize.types').GridResizeEndEvent;
   [GridEventType.SERVER_REQUEST]: ServerRequestEvent;
   [GridEventType.SERVER_SUCCESS]: ServerSuccessEvent;
   [GridEventType.SERVER_ERROR]: ServerErrorEvent;
@@ -493,4 +684,6 @@ export type GridEventMap = {
   [GridEventType.INFINITE_CACHE_MISS]: InfiniteCacheEvent;
   [GridEventType.THEME_AI_APPLIED]: ThemeAiAppliedEvent;
   [GridEventType.THEME_AI_ERROR]: ThemeAiErrorEvent;
+  [GridEventType.LOADING_STARTED]: import('./loading.types').LoadingChangedEvent;
+  [GridEventType.LOADING_STOPPED]: import('./loading.types').LoadingChangedEvent;
 };

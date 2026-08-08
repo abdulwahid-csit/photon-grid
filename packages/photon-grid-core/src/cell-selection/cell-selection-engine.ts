@@ -4,13 +4,14 @@ import type { ColumnDef } from '../types/column.types';
 import type { GridStore } from '../core/grid-store';
 import type { EventBus } from '../event-bus/event-bus';
 import { GridEventType } from '../types/event.types';
-import { isCellInRanges, normalizeRange, type NormalizedRange } from './selection-range';
+import { isCellInRanges, isSingleCell, normalizeRange, type NormalizedRange } from './selection-range';
 import { ClipboardEngine } from '../engines/clipboard/clipboard-engine';
 import { UndoRedoEngine } from '../engines/undo-redo/undo-redo-engine';
 import type { CellChange } from '../engines/undo-redo/undo-redo-engine';
 import type { AutoFillEngine } from '../autofill/autofill-engine';
 import type { AutoFillValue } from '../autofill/types/autofill.types';
 import type { IconRenderer } from '../icons/icon-renderer';
+import { portalHostFor } from '../theme/overlay-portal';
 import type {
   RowMenuConfig,
   RowMenuConfirmOptions,
@@ -25,6 +26,7 @@ import type {
 import { buildRowMenuItems, resolvePredicate } from '../renderer/row-menu-builder';
 import { openConfirmDialog } from '../renderer/confirm-dialog';
 import { activeGridRegistry } from './active-grid-registry';
+import { isInsideGridUi, resolveGridRoot } from './focus-boundary';
 
 /**
  * Maps a built-in menu entry's `data-action` dispatch key to its public
@@ -40,7 +42,31 @@ const BUILTIN_ID_BY_ACTION: Readonly<Record<string, RowMenuItemId>> = {
   'copy-headers': 'copyWithHeaders',
   'paste': 'paste',
   'export-csv': 'exportCsv',
+  'export-json': 'exportJson',
+  'export-excel': 'exportExcel',
+  'export-pdf': 'exportPdf',
 };
+
+/**
+ * The context menu's **Export** fly-out, in display order.
+ *
+ * Data rather than four near-identical blocks of DOM code, so adding a format
+ * is one entry here. Each maps to an `ExportFormat` the grid's export service
+ * resolves — the menu itself knows nothing about how a format is produced, and
+ * every entry is suppressible by its {@link RowMenuItemId}.
+ */
+const EXPORT_MENU_ENTRIES: ReadonlyArray<{
+  readonly action: string;
+  readonly itemId: RowMenuItemId;
+  readonly format: string;
+  readonly label: string;
+}> = [
+  { action: 'export-csv', itemId: 'exportCsv', format: 'csv', label: 'Export as CSV' },
+  { action: 'export-json', itemId: 'exportJson', format: 'json', label: 'Export as JSON' },
+  { action: 'export-excel', itemId: 'exportExcel', format: 'excel', label: 'Export as Excel' },
+  { action: 'export-pdf', itemId: 'exportPdf', format: 'pdf', label: 'Export as PDF' },
+];
+
 
 /**
  * The narrow surface the selection engine needs from the formula engine to make
@@ -75,6 +101,9 @@ export class CellSelectionEngine {
   private bodyPanels: HTMLElement[] = [];
   private contextMenuEl: HTMLElement | null = null;
   private chartOpenCallback: ((type: string) => void) | null = null;
+  /** Runs an export for a format chosen in the context menu. Wired by `GridCore`. */
+  private exportCallback: ((format: string) => void) | null = null;
+
 
   // ── Row context menu ──────────────────────────────────────────────────────
   /** Host-supplied row-menu configuration, or `null` for built-ins only. */
@@ -171,6 +200,35 @@ export class CellSelectionEngine {
 
   private boundKeydown: (e: KeyboardEvent) => void;
   private boundHideCtx: (e: MouseEvent) => void;
+  private boundPointerDown: (e: PointerEvent) => void;
+
+  // ─── Focus boundary ───────────────────────────────────────────────────────
+
+  /** The element `attach` was given; the seed for {@link gridRootEl}. */
+  private attachedEl: HTMLElement | null = null;
+  /** Memoised grid root for outside-click tests. Invalidated on every `attach`. */
+  private resolvedGridRootEl: HTMLElement | null = null;
+
+  /**
+   * Whether clicking outside the grid drops the focused cell, from
+   * `GridOptions.clearCellSelectionOnClickOutside`.
+   *
+   * On by default: a focus ring left behind on a grid the user has clicked away
+   * from claims keyboard ownership it no longer has — the next Ctrl+C would copy
+   * from a grid nobody is looking at. Hosts that keep a toolbar outside the grid
+   * acting on the current selection turn it off.
+   */
+  private clearFocusOnClickOutside = true;
+
+  /**
+   * Reports whether a cell editor is currently open.
+   *
+   * Wired to `EditorManager.isEditing` by `GridCore`. Unset means "never
+   * editing", which is correct for a grid with editing switched off.
+   *
+   * @see onKeydown, where it gates every keyboard interaction.
+   */
+  private isEditingFn: (() => boolean) | null = null;
 
   // ─── Fill handle state ────────────────────────────────────────────────────
 
@@ -205,30 +263,75 @@ export class CellSelectionEngine {
   /** Whether the serial column drives row selection (enables row keyboard ops). */
   private serialRowSelectionEnabled = false;
 
+  /**
+   * Whether cells may be selected at all, from `GridOptions.enableCellSelection`.
+   *
+   * Defaults to `true`: the option was previously read nowhere, so every grid
+   * has always had selection on. Only an explicit `false` turns it off, which
+   * keeps grids that never set it behaving exactly as before.
+   */
+  private cellSelectionEnabled = true;
+
+  /**
+   * Whether a selection may span more than one cell, from
+   * `GridOptions.enableRangeSelection`. Same default and reasoning as
+   * {@link cellSelectionEnabled}.
+   *
+   * Independent of it: `enableCellSelection: true, enableRangeSelection: false`
+   * is the "single active cell, no ranges" mode.
+   */
+  private rangeSelectionEnabled = true;
+
   constructor(
     private store: GridStore,
     private eventBus: EventBus,
     private clipboardEngine: ClipboardEngine,
     /** Optional undo/redo engine. When provided, cut, paste, and edit operations are recorded. */
     private undoRedoEngine?: UndoRedoEngine,
+    /**
+     * Resolves the cell context menu's icons through the shared registry, so
+     * they follow the active theme's icon pack like the rest of the grid.
+     * Optional only so existing test harnesses can omit it; the menu falls back
+     * to no glyph rather than to hardcoded markup.
+     */
+    private iconRenderer?: IconRenderer,
   ) {
     this.boundKeydown = this.onKeydown.bind(this);
     this.boundHideCtx = () => this.hideContextMenu();
     this.boundFillMouseMove = this.onFillMouseMove.bind(this);
     this.boundFillMouseUp = this.onFillMouseUp.bind(this);
+    this.boundPointerDown = this.onDocumentPointerDown.bind(this);
   }
 
   get isSelecting(): boolean { return this._isSelecting; }
 
   attach(containerEl: HTMLElement): void {
-    // containerEl kept for signature compat — no canvas attached
-    void containerEl;
+    // Seeds the focus boundary — the widened root is resolved lazily, because
+    // the theme scope attribute it prefers is written when the theme is applied
+    // and that need not have happened yet.
+    this.attachedEl = containerEl;
+    this.resolvedGridRootEl = null;
     document.addEventListener('keydown', this.boundKeydown);
+    // Capture phase: an outside click must be seen even when a host handler on
+    // the way up calls `stopPropagation`. Re-adding an identical listener is a
+    // no-op, so a second `attach` (a re-render) cannot double-subscribe.
+    document.addEventListener('pointerdown', this.boundPointerDown, true);
     this.buildContextMenu();
   }
 
   setBodyPanels(panels: HTMLElement[]): void {
     this.bodyPanels = panels.filter(Boolean) as HTMLElement[];
+  }
+
+  /**
+   * Registers the predicate that tells this engine an editor is open, so it can
+   * stand down from the keyboard entirely.
+   *
+   * @param fn - Returns `true` while a cell is being edited.
+   * @see isEditingFn
+   */
+  setEditingPredicate(fn: () => boolean): void {
+    this.isEditingFn = fn;
   }
 
   /**
@@ -239,6 +342,59 @@ export class CellSelectionEngine {
    */
   setSerialColumnSelection(enabled: boolean): void {
     this.serialRowSelectionEnabled = enabled;
+  }
+
+  /**
+   * Applies `GridOptions.enableCellSelection` / `enableRangeSelection`.
+   *
+   * Gating lives here rather than at each call site because selection is
+   * reachable from six of them — click, shift-click, ctrl-click, drag, keyboard
+   * navigation and the public API — and a check missing from any one of them is
+   * a way for a disabled feature to switch itself back on.
+   *
+   * Turning cell selection off clears whatever is currently selected, so the
+   * option can be flipped at runtime without leaving an orphaned highlight.
+   *
+   * @param options - `undefined` values leave that flag unchanged.
+   */
+  configureSelection(options: {
+    readonly cellSelection?: boolean;
+    readonly rangeSelection?: boolean;
+    readonly clearFocusOnClickOutside?: boolean;
+  }): void {
+    if (options.cellSelection !== undefined) this.cellSelectionEnabled = options.cellSelection;
+    if (options.rangeSelection !== undefined) this.rangeSelectionEnabled = options.rangeSelection;
+    if (options.clearFocusOnClickOutside !== undefined) {
+      this.clearFocusOnClickOutside = options.clearFocusOnClickOutside;
+    }
+
+    if (!this.cellSelectionEnabled) {
+      this.clearSelection();
+    } else if (!this.rangeSelectionEnabled) {
+      // Collapse any existing multi-cell selection down to its anchor rather
+      // than clearing outright — the active cell is still legitimate.
+      const ranges = this.store.get('cellRanges') as CellRange[];
+      if (ranges.length > 1 || (ranges[0] && !isSingleCell(ranges[0]))) {
+        const anchor = this.anchorCell;
+        if (anchor) this.startSelection(anchor.rowIndex, anchor.colIndex);
+        else this.clearSelection();
+      }
+    }
+  }
+
+  /** `true` when cells may be selected. @see {@link configureSelection} */
+  get isCellSelectionEnabled(): boolean {
+    return this.cellSelectionEnabled;
+  }
+
+  /** `true` when a selection may span more than one cell. @see {@link configureSelection} */
+  get isRangeSelectionEnabled(): boolean {
+    return this.cellSelectionEnabled && this.rangeSelectionEnabled;
+  }
+
+  /** `true` when clicking outside the grid drops the focused cell. @see {@link configureSelection} */
+  get isClearFocusOnClickOutsideEnabled(): boolean {
+    return this.clearFocusOnClickOutside;
   }
 
   /**
@@ -413,9 +569,12 @@ export class CellSelectionEngine {
 
   detach(): void {
     document.removeEventListener('keydown', this.boundKeydown);
+    document.removeEventListener('pointerdown', this.boundPointerDown, true);
     document.removeEventListener('pointermove', this.boundFillMouseMove);
     document.removeEventListener('pointerup', this.boundFillMouseUp);
     activeGridRegistry.release(this);
+    this.attachedEl = null;
+    this.resolvedGridRootEl = null;
     this.fillHandleParentCell?.classList.remove('pg-cell--has-fill-handle');
     this.fillHandleParentCell = null;
     this.fillHandleEl?.remove();
@@ -427,9 +586,51 @@ export class CellSelectionEngine {
     this.contextMenuEl = null;
   }
 
+  // ─── Focus boundary ───────────────────────────────────────────────────────
+
+  /**
+   * Drops the focused cell when the user clicks away from the grid.
+   *
+   * Runs on every pointerdown in the document, so it is written to bail on the
+   * cheap checks first: the feature flag, then "is there even a focus ring to
+   * clear", and only then the DOM walk in {@link isInsideGridUi}. A grid with no
+   * active cell — every grid on a page except at most one — costs two field
+   * reads per click.
+   *
+   * A fill drag is exempt: the pointer is down on the handle inside the grid and
+   * the pointer *up* may land anywhere, so the drag owns the selection until it
+   * finishes.
+   */
+  private onDocumentPointerDown(e: PointerEvent): void {
+    if (!this.clearFocusOnClickOutside) return;
+    if (this.isFillDragging) return;
+    if (this.store.get('activeCell') === null) return;
+
+    const root = this.gridRootEl;
+    if (!root || isInsideGridUi(e.target, root)) return;
+
+    // Also gives up this grid's claim on the page's keyboard shortcuts, so the
+    // registry is not left pointing at a grid with nothing selected.
+    this.clearSelection();
+    activeGridRegistry.release(this);
+  }
+
+  /** The grid's outermost element, resolved once per `attach` and cached. */
+  private get gridRootEl(): HTMLElement | null {
+    if (!this.attachedEl) return null;
+    if (!this.resolvedGridRootEl?.isConnected) {
+      this.resolvedGridRootEl = resolveGridRoot(this.attachedEl);
+    }
+    return this.resolvedGridRootEl;
+  }
+
   // ─── Selection API ────────────────────────────────────────────────────────
 
   startSelection(rowIndex: number, colIndex: number, extend = false): void {
+    if (!this.cellSelectionEnabled) return;
+    // An extend is a range operation, so it is refused when ranges are off —
+    // but the caller still gets the single-cell selection it asked to anchor.
+    if (extend && !this.rangeSelectionEnabled) extend = false;
     // Claims this grid as the page's active selection surface, deactivating
     // (clearing) whichever grid held that role before — see active-grid-registry.ts.
     activeGridRegistry.setActive(this);
@@ -447,6 +648,14 @@ export class CellSelectionEngine {
   }
 
   extendSelection(rowIndex: number, colIndex: number): void {
+    if (!this.cellSelectionEnabled) return;
+    // Ranges off: a shift-click or a drag collapses to selecting that one cell
+    // rather than doing nothing, which is what makes the mode feel like
+    // "single-cell selection" instead of "half the clicks are ignored".
+    if (!this.rangeSelectionEnabled) {
+      this.startSelection(rowIndex, colIndex);
+      return;
+    }
     if (!this.anchorCell) {
       this.startSelection(rowIndex, colIndex);
       return;
@@ -489,6 +698,13 @@ export class CellSelectionEngine {
    * @param colIndex - Column index of the clicked cell.
    */
   addRangeCell(rowIndex: number, colIndex: number): void {
+    if (!this.cellSelectionEnabled) return;
+    // Multi-range is the most range-y operation there is; with ranges off a
+    // Ctrl+Click behaves like a plain click.
+    if (!this.rangeSelectionEnabled) {
+      this.startSelection(rowIndex, colIndex);
+      return;
+    }
     activeGridRegistry.setActive(this);
     const existing = this.store.get('cellRanges') as CellRange[];
     const dupeIdx = existing.findIndex(
@@ -598,6 +814,14 @@ export class CellSelectionEngine {
    */
   private updateFillHandle(): void {
     if (this.isFillDragging) return;
+
+    // Dragging the handle is how a single cell becomes a range, so it has no
+    // place in a grid where ranges are off — and none at all where cells cannot
+    // be selected in the first place.
+    if (!this.cellSelectionEnabled || !this.rangeSelectionEnabled) {
+      this.hideFillHandle();
+      return;
+    }
 
     const ranges = this.store.get('cellRanges') as CellRange[];
     if (ranges.length !== 1) {
@@ -1214,6 +1438,20 @@ export class CellSelectionEngine {
 
   setChartOpenCallback(fn: (type: string) => void): void {
     this.chartOpenCallback = fn;
+  }
+
+  /**
+   * Routes the context menu's **Export** fly-out to the grid's export service.
+   *
+   * Wired by `GridCore`, so the menu itself stays free of the export pipeline
+   * and every entry point — fly-out, toolbar dropdown, `GridApi.export()` —
+   * produces an identical file. Left unwired (an engine constructed outside a
+   * grid), only *Export as CSV* works, via a minimal inline fallback.
+   *
+   * @param fn - Runs an export for the chosen format id.
+   */
+  setExportCallback(fn: (format: string) => void): void {
+    this.exportCallback = fn;
   }
 
   /**
@@ -1985,7 +2223,9 @@ export class CellSelectionEngine {
     };
 
     const handler = this.rowMenuConfig?.confirmHandler;
-    return handler ? handler(request) : openConfirmDialog(request);
+    return handler
+      ? handler(request)
+      : openConfirmDialog({ ...request, ownerEl: this.gridRootEl ?? this.attachedEl });
   }
 
   /** Toggles the busy indicator on an item element. */
@@ -2174,6 +2414,24 @@ export class CellSelectionEngine {
   }
 
   private onKeydown(e: KeyboardEvent): void {
+    // ── An open editor owns the keyboard, completely ────────────────────────
+    //
+    // While a cell is being edited every key belongs to the editor: arrows move
+    // the caret or the highlighted option, Enter commits, Escape cancels, Tab
+    // commits and moves. None of it is grid navigation.
+    //
+    // This used to be left to the editor calling `stopPropagation`, plus the
+    // tag-name test below. That covered a plain `<input>` and nothing else — a
+    // `<select>`, a `<button>`-based switch, a `<div>`-rooted composite editor
+    // and every framework component fell straight through to the navigation
+    // handler. The visible symptoms were arrows moving the selection out from
+    // under an open dropdown, and Enter closing the editor *and* advancing a
+    // cell in the same keystroke.
+    //
+    // Asking the editor manager directly is the only test that cannot drift:
+    // it is the same state machine that decides an editor is open.
+    if (this.isEditingFn?.()) return;
+
     // Don't steal keyboard from input / editable elements
     const target = e.target as HTMLElement;
     if (
@@ -2377,11 +2635,15 @@ export class CellSelectionEngine {
   }
 
   private buildContextMenu(): void {
-    const ICON_CUT = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>`;
-    const ICON_COPY = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
-    const ICON_PASTE = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg>`;
-    const ICON_CHART = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>`;
-    const ICON_EXPORT = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`;
+    // Resolved through the registry rather than inlined, so the menu follows the
+    // active theme's icon pack — and so `repaintIcons` can find these glyphs
+    // when the pack changes (they carry `data-icon`).
+    const icon = (name: string): string => this.iconRenderer?.renderToString(name, 13) ?? '';
+    const ICON_CUT = icon('cut');
+    const ICON_COPY = icon('copy');
+    const ICON_PASTE = icon('paste');
+    const ICON_CHART = icon('chart');
+    const ICON_EXPORT = icon('download');
 
     const el = document.createElement('div');
     el.className = 'pg-context-menu';
@@ -2526,19 +2788,23 @@ export class CellSelectionEngine {
     exportItem.appendChild(exportLabel);
     const exportSub = document.createElement('div');
     exportSub.className = 'pg-context-menu__sub';
-    const csvBtn = document.createElement('button');
-    csvBtn.className = 'pg-context-menu__item';
-    csvBtn.setAttribute('role', 'menuitem');
-    csvBtn.setAttribute('data-action', 'export-csv');
-    csvBtn.setAttribute('data-item-id', 'exportCsv');
-    csvBtn.setAttribute('data-item-label', 'Export as CSV');
-    const csvLabel = document.createElement('span');
-    csvLabel.className = 'pg-context-menu__label';
-    csvLabel.textContent = 'Export as CSV';
-    csvBtn.appendChild(csvLabel);
-    exportSub.appendChild(csvBtn);
+    for (const entry of EXPORT_MENU_ENTRIES) {
+      const btn = document.createElement('button');
+      btn.className = 'pg-context-menu__item';
+      btn.setAttribute('role', 'menuitem');
+      btn.setAttribute('data-action', entry.action);
+      btn.setAttribute('data-item-id', entry.itemId);
+      btn.setAttribute('data-item-label', entry.label);
+      btn.setAttribute('data-export-format', entry.format);
+      const label = document.createElement('span');
+      label.className = 'pg-context-menu__label';
+      label.textContent = entry.label;
+      btn.appendChild(label);
+      exportSub.appendChild(btn);
+    }
     exportItem.appendChild(exportSub);
     builtIns.appendChild(exportItem);
+
 
     el.appendChild(builtIns);
     el.appendChild(custom);
@@ -2582,15 +2848,38 @@ export class CellSelectionEngine {
         case 'copy-headers':  this.copySelectionWithHeaders(rows, columns); break;
         case 'paste':         this.pasteSelection(rows, columns); break;
         case 'selectAll':     this.selectAll(rows.length, columns.length); break;
-        case 'export-csv':    this.exportAsCsv(rows, columns); break;
+        default: {
+          // Every Export fly-out entry routes through the grid's export service
+          // so the context menu, the toolbar dropdown and `GridApi.export()`
+          // all produce the same file. The inline CSV fallback below only runs
+          // in the unwired case (an engine constructed outside a grid).
+          const format = btn.getAttribute('data-export-format');
+          if (!format) break;
+          if (this.exportCallback) this.exportCallback(format);
+          else if (format === 'csv') this.exportAsCsv(rows, columns);
+          break;
+        }
       }
+
     });
 
-    document.body.appendChild(el);
+    // Portaled into the owning grid's host rather than straight onto <body>, so
+    // the menu wears this grid's mode and variant even when another grid on the
+    // page applied its theme more recently.
+    portalHostFor(this.gridRootEl ?? this.attachedEl).appendChild(el);
     this.contextMenuEl = el;
   }
 
+  /**
+   * Minimal CSV fallback for an engine used outside a grid.
+   *
+   * Inside a grid this never runs: `GridCore` wires
+   * {@link setExportCallback}, and the fly-out routes through the shared export
+   * pipeline instead, so the context menu's CSV matches the toolbar's byte for
+   * byte.
+   */
   private exportAsCsv(rows: RowNode[], columns: ColumnDef[]): void {
+
     const header = columns.map((c) => `"${c.header}"`).join(',');
     const body = rows
       .filter((r) => r.type === 'data')

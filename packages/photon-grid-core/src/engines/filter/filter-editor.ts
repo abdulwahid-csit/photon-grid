@@ -98,8 +98,10 @@ const DATE_OPERATORS: ConditionOption[] = [
 
 function getOperators(colType: string): ConditionOption[] {
   switch (colType) {
-    case 'number': case 'currency': case 'percentage': return NUMBER_OPERATORS;
-    case 'date':   case 'time':                        return DATE_OPERATORS;
+    case 'number': case 'currency': case 'percentage':
+    case 'duration':                                   return NUMBER_OPERATORS;
+    case 'date':   case 'datetime': case 'time':       return DATE_OPERATORS;
+    // `phone`, `url` and `email` filter as text.
     default:                                           return STRING_OPERATORS;
   }
 }
@@ -107,9 +109,15 @@ function getOperators(colType: string): ConditionOption[] {
 function getInputType(colType: string): string {
   switch (colType) {
     case 'number': case 'currency': case 'percentage': return 'number';
-    case 'date':   return 'date';
-    case 'time':   return 'time';
-    default:       return 'text';
+    case 'date':     return 'date';
+    case 'datetime': return 'datetime-local';
+    case 'time':     return 'time';
+    case 'url':      return 'url';
+    case 'phone':    return 'tel';
+    // A duration is entered the way it reads ("2h 15m"), not as a raw second
+    // count, so it takes a text input rather than a number one.
+    case 'duration': return 'text';
+    default:         return 'text';
   }
 }
 
@@ -747,10 +755,19 @@ export class FilterEditor {
     return { operator: op, value: val.trim() };
   }
 
+  /**
+   * Narrows a column type to the six shapes filter evaluation understands.
+   *
+   * Deliberately lossy: `FilterDataType` is the *evaluation* vocabulary, and
+   * `evaluateDateCondition` / `evaluateNumberCondition` dispatch on it. Adding
+   * `datetime` or `duration` as members there would leave those dispatches with
+   * no branch — the mapping belongs here instead.
+   */
   private getFilterDataType(colType: string): import('../../types/filter.types').FilterDataType {
     switch (colType) {
-      case 'number': case 'currency': case 'percentage': return 'number';
-      case 'date':   case 'time':                        return 'date';
+      case 'number': case 'currency': case 'percentage':
+      case 'duration':                                   return 'number';
+      case 'date':   case 'datetime': case 'time':       return 'date';
       case 'boolean':                                    return 'boolean';
       case 'dropdown':                                   return 'dropdown';
       case 'array':                                      return 'array';

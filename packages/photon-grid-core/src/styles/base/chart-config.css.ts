@@ -19,7 +19,7 @@ export const chartConfigCss = `
   flex-direction: column;
   background: var(--pg-colors-surface, #fff);
   border-left: 1px solid var(--pg-colors-border, #e2e8f0);
-  // box-shadow: -8px 0 24px rgba(0, 0, 0, 0.12);
+  /* box-shadow: -8px 0 24px rgba(0, 0, 0, 0.12); */
   font-family: var(--pg-typography-font-family, system-ui, sans-serif);
   color: var(--pg-colors-text-primary, #0f172a);
   overflow: hidden;

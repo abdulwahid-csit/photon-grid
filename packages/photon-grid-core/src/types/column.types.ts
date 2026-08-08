@@ -1,36 +1,55 @@
 import type { SparklineConfig } from '../chart/sparkline/sparkline.types';
 import type { ColumnGroupResizeStrategy } from '../column-groups/column-group.types';
-import type { ColumnRendererMap, DisplayRendererParams } from './renderer.types';
+import type { ColumnRenderer, ColumnRendererMap, DisplayRendererParams } from './renderer.types';
+import type { AnyBuiltInRendererOptions, BuiltInRenderer } from './built-in-renderer.types';
 import type { ValueGetterFn, ValueSetterFn, ValueFormatterFn } from './value.types';
+// Type-only, so the cycle with `editing/types/*` (which reads `ColumnDef`) is
+// erased at compile time and never reaches the emitted JavaScript.
+import type {
+  CellEditorParamsSpec,
+  CellEditorSpec,
+  EditableSpec,
+} from '../editing/types/cell-editor.types';
+import type { ColumnValidation } from '../editing/types/validation.types';
 
 export type ColumnPinPosition = 'left' | 'right' | null;
 
 /**
  * Supported data types for a column.
  *
- * | Value        | Cell rendering                                         |
- * |--------------|--------------------------------------------------------|
- * | `string`     | Plain text                                             |
- * | `number`     | Locale-formatted number                                |
- * | `boolean`    | Check-mark icon                                        |
- * | `date`       | Formatted date string                                  |
- * | `time`       | Formatted time string                                  |
- * | `dropdown`   | Badge from `dropdownOptions`                           |
- * | `object`     | Badge resolved via `objectValueKey`                    |
- * | `array`      | Tag badges (up to 3 visible)                           |
- * | `image`      | `<img>` thumbnail                                      |
- * | `currency`   | Currency-formatted number                              |
- * | `percentage` | Percentage-formatted number                            |
- * | `email`      | Plain email text                                       |
- * | `sparkline`  | Mini chart — requires `ColumnDef.sparkline` config     |
- * | `custom`     | Delegated to `renderer.display`                        |
+ * The type drives sorting, filtering, editing and export. It also picks the
+ * column's **default renderer** when {@link ColumnDef.renderer} is not set —
+ * see `DEFAULT_RENDERER_BY_TYPE`, which is the authoritative mapping.
+ *
+ * | Value        | Default renderer | Cell rendering                          |
+ * |--------------|------------------|-----------------------------------------|
+ * | `string`     | `text`           | Plain text                              |
+ * | `number`     | `number`         | Locale-formatted number                 |
+ * | `boolean`    | `checkbox`       | Interactive checkbox                    |
+ * | `date`       | `date`           | Formatted date                          |
+ * | `datetime`   | `datetime`       | Formatted date + time                   |
+ * | `time`       | `time`           | Formatted time                          |
+ * | `duration`   | `duration`       | Elapsed time, e.g. `2h 15m`             |
+ * | `dropdown`   | `badge`          | Badge from `dropdownOptions`            |
+ * | `object`     | `badge`          | Badge resolved via `objectValueKey`     |
+ * | `array`      | `list`           | Tag badges (up to 3 visible)            |
+ * | `image`      | `image`          | `<img>` thumbnail                       |
+ * | `currency`   | `currency`       | Currency-formatted number               |
+ * | `percentage` | `percentage`     | Percentage-formatted number             |
+ * | `email`      | `email`          | `mailto:` link                          |
+ * | `phone`      | `phone`          | `tel:` link                             |
+ * | `url`        | `link`           | Anchor                                  |
+ * | `sparkline`  | `sparkline`      | Mini chart — requires `ColumnDef.sparkline` |
+ * | `custom`     | `text`           | Delegated to `renderer`                 |
  */
 export type ColumnDataType =
   | 'string'
   | 'number'
   | 'boolean'
   | 'date'
+  | 'datetime'
   | 'time'
+  | 'duration'
   | 'dropdown'
   | 'object'
   | 'array'
@@ -38,8 +57,12 @@ export type ColumnDataType =
   | 'currency'
   | 'percentage'
   | 'email'
+  | 'phone'
+  | 'url'
+  | 'color'
   | 'sparkline'
   | 'custom';
+
 
 export type ColumnSummaryAggregation = 'sum' | 'avg' | 'min' | 'max' | 'count' | 'none';
 
@@ -69,11 +92,15 @@ export enum HeaderIconDisplay {
   /**
    * Icon stays hidden until the pointer hovers the header cell (or the icon is
    * otherwise activated — e.g. a column with an active filter always shows its
-   * funnel). This is the default and matches the classic "reveal on hover"
-   * behaviour.
+   * funnel). This is the classic "reveal on hover" behaviour; opt in when a
+   * denser, quieter header is preferred over discoverability.
    */
   HOVER = 'hover',
-  /** Icon is permanently rendered, regardless of hover state. */
+  /**
+   * Icon is permanently rendered, regardless of hover state. This is the
+   * default — header actions stay discoverable without requiring a hover, and
+   * the header layout does not shift as the pointer moves across columns.
+   */
   ALWAYS = 'always',
   /**
    * Icon is never rendered. The underlying feature remains available through
@@ -224,7 +251,84 @@ export interface ColumnDef {
   configurable?: boolean;
   resizable?: boolean;
   draggable?: boolean;
-  editable?: boolean;
+  /**
+   * Whether this column's cells can be edited.
+   *
+   * A predicate is evaluated per cell, so editability can depend on the row —
+   * the usual reason being a status or permission field.
+   *
+   * Editing also requires `GridOptions.editing.mode` to be something other than
+   * `'none'`, and is refused outright when {@link ColumnDef.locked} is `true`.
+   *
+   * @default false
+   *
+   * @example
+   * ```ts
+   * { field: 'discount', editable: ({ data }) => data.status === 'draft' }
+   * ```
+   */
+  editable?: EditableSpec;
+  /**
+   * Which editor opens for this column's cells.
+   *
+   * Everything is optional: a column that sets only `editable: true` gets the
+   * right editor for its {@link ColumnDef.type} automatically. Reach for this
+   * when the default is not what you want.
+   *
+   * Accepts a built-in name, a key registered through `GridApi.registerEditor`,
+   * an editor class or factory, or — with the matching framework wrapper
+   * installed — an Angular / React / Vue component.
+   *
+   * Resolution order is: `editable` → this → registered key → the
+   * {@link ColumnDef.type} default → the text editor.
+   *
+   * @example
+   * ```ts
+   * { field: 'status',   editable: true, cellEditor: 'select' }
+   * { field: 'currency', editable: true, cellEditor: CurrencyEditor }
+   * { field: 'owner',    editable: true, cellEditor: OwnerPickerComponent }
+   * ```
+   */
+  cellEditor?: CellEditorSpec;
+  /**
+   * Configuration handed to the editor as `params.params`.
+   *
+   * The function form is evaluated per cell, so an option list can depend on the
+   * row being edited.
+   *
+   * @example
+   * ```ts
+   * { field: 'score', editable: true, cellEditorParams: { min: 0, max: 100, step: 5 } }
+   * ```
+   */
+  cellEditorParams?: CellEditorParamsSpec;
+  /**
+   * Declarative validation applied when an edit is committed.
+   *
+   * Rules run in a fixed order (emptiness before range, so a blank required
+   * cell says "is required" rather than "must be at least 10") and apply
+   * identically to built-in, custom, and framework editors — the grid owns
+   * validation, not the editor.
+   *
+   * Some rules are implied by {@link ColumnDef.type}: an `email` column
+   * validates as an email address with no configuration at all.
+   *
+   * @example
+   * ```ts
+   * {
+   *   field: 'price', type: 'number', editable: true,
+   *   validation: {
+   *     required: true,
+   *     min: 10,
+   *     validate: ({ value, data }) =>
+   *       Number(value) > Number(data.cost)
+   *         ? { valid: true }
+   *         : { valid: false, message: 'Price must exceed cost' },
+   *   },
+   * }
+   * ```
+   */
+  validation?: ColumnValidation;
   /**
    * When `true`, the column is "locked": its cells cannot be edited regardless
    * of {@link ColumnDef.editable}. Toggled by the column menu's "Lock Column".
@@ -264,12 +368,28 @@ export interface ColumnDef {
   visible?: boolean;
 
   /**
+   * Excludes this column from every export (CSV / JSON / Excel / PDF), whatever
+   * its visibility.
+   *
+   * For columns that exist to drive the UI rather than to carry data — a row
+   * handle, an internal key, a column of buttons. An explicit
+   * {@link ExportOptions.columns} list still wins: naming a column *is* the
+   * decision to export it.
+   *
+   * Columns rendered with the built-in `actions` renderer are excluded
+   * automatically and need no flag.
+   *
+   * @default false
+   */
+  suppressExport?: boolean;
+
+  /**
    * Controls when this column's filter funnel icon appears in the header.
    * Only relevant while the column is filterable ({@link ColumnDef.filterable}
    * is not `false`). Overrides the grid-level {@link HeaderIconsConfig.filter}
    * default.
    *
-   * @default HeaderIconDisplay.HOVER
+   * @default HeaderIconDisplay.ALWAYS
    */
   filterIconDisplay?: HeaderIconDisplay;
 
@@ -278,7 +398,7 @@ export interface ColumnDef {
    * Only relevant while the column menu is enabled for the grid. Overrides the
    * grid-level {@link HeaderIconsConfig.menu} default.
    *
-   * @default HeaderIconDisplay.HOVER
+   * @default HeaderIconDisplay.ALWAYS
    */
   menuIconDisplay?: HeaderIconDisplay;
 
@@ -296,13 +416,56 @@ export interface ColumnDef {
   menu?: import('./column-menu.types').ColumnMenuConfig;
 
   /**
-   * Per-column rendering overrides, grouped by concern (display, editor,
-   * option, filter, tooltip, group, header, summary). Any slot left unset
+   * How this column's cells are drawn.
+   *
+   * Four forms, all optional — a column that sets none gets a renderer inferred
+   * from its {@link ColumnDef.type}:
+   *
+   * ```ts
+   * renderer: 'country'                                   // built-in, by name
+   * renderer: { name: 'progress', options: { max: 10 } }  // built-in, configured
+   * renderer: ({ value }) => `<b>${value}</b>`            // custom display fn
+   * renderer: { display: fn, editor: fn, filter: fn }     // per-slot overrides
+   * ```
+   *
+   * The last form is the original API and is unchanged: any slot left unset
    * falls back to Photon Grid's built-in rendering for that concern.
    *
+   * A built-in selected by name is configured through
+   * {@link ColumnDef.rendererParams}.
+   *
+   * @see {@link ColumnRenderer}
    * @see {@link ColumnRendererMap}
+   * @see {@link BuiltInRenderer}
    */
-  renderer?: ColumnRendererMap;
+  renderer?: ColumnRenderer;
+
+  /**
+   * Options for whichever built-in renderer this column uses.
+   *
+   * The flat alternative to the `{ name, options }` spec, and the form to reach
+   * for when the renderer is named as a string — or not named at all, since
+   * these apply just as well to the renderer inferred from
+   * {@link ColumnDef.type}:
+   *
+   * ```ts
+   * { field: 'employee', renderer: 'profile', rendererParams: {
+   *     avatar: { field: 'avatar', shape: 'circle', size: 36 },
+   *     title: { field: 'name' },
+   *     subtitle: { field: 'department' },
+   * } }
+   * ```
+   *
+   * Ignored by a column whose `renderer` is a function or a slot map — those
+   * render through the author's own code, which takes its configuration from
+   * the closure it was written in.
+   *
+   * When a column declares both this and a `{ name, options }` spec, `options`
+   * wins key by key; nothing is silently dropped.
+   *
+   * @see {@link BuiltInRendererOptionsMap} for the options each renderer takes.
+   */
+  rendererParams?: AnyBuiltInRendererOptions;
 
   dropdownOptions?: ColumnDropdownOption[];
   enumOptions?: string[];
@@ -312,9 +475,27 @@ export interface ColumnDef {
    */
   objectValueKey?: string;
 
+  /**
+   * @deprecated Use `validation: { required: true }`. Still honoured — the
+   * validation engine normalises it into the equivalent rule — but the
+   * `validation` object is the documented home for every rule, and only it
+   * supports messages, codes, async and cross-field checks.
+   */
   required?: boolean;
+  /**
+   * @deprecated Use `validation: { min }`. Still honoured. Note that
+   * `cellEditorParams.min` is a separate, complementary thing: it constrains the
+   * *input control*, while validation constrains the *value*.
+   */
   min?: number | null;
+  /** @deprecated Use `validation: { max }`. Still honoured. See {@link ColumnDef.min}. */
   max?: number | null;
+  /**
+   * @deprecated Use `validation: { validate }`, which returns a structured
+   * {@link ValidationResult} instead of a bare message string and receives the
+   * whole row rather than only the value. Still honoured; the engine adapts the
+   * old signature.
+   */
   validatorFn?: (value: unknown) => string | null;
 
   showSummary?: boolean;
@@ -426,6 +607,22 @@ export interface Column extends ColumnDef {
   colId: string;
   header: string;
   type: ColumnDataType;
+  /**
+   * The column this one sat immediately after when it was pinned, so unpinning
+   * can put it back there.
+   *
+   * Pinning is a move — the column leaves its block and joins a panel's — which
+   * means the position it came from is lost unless something remembers it.
+   * Without this, unpinning dropped the column at the end of the unpinned block:
+   * a user who pinned the third of twenty columns to glance at it got it back
+   * as the twentieth.
+   *
+   * Holds `null` when the column was first in the order (nothing to sit after),
+   * and `undefined` while the column is unpinned. Internal: set and cleared by
+   * `ColumnModel`, never authored, and deliberately absent from
+   * {@link ColumnState} — it describes an in-flight pin, not saved layout.
+   */
+  unpinAnchorColId?: string | null;
 }
 
 /**

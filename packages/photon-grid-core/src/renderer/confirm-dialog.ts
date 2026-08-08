@@ -13,6 +13,7 @@
  */
 
 import { createDiv } from './dom-utils';
+import { portalHostFor } from '../theme/overlay-portal';
 
 /** Text and tone of a single confirmation. */
 export interface ConfirmDialogOptions {
@@ -22,6 +23,16 @@ export interface ConfirmDialogOptions {
   readonly cancelLabel: string;
   /** Styles the confirming button as destructive. */
   readonly danger?: boolean;
+  /**
+   * Any element inside the owning grid — typically the control that triggered
+   * the confirmation. Used solely to resolve which grid's portal host the dialog
+   * is appended to, so it wears that grid's mode and variant on a page hosting
+   * several differently-themed grids.
+   *
+   * Optional: when omitted the previously focused element is used, which is the
+   * triggering control in every interactive path. Falls back to `<body>`.
+   */
+  readonly ownerEl?: HTMLElement | null;
 }
 
 /**
@@ -101,7 +112,7 @@ export function openConfirmDialog(options: ConfirmDialogOptions): Promise<boolea
     });
     document.addEventListener('keydown', onKeydown, true);
 
-    document.body.appendChild(backdrop);
+    portalHostFor(options.ownerEl ?? previouslyFocused).appendChild(backdrop);
     confirmBtn.focus();
   });
 }

@@ -43,25 +43,12 @@ export const touchCss = `/* ─────────────────�
    affordance (a thin line / small square) is preserved via ::after or the
    existing box so the look is unchanged on desktop. */
 @media (pointer: coarse) {
-  /* Column resize handle: widen the invisible grab zone, keep a thin visual line. */
+  /* Column resize handle: a finger needs more than a mouse. One token drives
+     the width, the offset that keeps the line centred, and the right-pinned
+     variant — they are all derived from it in header.css. The visible line is
+     unchanged; only the grab zone grows. */
   .pg-th__resize-handle {
-    width: 18px;
-    right: -9px;
-    background: transparent;
-  }
-  .pg-th--pinned-right .pg-th__resize-handle {
-    left: -9px;
-    right: auto;
-  }
-  .pg-th__resize-handle::after {
-    content: '';
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    left: 50%;
-    width: 2px;
-    transform: translateX(-50%);
-    background: var(--pg-colors-resize-handle-color, #d9d9db);
+    --pg-sizing-resize-grab-width: 18px;
   }
 
   /* Row drag handle: larger and more visible for fingers. */

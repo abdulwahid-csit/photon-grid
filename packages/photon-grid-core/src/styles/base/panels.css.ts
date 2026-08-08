@@ -50,6 +50,16 @@ export const panelsCss = `/* ─────────────────
   flex-shrink: 0;
   position: relative;
 }
+/* Both pinned panels are sized to their columns PLUS the divider they draw on
+   the edge facing the data. Everything here is box-sizing: border-box, so a
+   panel sized to exactly its columns would spend that pixel on the border and
+   clip the last pinned column's rightmost pixel — taking with it the one thing
+   drawn there: a cell's right-hand range outline, the focused cell's ring, and
+   the fill handle. They reach it from opposite directions:
+     • left  — GridRenderer publishes columns + 1 (PINNED_DIVIDER_WIDTH);
+     • right — GridRenderer publishes columns + 2 and the calc() below takes 1
+               back, which is the same arithmetic written the other way round.
+   Change either one and change its counterpart in GridRenderer with it. */
 .pg-panel--left {
   z-index: 2;
   width: var(--pg-left-panel-width, auto);

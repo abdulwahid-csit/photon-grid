@@ -2,6 +2,10 @@ import type { ColumnDef, ColumnDefInput, ColumnState, HeaderIconDisplay } from '
 import type { RowNode } from './row.types';
 import type { FilterModel, QuickFilterConfig } from './filter.types';
 import type { BuiltInThemeName, ThemeMode, ThemeVariant } from './theme.types';
+import type { IconSet, VariantIconSets } from './icon.types';
+// Type-only: keeps the plugin module out of core's runtime import graph, so a
+// grid without plugins pulls in no plugin code at all.
+import type { GridPlugin } from '../plugins/plugin.types';
 import type { MasterDetailConfig } from './master-detail.types';
 import type { PhotonAIConfig } from './photon-ai.types';
 import type { TreeDataConfig } from './tree-data.types';
@@ -10,9 +14,10 @@ import type { AutoFillConfig } from './autofill.types';
 import type { RowMenuConfig } from './row-menu.types';
 import type { RowDragOptions } from './row-drag.types';
 import type { ImportConfig } from './import.types';
-import type { ToolbarConfig } from './toolbar.types';
+import type { ColumnsManagerConfig, ToolbarConfig } from './toolbar.types';
 import type { RowModelType, ServerSideConfig, ServerSideDatasource } from './server-side.types';
 import type { InfiniteScrollConfig } from './infinite.types';
+import type { ScrollConfig } from './scroll.types';
 import type { ToastServiceConfigInput } from '../toast/toast.types';
 import type { ChartPanelType } from '../chart/chart-panel';
 import type { ChartModel, ChartModelPatch } from '../chart/model/chart-model';
@@ -54,9 +59,9 @@ export interface SortConfig {
  *
  * @example
  * ```ts
- * // Always show the filter funnel, and hide the "⋯" menu icon entirely.
+ * // Reveal the filter funnel only on hover, and hide the "⋯" menu icon entirely.
  * headerIcons: {
- *   filter: HeaderIconDisplay.ALWAYS,
+ *   filter: HeaderIconDisplay.HOVER,
  *   menu:   HeaderIconDisplay.HIDDEN,
  * }
  * ```
@@ -66,13 +71,13 @@ export interface HeaderIconsConfig {
    * Default display mode for the filter funnel icon on filterable columns.
    * `HIDDEN` suppresses the funnel entirely (filtering remains available via
    * the filter row).
-   * @default HeaderIconDisplay.HOVER
+   * @default HeaderIconDisplay.ALWAYS
    */
   filter?: HeaderIconDisplay;
   /**
    * Default display mode for the column-menu "⋯" icon. `HIDDEN` removes the
    * three-dots button (the header right-click menu still works).
-   * @default HeaderIconDisplay.HOVER
+   * @default HeaderIconDisplay.ALWAYS
    */
   menu?: HeaderIconDisplay;
 }
@@ -111,35 +116,26 @@ export interface SelectionConfig {
 /**
  * Configuration for in-cell editing behaviour.
  *
+ * Re-exported from the editing module, which owns the definition. Kept
+ * available here because `GridOptions.editing` has always been typed from this
+ * file and existing code imports the name from `'photon-grid-core'` either way.
+ *
+ * @see {@link ../editing/types/editing-config.types!EditingConfig}
+ *
  * @example
  * ```ts
  * editing: {
  *   mode: 'cell',
  *   singleClickEdit: true,
- *   stopEditingWhenCellsLoseFocus: true,
+ *   validateOn: 'change',
+ *   onInvalid: 'keep-open',
  * }
  * ```
  */
-export interface EditingConfig {
-  /**
-   * Editing mode for the grid.
-   * - `'cell'`  — individual cells are edited one at a time (default).
-   * - `'row'`   — an entire row enters edit mode together.
-   * - `'none'`  — editing is fully disabled.
-   */
-  mode: 'cell' | 'row' | 'none';
-  /**
-   * When `true`, a **single click** activates the cell editor.
-   * When `false` (default), a **double-click** is required — matching AG Grid default behaviour.
-   */
-  singleClickEdit: boolean;
-  /**
-   * When `true` (default), the active editor commits its value and closes when the
-   * grid loses focus.  Set to `false` to keep the editor open until the user
-   * explicitly confirms (Enter) or cancels (Escape).
-   */
-  stopEditingWhenCellsLoseFocus: boolean;
-}
+export type { EditingConfig } from '../editing/types/editing-config.types';
+
+/** Local alias so `GridOptions.editing` below can reference the re-exported type. */
+import type { EditingConfig as EditingConfigType } from '../editing/types/editing-config.types';
 
 export interface RowGroupingConfig {
   enabled: boolean;
@@ -156,6 +152,16 @@ export interface VirtualScrollConfig {
   dynamicRowHeight: boolean;
 }
 
+/**
+ * Legacy export configuration (`GridOptions.exportConfig`), read by the original
+ * {@link import('../engines/export/export-engine').ExportEngine} behind
+ * `GridApi.exportCsv()` / `exportXlsx()`.
+ *
+ * Still fully supported — its `fileName` is honoured as the fallback for the
+ * newer system too. New code should prefer `GridOptions.export`
+ * ({@link import('../export/export.types').ExportFeatureConfig}), which covers
+ * JSON, real `.xlsx` and PDF, the toolbar dropdown, and per-format defaults.
+ */
 export interface ExportConfig {
   enabled: boolean;
   fileName: string;
@@ -163,6 +169,7 @@ export interface ExportConfig {
   includeHiddenColumns: boolean;
   processCellValue?: (params: { value: unknown; colDef: ColumnDef }) => string;
 }
+
 
 export interface CellRange {
   startRowIndex: number;
@@ -211,6 +218,26 @@ export interface GridOptions {
   data?: Record<string, unknown>[];
 
   /**
+   * Application state shared with everything the grid calls back into.
+   *
+   * The seam for what a callback needs but the row does not carry —
+   * permissions, feature flags, the current user, a service handle. Reached as
+   * `params.context` in an `actions` column, and through `GridApi.getContext()`
+   * anywhere else:
+   *
+   * ```ts
+   * const grid = createGrid(el, { columns, context: { permissions } });
+   * // …
+   * visible: (params) => params.context.permissions.includes('DELETE')
+   * ```
+   *
+   * Held by reference and never copied, so mutating it is visible immediately;
+   * replace it wholesale with `GridApi.setContext()` when the change should be
+   * atomic. The grid never writes to it.
+   */
+  context?: Record<string, unknown>;
+
+  /**
    * Base color mode — drives the entire color palette (light or dark).
    * Defaults to `'light'`. This is the primary theming axis.
    *
@@ -225,9 +252,13 @@ export interface GridOptions {
    * Cosmetic skin layered on top of {@link GridOptions.mode}. Changes density,
    * border radii, typography, checkbox shape, motion and accent color while the
    * base surface/text colors continue to come from the active mode — so every
-   * variant works in both light and dark. Omit for the plain mode look.
+   * variant works in both light and dark.
+   *
+   * Defaults to `'classic'`, the skin Photon ships with: a grey chrome around
+   * white data, one hairline under the header, and colour reserved for state.
+   * Pass `'none'` for the bare base styling with no skin at all.
    */
-  variant?: ThemeVariant;
+  variant?: ThemeVariant | 'none';
 
   /**
    * @deprecated Use {@link GridOptions.mode} and {@link GridOptions.variant}
@@ -236,6 +267,34 @@ export interface GridOptions {
    * axes at runtime.
    */
   theme?: BuiltInThemeName | string;
+
+  /**
+   * Icon overrides, keyed by registry name.
+   *
+   * Highest precedence: these survive a theme change, so an application's own
+   * glyphs are never replaced by a variant's pack. Names not listed here resolve
+   * through the active variant's pack, then the shared default set.
+   *
+   * @example Replace one glyph everywhere
+   * ```ts
+   * icons: { check: '<svg viewBox="0 0 16 16">…</svg>' }
+   * ```
+   */
+  icons?: IconSet;
+
+  /**
+   * Per-variant icon packs, merged over the built-in pack for that variant.
+   *
+   * Use this to give one theme its own family without touching the others.
+   * Partial at both levels — an unlisted variant keeps its built-in pack, and an
+   * unlisted name inside a pack falls through to the default set.
+   *
+   * @example Give Neon a custom sort indicator
+   * ```ts
+   * variantIcons: { neon: { sortAsc: '<svg viewBox="0 0 16 16">…</svg>' } }
+   * ```
+   */
+  variantIcons?: VariantIconSets;
 
   rowHeight?: number;
   rowHeightMode?: 'fixed' | 'auto';
@@ -300,11 +359,63 @@ export interface GridOptions {
   getColumnMenuItems?: import('./column-menu.types').GetColumnMenuItems;
 
   selection?: Partial<SelectionConfig>;
-  editing?: Partial<EditingConfig>;
+  editing?: Partial<EditingConfigType>;
   pagination?: Partial<PaginationConfig>;
   grouping?: Partial<RowGroupingConfig>;
   virtualScroll?: Partial<VirtualScrollConfig>;
   exportConfig?: Partial<ExportConfig>;
+
+  /**
+   * The **Export** feature — the toolbar's *Export ▾* dropdown and the defaults
+   * every `GridApi.export()` call inherits.
+   *
+   * CSV and JSON work with no setup, because Photon Grid Core implements them
+   * itself. Excel and PDF are *pluggable*: the core stays zero-dependency and
+   * never bundles `xlsx` or `jspdf`, so a host registers a small adapter once —
+   * see {@link import('../export/export.types').GridExporter} and
+   * `registerExporter`. Both formats still appear in the dropdown either way;
+   * selecting one that has no exporter shows a toast naming the packages to
+   * install rather than failing silently.
+   *
+   * Opt-in: without `enabled: true` no dropdown is mounted, and the
+   * programmatic API keeps working exactly as before.
+   *
+   * @example
+   * ```ts
+   * export: {
+   *   enabled: true,
+   *   fileName: 'employees',
+   *   formats: ['csv', 'json', 'excel', 'pdf'],
+   *   pdf: { orientation: 'landscape', title: 'Employee Register' },
+   * }
+   * ```
+   *
+   * @see {@link ToolbarConfig.showExportButton} to hide the dropdown while
+   * keeping the feature.
+   */
+  export?: import('../export/export.types').ExportFeatureConfig;
+
+  /**
+   * How input gestures are translated into scroll motion.
+   *
+   * The defaults need no configuration: a notched mouse wheel is eased into
+   * continuous motion (so each detent no longer teleports the viewport by a
+   * couple of rows), while precision-touchpad gestures — already smooth, and
+   * steered by the user's own finger — are applied 1:1 with no added lag.
+   *
+   * @example Snappier, shorter mouse-wheel steps
+   * ```ts
+   * scroll: { smoothWheelDuration: 90, wheelStepScale: 0.75 }
+   * ```
+   *
+   * @example Opt out entirely
+   * ```ts
+   * scroll: { wheelMode: WheelScrollMode.Instant }
+   * ```
+   *
+   * @see {@link ScrollConfig}
+   */
+  scroll?: ScrollConfig;
 
   /**
    * Which row model backs the grid. `'client'` (default) keeps all data
@@ -348,6 +459,19 @@ export interface GridOptions {
    */
   themeManager?: boolean | { enabled: boolean };
 
+  /**
+   * Columns Manager — mounts a column-layout launcher in the top-right tools
+   * strip, immediately left of the Filters funnel, which opens the grid's
+   * Column Chooser for showing and hiding columns. Set `true` (or
+   * `{ enabled: true }`) to show it.
+   *
+   * The dialog is the same one the column menu's "Column Chooser…" item opens,
+   * so both entry points behave identically.
+   *
+   * @see {@link ColumnsManagerConfig}
+   */
+  columnsManager?: boolean | ColumnsManagerConfig;
+
   sortConfig?: SortConfig[];
   filterModel?: FilterModel;
   quickFilter?: QuickFilterConfig;
@@ -357,6 +481,26 @@ export interface GridOptions {
   enableCellSelection?: boolean;
   enableRangeSelection?: boolean;
   enableClipboard?: boolean;
+
+  /**
+   * Whether clicking outside the grid clears the focused cell and any cell
+   * ranges. Defaults to `true`.
+   *
+   * "Outside" means outside the grid container *and* outside the menus, panels
+   * and overlays Photon portals to `<body>` on the grid's behalf — picking
+   * "Copy" from a cell context menu, choosing a value in a dropdown editor, or
+   * scrolling the column chooser all keep the selection they act on. A host that
+   * portals its own popup out of a custom cell renderer can opt it in the same
+   * way with the `data-pg-keep-focus` attribute.
+   *
+   * Row selection (checkboxes / the serial column) is untouched either way; only
+   * the cell focus ring and cell ranges are cleared.
+   *
+   * Set `false` when something outside the grid — an application toolbar, a
+   * detail form — acts on the current cell selection and must not lose it when
+   * the user clicks it.
+   */
+  clearCellSelectionOnClickOutside?: boolean;
 
   enableRowDrag?: boolean;
   enableColumnDrag?: boolean;
@@ -490,6 +634,53 @@ export interface GridOptions {
    */
   toast?: ToastServiceConfigInput;
 
+  /**
+   * Summary Rows — one or more aggregate rows docked above and/or below the
+   * grid body.
+   *
+   * Each row aggregates a configurable scope (all / filtered / visible /
+   * selected rows) with built-in or custom functions, and each of its cells can
+   * override value, aggregation, formatting, rendering, styling, span and
+   * tooltip independently. Rows recompute automatically as data, filters,
+   * sorting, pagination and selection change unless
+   * {@link SummaryConfig.autoRefresh} is turned off.
+   *
+   * With no `rows` supplied, a single total row is derived from any columns
+   * declaring `ColumnDef.showSummary`.
+   *
+   * @example
+   * ```ts
+   * summary: {
+   *   position: SummaryPosition.Bottom,
+   *   rows: [{ label: 'Total', cells: { amount: { aggregate: SummaryAggregation.Sum } } }],
+   * }
+   * ```
+   *
+   * @see {@link SummaryConfig}
+   */
+  summary?: import('../summary/summary.types').SummaryConfig;
+
+  /**
+   * Container resizing — drag the grid's own edges and corners to resize the
+   * whole component.
+   *
+   * Sizes the container element the grid was constructed into, so everything
+   * inside follows automatically. Defaults to the bottom-right L of handles
+   * (like a native `<textarea>`); opt into the top/left edges explicitly, since
+   * those also shift the container's margin to keep the opposite edge fixed.
+   *
+   * The same size is settable imperatively — see `GridApi.setGridSize` and
+   * friends, which write through the same path so the two can never disagree.
+   *
+   * @example
+   * ```ts
+   * resize: { minWidth: 480, minHeight: 240, step: 8 }
+   * ```
+   *
+   * @see {@link GridResizeConfig}
+   */
+  resize?: import('./grid-resize.types').GridResizeConfig;
+
   enableStateManagement?: boolean;
   stateKey?: string;
 
@@ -499,6 +690,48 @@ export interface GridOptions {
   currencyFormat?: string;
   locale?: string;
 
+  /**
+   * Whether the grid starts in — or is held in — its loading state.
+   *
+   * While set, a loading indicator covers the body (the header stays visible
+   * and interactive) and row rendering is skipped entirely, so a grid that is
+   * waiting on a fetch costs nothing to paint.
+   *
+   * This is the *initial* value only; the live flag lives in the grid store.
+   * Toggle it at runtime with `GridApi.setLoading()` — the framework wrappers
+   * expose it as a dedicated `loading` input/prop that routes there, so
+   * flipping it never recreates the grid.
+   *
+   * The Server-Side and Infinite row models drive the same flag themselves; a
+   * grid using one of those does not need to set this.
+   *
+   * @default false
+   * @see {@link loadingOverlay}
+   */
+  loading?: boolean;
+
+  /**
+   * Appearance of the loading indicator — spinner (default) or skeleton
+   * placeholder rows, plus caption, backdrop and anti-flicker delay.
+   *
+   * @example
+   * ```ts
+   * loadingOverlay: {
+   *   indicator: LoadingIndicator.Skeleton,
+   *   delay: 150,
+   * }
+   * ```
+   *
+   * @see {@link import('./loading.types').LoadingOverlayConfig}
+   */
+  loadingOverlay?: import('./loading.types').LoadingOverlayConfig;
+
+  /**
+   * Caption shown under the loading spinner.
+   *
+   * @deprecated Use `loadingOverlay.text`, which sits alongside the rest of the
+   * overlay configuration. Still honoured when `loadingOverlay.text` is absent.
+   */
   loadingOverlayText?: string;
   noRowsOverlayText?: string;
   noRowsOverlayHtml?: string;
@@ -508,6 +741,26 @@ export interface GridOptions {
 
   suppressScrollOnNewData?: boolean;
   suppressColumnVirtualisation?: boolean;
+
+  /**
+   * Optional feature plugins to install into this grid.
+   *
+   * A plugin owns DOM inside the grid and follows its virtualization, without
+   * shipping in the core bundle — core never imports a plugin implementation.
+   * Omitting this (the default) costs nothing beyond one `undefined` check.
+   *
+   * Plugins initialize after the grid is fully built and before
+   * `GridEventType.READY`, and are torn down first on destroy. One plugin
+   * failing cannot break the grid or its siblings — see {@link GridPlugin}.
+   *
+   * @example
+   * ```ts
+   * import { SchedulerPlugin } from 'photon-grid-core/plugins/scheduler';
+   *
+   * new GridCore(el, { columns, data, plugins: [new SchedulerPlugin({ ... })] });
+   * ```
+   */
+  plugins?: GridPlugin[];
 
   onReady?: (api: unknown) => void;
 

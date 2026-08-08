@@ -25,7 +25,7 @@ export const filterCss = `/* ─────────────────
   color: var(--pg-colors-text-primary, var(--pg-text-primary, #222));
   top: 0;
   left: 0;
-  transform: translate(-9999px, -9999px);
+  transform: translate3d(var(--pg-ghost-x, -9999px), var(--pg-ghost-y, -9999px), 0);
 }
 .pg-drag-preview__avatar {
   width: var(--pg-drag-preview-avatar-size, 24px);
@@ -150,9 +150,9 @@ export const filterCss = `/* ─────────────────
 }
 
 /* ── Condition filter ── */
-.pg-filter-cond-wrap { padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+.pg-filter-cond-wrap { padding: 10px; display: flex; flex-direction: column; gap: 10px; }
 
-.pg-filter-cond__row { display: flex; flex-direction: column; gap: 4px; }
+.pg-filter-cond__row { display: flex; flex-direction: column; gap: 8px; }
 .pg-filter-cond__row--hidden { display: none; }
 
 .pg-filter-cond__select {
@@ -325,8 +325,8 @@ export const filterCss = `/* ─────────────────
   align-items: center;
   justify-content: flex-end;
   padding: 8px 10px;
-  // border-top: 1px solid var(--pg-colors-border, #e2e8f0);
-  // background: var(--pg-colors-background, #f8fafc);
+  /* border-top: 1px solid var(--pg-colors-border, #e2e8f0); */
+  /* background: var(--pg-colors-background, #f8fafc); */
 }
 
 .pg-filter-panel__clear-btn {

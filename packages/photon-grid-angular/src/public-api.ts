@@ -38,3 +38,15 @@ export type {
 } from 'photon-grid-core';
 export { EmptyDetailToggleMode } from 'photon-grid-core';
 
+// ── Loading state ────────────────────────────────────────────────────────────
+// Drive the overlay with the `[loading]` input on PhotonGridComponent and shape
+// it through `[options]`' `loadingOverlay` field. `LoadingIndicator` and
+// `LoadingBackdrop` are enums (runtime values), so they are re-exported as
+// values, not just types.
+export { LoadingBackdrop, LoadingIndicator } from 'photon-grid-core';
+export type {
+    LoadingChangedEvent,
+    LoadingOverlayConfig,
+    ResolvedLoadingOverlayConfig,
+} from 'photon-grid-core';
+

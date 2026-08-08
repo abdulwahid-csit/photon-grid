@@ -38,6 +38,54 @@ export function replaceChildren(el: HTMLElement, ...children: Node[]): void {
   for (const child of children) el.appendChild(child);
 }
 
+/**
+ * Brings `parent`'s children into exactly the order given, reusing the nodes
+ * that are already there.
+ *
+ * The alternative — clearing `innerHTML` and re-appending — discards every
+ * element and forces the browser to re-parse, re-style, and re-lay-out the whole
+ * subtree even when the only change was one element moving one slot. During a
+ * column drag that difference is the whole cost: a live cross-panel move rewrites
+ * the column order under the pointer, and rebuilding every header cell for it is
+ * what makes a wide grid stutter and visibly reshuffle. Reordering in place also
+ * preserves each element's identity, so listeners, classes, focus, and in-flight
+ * CSS transitions survive.
+ *
+ * Nodes present in `parent` but absent from `desired` are removed; nodes in
+ * `desired` that are not yet children are inserted. Callers own element
+ * creation and caching — this function never builds anything.
+ *
+ * Complexity: O(existing + desired). A single moved element costs one
+ * `insertBefore`; an unchanged list costs zero DOM mutations.
+ *
+ * @param parent  - Element whose children are being reconciled.
+ * @param desired - The exact children `parent` should end up with, in order.
+ *                  Must not contain duplicates.
+ */
+export function reconcileChildren(parent: HTMLElement, desired: readonly Node[]): void {
+  const wanted = new Set<Node>(desired);
+
+  // Drop anything no longer wanted first, so the ordering walk below only ever
+  // sees nodes that belong in the result.
+  for (const child of Array.from(parent.childNodes)) {
+    if (!wanted.has(child)) parent.removeChild(child);
+  }
+
+  // Walk the desired order against the live child list. `ref` tracks the node
+  // expected at the current slot; when it already matches, nothing is written.
+  let ref: ChildNode | null = parent.firstChild;
+  for (const node of desired) {
+    if (ref === node) {
+      ref = node.nextSibling;
+      continue;
+    }
+    // insertBefore moves the node when it is already a child of `parent`, so
+    // this single call covers both the insert and the reorder case. `ref` stays
+    // valid because it is never the node being moved.
+    parent.insertBefore(node, ref);
+  }
+}
+
 export function addClasses(el: HTMLElement, ...classes: string[]): void {
   for (const cls of classes) {
     if (cls) el.classList.add(cls);

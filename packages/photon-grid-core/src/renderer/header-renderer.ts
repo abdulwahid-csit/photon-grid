@@ -15,7 +15,8 @@ import { GridEventType } from '../types/event.types';
 import { ColumnMenu } from './column-menu';
 import { GroupContextMenu } from './group-context-menu';
 import { ColumnStyleManager } from './column-style-manager';
-import { createDiv, toggleClass } from './dom-utils';
+import { createDiv, toggleClass, reconcileChildren } from './dom-utils';
+import { portalHostFor } from '../theme/overlay-portal';
 import { resolveColumnRenderer } from './renderer-resolver';
 import {
   isTouchPointer,
@@ -23,6 +24,9 @@ import {
   DRAG_THRESHOLD_TOUCH,
   LONG_PRESS_MS,
 } from '../core/pointer-utils';
+import { DragFrameScheduler } from '../drag-drop/drag-frame-scheduler';
+import { DragStyleWriter } from '../drag-drop/drag-style-writer';
+import { DragGhost } from '../drag-drop/drag-ghost';
 
 export interface HeaderRendererOptions {
   showCheckboxes?: boolean;
@@ -33,9 +37,9 @@ export interface HeaderRendererOptions {
   filterRowHeight?: number;
   hasGroupedColumns?: boolean;
   autoGroupColWidth?: number;
-  /** Grid-wide default display mode for the filter funnel icon. @default HeaderIconDisplay.HOVER */
+  /** Grid-wide default display mode for the filter funnel icon. @default HeaderIconDisplay.ALWAYS */
   filterIconDisplay?: HeaderIconDisplay;
-  /** Grid-wide default display mode for the column-menu "⋯" icon. @default HeaderIconDisplay.HOVER */
+  /** Grid-wide default display mode for the column-menu "⋯" icon. @default HeaderIconDisplay.ALWAYS */
   menuIconDisplay?: HeaderIconDisplay;
 }
 
@@ -45,6 +49,16 @@ interface PanelDragEntry {
   colIds: string[];
   bounds: DOMRect | null;
 }
+
+/**
+ * Distance (px) the cursor must clear a panel's edge before a live cross-panel
+ * move is triggered.
+ *
+ * A crossing commits a real `moveAndPin` and re-renders the grid, so a pointer
+ * resting on a seam must not be able to oscillate across it. See
+ * `HeaderRenderer.resolveTargetPanel`.
+ */
+const PANEL_SEAM_HYSTERESIS = 14;
 
 export class HeaderRenderer {
   private leftHeaderRowEl: HTMLElement | null = null;
@@ -103,8 +117,26 @@ export class HeaderRenderer {
   private draggingPanelRowEl: HTMLElement | null = null;
   private draggingIsGroupable = false;
   private isOverGroupZone = false;
-  private ghostEl: HTMLElement | null = null;
-  private dragStyleEl: HTMLStyleElement | null = null;
+  /**
+   * Positions the drag chip with a compositor-only transform.
+   *
+   * Replaces the previous `style.left` / `style.top` writes, which dirtied layout
+   * on every pointer event and — because the handler then read the grid's rect
+   * back — forced a synchronous layout flush each time.
+   */
+  private readonly dragGhost = new DragGhost();
+  /**
+   * Owns the `<style>` element carrying the live `--pg-drag-x` rules, and skips
+   * the assignment whenever the generated CSS is unchanged.
+   *
+   * This is the subsystem's largest single win: during a column drag the grid
+   * renders *every* column (see `GridRenderer`'s drag-time column-buffer
+   * expansion), so each `[data-col-id]` rule matches a header cell, a filter
+   * cell, and every rendered body cell. Re-parsing that sheet several times per
+   * frame recalculated style across the whole grid for a drop slot that had not
+   * moved.
+   */
+  private readonly dragStyles = new DragStyleWriter('data-pg-drag');
   private draggingGridEl: HTMLElement | null = null;
   private draggedColWidth = 0;
   private dragStartScrollX = 0;
@@ -114,8 +146,38 @@ export class HeaderRenderer {
   private dragTargetLocalIdx = -1;
   private panelDragData: PanelDragEntry[] = [];
 
+  /**
+   * Grid bounds captured at drag start and refreshed only when the layout moves.
+   *
+   * The outside-the-grid test used to call `getBoundingClientRect()` on every
+   * pointer event, immediately after writing the chip's position — the textbook
+   * write→read pair that forces layout.
+   */
+  private dragGridRect: DOMRect | null = null;
+
+  /**
+   * Coalesces `pointermove` into one frame of work.
+   *
+   * A mouse polls at 125–1000 Hz; the display paints at 60–120 Hz. Everything
+   * this drag does — panel resolution, slot hit-testing, group-row preview,
+   * CSS generation — now runs once per painted frame against the newest sample
+   * instead of once per event.
+   */
+  private readonly dragFrames: DragFrameScheduler;
+
+  /** Mirror of `document.body.style.cursor`, so an unchanged value is never rewritten. */
+  private lastBodyCursor = '';
+
   // Live cross-panel move state
   private livePanelMoveInProgress = false;
+  /**
+   * `true` from the moment `pointerup` starts committing the drop.
+   *
+   * The commit path owns the column's final placement; a live cross-panel move
+   * started after that point would race it with a second, conflicting model
+   * mutation.
+   */
+  private dragFinishing = false;
 
   // Auto-scroll state
   private scrollByX: ((dx: number) => void) | null = null;
@@ -162,6 +224,36 @@ export class HeaderRenderer {
 
   /** Read by grid-renderer's columns-store watcher to skip header destroy during drag */
   get isDraggingCol(): boolean { return this.isDragging; }
+
+  /**
+   * The `colId` currently being dragged, or `null` when no column drag is live.
+   *
+   * `GridRenderer` reads this each render to pin the grabbed column into the
+   * virtual column range: auto-scroll can carry its real position outside the
+   * viewport while the pointer still holds it, and an evicted cell would leave
+   * the drag without its subject. The row drag solves the same problem the same
+   * way — see `RowDragRenderer.getDraggingNodeId`.
+   */
+  get draggingColumnId(): string | null { return this.isDragging ? this.draggingColId : null; }
+
+  /**
+   * `true` for exactly the synchronous window in which a finished column drag
+   * writes its result into the column model.
+   *
+   * The store watcher fires re-entrantly from those writes, and it needs to tell
+   * "the user just dropped this column" apart from "something moved the columns
+   * on its own". A drop has already animated, live, under the pointer; replaying
+   * that motion as a FLIP once the model catches up shows the user the same
+   * movement twice. Anything that changes columns *without* a drag — a hide from
+   * the context menu, the column chooser, a programmatic `moveColumn` — still
+   * animates, because there the movement is the only feedback there is.
+   *
+   * @see cleanupDrag
+   */
+  get isCommittingColumnDrop(): boolean { return this.committingDrop; }
+
+  /** Backing flag for {@link isCommittingColumnDrop}. */
+  private committingDrop = false;
 
   /**
    * `true` while the header owns the pointer for a column reorder or resize.
@@ -257,6 +349,7 @@ export class HeaderRenderer {
     });
     this.boundMouseMove = this.onGlobalMouseMove.bind(this);
     this.boundMouseUp = this.onGlobalMouseUp.bind(this);
+    this.dragFrames = new DragFrameScheduler((x, y) => this.applyDragFrame(x, y));
 
     // Keep the sort arrows in sync in place. Sorting no longer rebuilds the
     // header (that teardown fought the row animation), so the indicator is
@@ -479,9 +572,10 @@ export class HeaderRenderer {
         const btn = cell.querySelector<HTMLElement>('.pg-th__filter-btn');
         if (btn) {
           btn.classList.toggle('pg-th__filter-btn--active', active);
-          const iconName = active ? 'filterActive' : 'filter';
-          const iconEl = btn.querySelector<HTMLElement>('.pg-icon');
-          if (iconEl) this.iconRenderer.updateIcon(iconEl, iconName);
+          // The button is filled by `renderToString`, so its glyph is a bare
+          // `<svg>` — there is no `.pg-icon` wrapper to look for. Refill the
+          // button itself, the same way the filter-row icons below are handled.
+          this.iconRenderer.updateIcon(btn, active ? 'filterActive' : 'filter', { size: 14 });
         }
       }
     }
@@ -600,6 +694,9 @@ export class HeaderRenderer {
     }
 
     // ── Leaf header rows ──────────────────────────────────────────────────
+    // A full render replaces the row elements, so every cell cached against the
+    // previous rows is now detached and must not be reused.
+    this.clearCenterCellCaches();
     this.leftHeaderRowEl = this.buildHeaderRow(leftCols, options, true);
     leftContainer.appendChild(this.leftHeaderRowEl);
     if (options.showFilterRow) {
@@ -672,8 +769,16 @@ export class HeaderRenderer {
   destroy(): void {
     document.removeEventListener('pointermove', this.boundMouseMove);
     document.removeEventListener('pointerup', this.boundMouseUp);
+    // A header destroyed mid-drag would otherwise leave a queued frame, a
+    // detached chip, and the injected stylesheet behind.
+    this.dragFrames.reset();
+    this.dragGhost.detach();
+    this.dragStyles.dispose();
+    this.stopAutoScroll();
     this.columnMenu.destroy();
     this.groupContextMenu?.destroy();
+    // Releases the reused centre cells so a destroyed header retains no DOM.
+    this.clearCenterCellCaches();
     this.leftHeaderRowEl   = null;
     this.centerHeaderRowEl = null;
     this.rightHeaderRowEl  = null;
@@ -730,39 +835,190 @@ export class HeaderRenderer {
       );
     }
 
-    // During a column drag, detach the dragging TH before clearing innerHTML so
-    // the element survives the rebuild.  Re-inserting the live element (rather than
-    // recreating it) preserves pg-th--dragging, event listeners, and drag CSS state.
-    const dragColId = this.isDragging ? this.draggingColId : null;
-    let dragThEl: HTMLElement | null = null;
-    if (dragColId) {
-      dragThEl = this.centerHeaderRowEl.querySelector<HTMLElement>(`.pg-th[data-col-id="${dragColId}"]`);
-      dragThEl?.remove();
+    // ── Leaf header row: keyed reconcile ─────────────────────────────────────
+    // Rebuilt cell-by-cell rather than via `innerHTML = ''`. A live cross-panel
+    // move rewrites `store.columns` while the pointer is still down, so this runs
+    // mid-drag; wiping the row destroyed and recreated every centre header cell
+    // (icons, menus, resize handles, listeners) for what is usually a single
+    // column changing slot, and that rebuild is what the user sees as the header
+    // "re-arranging". `ColumnModel.moveAndPin` preserves ColumnDef identity, so a
+    // reorder now resolves to a handful of `insertBefore` calls and no rebuilds.
+    const headerNodes: HTMLElement[] = [];
+    if (options.hasGroupedColumns) {
+      headerNodes.push(this.ensureAutoGroupTh(options.autoGroupColWidth ?? 200));
     }
-
-    this.centerHeaderRowEl.innerHTML = '';
-    if (options.hasGroupedColumns) this.centerHeaderRowEl.appendChild(this.buildAutoGroupTh(options.autoGroupColWidth ?? 200));
-    if (leftSpacerW > 0) this.centerHeaderRowEl.appendChild(this.makeSpacer('pg-th pg-th--h-spacer', leftSpacerW));
+    if (leftSpacerW > 0) headerNodes.push(this.ensureSpacer('header-left', 'pg-th pg-th--h-spacer', leftSpacerW));
     for (let i = 0; i < visibleCols.length; i++) {
-      const col = visibleCols[i];
-      if (dragThEl && col.colId === dragColId) {
-        // Re-insert the live element — preserves class, listeners, and drag state.
-        this.centerHeaderRowEl.appendChild(dragThEl);
-      } else {
-        this.centerHeaderRowEl.appendChild(this.buildHeaderCell(col, i, visibleCols, options, this.centerHeaderRowEl));
-      }
+      headerNodes.push(this.ensureCenterTh(visibleCols[i], i, visibleCols, options));
     }
-    if (rightSpacerW > 0) this.centerHeaderRowEl.appendChild(this.makeSpacer('pg-th pg-th--h-spacer', rightSpacerW));
+    if (rightSpacerW > 0) headerNodes.push(this.ensureSpacer('header-right', 'pg-th pg-th--h-spacer', rightSpacerW));
+
+    reconcileChildren(this.centerHeaderRowEl, headerNodes);
+    this.evictUnusedCenterCells(visibleCols);
 
     // Keep a single keyboard-reachable header cell after the virtual rebuild.
     this.ensureRovingTabstop();
 
     if (!this.centerFilterRowEl) return;
-    this.centerFilterRowEl.innerHTML = '';
-    if (options.hasGroupedColumns) this.centerFilterRowEl.appendChild(this.buildAutoGroupFilterCell(options.autoGroupColWidth ?? 200));
-    if (leftSpacerW > 0) this.centerFilterRowEl.appendChild(this.makeSpacer('pg-filter-cell pg-filter-cell--h-spacer', leftSpacerW));
-    for (const col of visibleCols) this.centerFilterRowEl.appendChild(this.buildFilterCell(col));
-    if (rightSpacerW > 0) this.centerFilterRowEl.appendChild(this.makeSpacer('pg-filter-cell pg-filter-cell--h-spacer', rightSpacerW));
+    const filterNodes: HTMLElement[] = [];
+    if (options.hasGroupedColumns) {
+      filterNodes.push(this.ensureAutoGroupFilterCell(options.autoGroupColWidth ?? 200));
+    }
+    if (leftSpacerW > 0) filterNodes.push(this.ensureSpacer('filter-left', 'pg-filter-cell pg-filter-cell--h-spacer', leftSpacerW));
+    for (const col of visibleCols) filterNodes.push(this.ensureCenterFilterCell(col));
+    if (rightSpacerW > 0) filterNodes.push(this.ensureSpacer('filter-right', 'pg-filter-cell pg-filter-cell--h-spacer', rightSpacerW));
+
+    reconcileChildren(this.centerFilterRowEl, filterNodes);
+  }
+
+  // ─── Center-panel cell reuse ──────────────────────────────────────────────
+  //
+  // The centre header is virtualized horizontally, so `updateCenterVisibleCols`
+  // runs on every horizontal scroll frame as well as on every mid-drag column
+  // change. These caches let it reuse the cells it built last time.
+  //
+  // Reuse is keyed on **ColumnDef object identity**, not `colId`. `ColumnModel`
+  // mutates a column in place only when its own state changes (a pin, a width, a
+  // sort) and otherwise carries the same object through every store update, so
+  // identity is exactly the right signal for "this cell's closures are still
+  // bound to current data". A changed identity rebuilds that one cell; every
+  // other cell is reused untouched.
+
+  /** Built centre header cells, keyed by `colId`, with the def they were built from. */
+  private readonly centerThCache = new Map<string, { el: HTMLElement; def: ColumnDef }>();
+  /** Built centre filter cells, keyed by `colId`, with the def they were built from. */
+  private readonly centerFilterCache = new Map<string, { el: HTMLElement; def: ColumnDef }>();
+  /** Reused spacer elements, keyed by slot, with the width they currently carry. */
+  private readonly spacerCache = new Map<string, { el: HTMLElement; width: number }>();
+  /** Reused auto-group cells, with the width they currently carry. */
+  private autoGroupTh: { el: HTMLElement; width: number } | null = null;
+  private autoGroupFilterCell: { el: HTMLElement; width: number } | null = null;
+
+  /**
+   * The centre header cell for `col`, built on first use and reused afterwards.
+   *
+   * @param col          - Column definition for this slot.
+   * @param index        - Position within `panelColumns`, published as `data-col-index`.
+   * @param panelColumns - The panel's ordered visible columns.
+   * @param options      - Current header options.
+   */
+  private ensureCenterTh(
+    col: ColumnDef,
+    index: number,
+    panelColumns: ColumnDef[],
+    options: HeaderRendererOptions,
+  ): HTMLElement {
+    const cached = this.centerThCache.get(col.colId);
+    if (cached && cached.def === col) {
+      // Refresh only what can change without the ColumnDef reference changing
+      // with it. Sort and filter indicators are excluded on purpose: they are
+      // owned by `updateSortIndicator` / `updateFilterIndicators`, which already
+      // patch live cells rather than rebuilding them.
+      cached.el.setAttribute('data-col-index', String(index));
+      cached.el.setAttribute('tabindex', col.colId === this.rovingColId ? '0' : '-1');
+      // `ColumnModel.moveAndPin` assigns `col.pinned` in place, so these two can
+      // go stale on an otherwise-identical definition.
+      toggleClass(cached.el, 'pg-th--pinned-right', col.pinned === 'right');
+      toggleClass(
+        cached.el,
+        'pg-th--no-group',
+        !!this.displayGroupEngine?.hasGroups && this.displayGroupEngine.isFlat(col.colId),
+      );
+      return cached.el;
+    }
+    const el = this.buildHeaderCell(col, index, panelColumns, options, this.centerHeaderRowEl!);
+    this.centerThCache.set(col.colId, { el, def: col });
+    return el;
+  }
+
+  /**
+   * The centre filter cell for `col`, built on first use and reused afterwards.
+   *
+   * @param col - Column definition for this slot.
+   */
+  private ensureCenterFilterCell(col: ColumnDef): HTMLElement {
+    const cached = this.centerFilterCache.get(col.colId);
+    if (cached && cached.def === col) return cached.el;
+    const el = this.buildFilterCell(col);
+    this.centerFilterCache.set(col.colId, { el, def: col });
+    return el;
+  }
+
+  /**
+   * A reused spacer standing in for the off-screen columns on one side.
+   *
+   * @param slot  - Cache key identifying which spacer this is.
+   * @param cls   - Class list for the element.
+   * @param width - Width in CSS pixels.
+   */
+  private ensureSpacer(slot: string, cls: string, width: number): HTMLElement {
+    const cached = this.spacerCache.get(slot);
+    if (cached) {
+      // Written only on change: horizontal scroll calls this every frame, and a
+      // redundant `cssText` assignment re-parses the declaration and invalidates
+      // style for the element.
+      if (cached.width !== width) {
+        cached.width = width;
+        cached.el.style.cssText = `width:${width}px;min-width:${width}px;flex-shrink:0;`;
+      }
+      return cached.el;
+    }
+    const el = this.makeSpacer(cls, width);
+    this.spacerCache.set(slot, { el, width });
+    return el;
+  }
+
+  /**
+   * The reused auto-group header cell.
+   *
+   * @param width - Width in CSS pixels.
+   */
+  private ensureAutoGroupTh(width: number): HTMLElement {
+    if (this.autoGroupTh && this.autoGroupTh.width === width) return this.autoGroupTh.el;
+    const el = this.buildAutoGroupTh(width);
+    this.autoGroupTh = { el, width };
+    return el;
+  }
+
+  /**
+   * The reused auto-group filter cell.
+   *
+   * @param width - Width in CSS pixels.
+   */
+  private ensureAutoGroupFilterCell(width: number): HTMLElement {
+    if (this.autoGroupFilterCell && this.autoGroupFilterCell.width === width) return this.autoGroupFilterCell.el;
+    const el = this.buildAutoGroupFilterCell(width);
+    this.autoGroupFilterCell = { el, width };
+    return el;
+  }
+
+  /**
+   * Drops cached cells for columns that have scrolled out of the rendered range.
+   *
+   * Without this the caches would grow to hold a detached element for every
+   * column the user has ever scrolled past — a leak proportional to the column
+   * count on a wide grid.
+   *
+   * @param visibleCols - Columns currently in the rendered range.
+   */
+  private evictUnusedCenterCells(visibleCols: readonly ColumnDef[]): void {
+    const live = new Set<string>();
+    for (const col of visibleCols) live.add(col.colId);
+    for (const colId of Array.from(this.centerThCache.keys())) {
+      if (!live.has(colId)) this.centerThCache.delete(colId);
+    }
+    for (const colId of Array.from(this.centerFilterCache.keys())) {
+      if (!live.has(colId)) this.centerFilterCache.delete(colId);
+    }
+  }
+
+  /** Discards every reused centre cell, forcing a full rebuild on the next render. */
+  private clearCenterCellCaches(): void {
+    this.centerThCache.clear();
+    this.centerFilterCache.clear();
+    this.spacerCache.clear();
+    this.autoGroupTh = null;
+    this.autoGroupFilterCell = null;
   }
 
   // ─── Private ──────────────────────────────────────────────────────────────
@@ -891,14 +1147,7 @@ export class HeaderRenderer {
    * @param colId - The column whose header cell should receive focus.
    */
   setRovingCell(colId: string): void {
-    this.rovingColId = colId;
-    const rows = [this.leftHeaderRowEl, this.centerHeaderRowEl, this.rightHeaderRowEl];
-    for (const row of rows) {
-      if (!row) continue;
-      for (const cell of Array.from(row.querySelectorAll<HTMLElement>('.pg-th[data-col-id]'))) {
-        cell.setAttribute('tabindex', cell.getAttribute('data-col-id') === colId ? '0' : '-1');
-      }
-    }
+    this.syncRovingTabindex(colId);
 
     const target = this.findHeaderCell(colId);
     if (target) {
@@ -914,6 +1163,31 @@ export class HeaderRenderer {
         revealed.focus();
       }
     });
+  }
+
+  /**
+   * Make `colId` the single header tab stop, without moving DOM focus.
+   *
+   * Split out of {@link setRovingCell} because the two callers need different
+   * halves: arrow-key navigation wants the tabindex swap *and* the focus move,
+   * while the `focusin` handler is already inside the focus it would otherwise
+   * re-issue. Both must do the attribute swap, though — recording
+   * {@link rovingColId} alone leaves `tabindex="0"` on the previously roving
+   * cell, so tabbing out of the header and back returns to that stale cell
+   * instead of the one the user last used.
+   *
+   * The sweep spans all three panel rows, so a column that moved between panels
+   * (pinning) is still found.
+   */
+  private syncRovingTabindex(colId: string): void {
+    this.rovingColId = colId;
+    const rows = [this.leftHeaderRowEl, this.centerHeaderRowEl, this.rightHeaderRowEl];
+    for (const row of rows) {
+      if (!row) continue;
+      for (const cell of Array.from(row.querySelectorAll<HTMLElement>('.pg-th[data-col-id]'))) {
+        cell.setAttribute('tabindex', cell.getAttribute('data-col-id') === colId ? '0' : '-1');
+      }
+    }
   }
 
   /** Locate a rendered header cell by column id across all three panels. */
@@ -1068,7 +1342,7 @@ export class HeaderRenderer {
     // `!== false`); this only decides whether the header carries the funnel, so
     // a grid does not sprout an icon on every column by default. Display mode
     // then controls hover-vs-always, and `HIDDEN` suppresses it outright.
-    const filterMode = col.filterIconDisplay ?? options.filterIconDisplay ?? HeaderIconDisplay.HOVER;
+    const filterMode = col.filterIconDisplay ?? options.filterIconDisplay ?? HeaderIconDisplay.ALWAYS;
     if (col.filterable === true && filterMode !== HeaderIconDisplay.HIDDEN) {
       const filterBtn = createDiv('pg-th__filter-btn');
       const filterActive = col.filterActive === true;
@@ -1092,7 +1366,7 @@ export class HeaderRenderer {
     // gated by the grid-wide `showColumnMenu` and the display mode. Right-click
     // access to the same menu is independent (see `enableRightClick`), so a
     // column can stay configurable by context menu without showing a button.
-    const menuMode = col.menuIconDisplay ?? options.menuIconDisplay ?? HeaderIconDisplay.HOVER;
+    const menuMode = col.menuIconDisplay ?? options.menuIconDisplay ?? HeaderIconDisplay.ALWAYS;
     if (col.configurable === true && options.showColumnMenu !== false && menuMode !== HeaderIconDisplay.HIDDEN) {
       const menuBtn = createDiv('pg-th__menu-btn');
       if (menuMode === HeaderIconDisplay.ALWAYS) menuBtn.classList.add('pg-th__menu-btn--always');
@@ -1152,8 +1426,9 @@ export class HeaderRenderer {
     // Keyboard navigation is delegated at the panel-row level (see
     // attachHeaderKeydown). `focusin` keeps the roving cell in sync when the user
     // Tabs into a header cell or clicks it, so a subsequent Arrow key moves from
-    // the right place.
-    th.addEventListener('focusin', () => { this.rovingColId = col.colId; });
+    // the right place — and the tab stop moves with it, so leaving the header
+    // and tabbing back returns here rather than to the previously roving cell.
+    th.addEventListener('focusin', () => { this.syncRovingTabindex(col.colId); });
 
     this.attachColumnDragListeners(th, col, panelColumns, panelRowEl);
     return th;
@@ -1260,8 +1535,13 @@ export class HeaderRenderer {
     const row = createDiv('pg-filter-row');
     row.setAttribute('role', 'row');
     if (isLeft) {
-      if (options.showCheckboxes) row.appendChild(createDiv('pg-filter-cell pg-filter-cell--checkbox'));
+      // Serial BEFORE checkbox, matching `buildHeaderRow` above and
+      // `BodyRenderer`'s left-panel gutters. These were reversed here, and
+      // because the two gutters are different widths (52px vs 44px) the filter
+      // row's placeholders did not line up with the header cells above them or
+      // the data cells below — every column in the left panel sat 8px out.
       if (options.showSerialNumber) row.appendChild(createDiv('pg-filter-cell pg-filter-cell--serial'));
+      if (options.showCheckboxes) row.appendChild(createDiv('pg-filter-cell pg-filter-cell--checkbox'));
     }
     for (const col of columns) row.appendChild(this.buildFilterCell(col));
     return row;
@@ -1301,8 +1581,12 @@ export class HeaderRenderer {
         th.classList.remove('pg-th--drag-armed');
         this.startColumnDrag(col, panelRowEl);
         document.removeEventListener('pointermove', onMoveCheck);
-        document.addEventListener('pointermove', this.boundMouseMove);
+        document.addEventListener('pointermove', this.boundMouseMove, { passive: true });
         document.addEventListener('pointerup', this.boundMouseUp);
+        // Seed the chip at the grab point. Transform-positioned elements sit at
+        // the viewport origin until first written, so without this the chip would
+        // flash in the top-left corner for one frame.
+        this.dragGhost.moveTo(startX, startY);
         this.onDragMove(startX);
       };
 
@@ -1366,8 +1650,13 @@ export class HeaderRenderer {
     ghostLabel.textContent = col.header;
     ghost.appendChild(ghostLabel);
     ghost.appendChild(mkIcon('pg-col-drag-ghost__icon--arrow-right', 'chevronRight'));
-    document.body.appendChild(ghost);
-    this.ghostEl = ghost;
+    // The ghost lives outside the container the grid's token stylesheet is
+    // scoped to, so without the portal host every `var(--pg-…, fallback)` on it
+    // collapses to its light-mode fallback — a white chip over a dark grid.
+    portalHostFor(panelRowEl).appendChild(ghost);
+    // 14 px to the right of the cursor, vertically level with it. From here the
+    // chip is moved by transform only — no layout, no paint.
+    this.dragGhost.attach(ghost, 14, 0);
 
     const srcPD = this.panelDragData.find((pd) => pd.panel === this.dragSourcePanel);
     const srcThEl = panelRowEl.querySelector<HTMLElement>(`[data-col-id="${col.colId}"]`);
@@ -1387,24 +1676,41 @@ export class HeaderRenderer {
     this.dragStartScrollX = parseFloat(gridEl?.style.getPropertyValue('--pg-scroll-x') ?? '0');
     const centerPD = this.panelDragData.find((pd) => pd.panel === 'center');
     this.centerPanelRect = centerPD?.bounds ?? null;
+    // Read once here, in the same batch as the panel rects, rather than on every
+    // pointer event inside the outside-the-grid test.
+    this.dragGridRect = gridEl?.getBoundingClientRect() ?? null;
 
-    const styleEl = document.createElement('style');
-    styleEl.setAttribute('data-pg-drag', '');
-    document.head.appendChild(styleEl);
-    this.dragStyleEl = styleEl;
+    this.dragStyles.mount();
 
     gridEl?.classList.add('pg-grid--col-dragging');
     // Suppress the 180 ms drag-shift transition while the virtual column range
-    // expands to all columns on the first performRender after drag start.
-    // Without this guard, newly-added body cells animate in from transform:0.
+    // widens to its drag buffer on the first performRender after drag start
+    // (see `DRAG_COL_BUFFER` in GridRenderer). Without this guard, the body
+    // cells that widening brings into the DOM animate in from transform:0.
     // The class is removed 2 frames later so smooth transitions resume for
     // ordinary mouse movement.
     gridEl?.classList.add('pg-grid--col-autoscrolling');
     requestAnimationFrame(() => requestAnimationFrame(() => {
       if (this.isDragging) this.draggingGridEl?.classList.remove('pg-grid--col-autoscrolling');
     }));
-    document.body.style.cursor = 'grabbing';
+    this.setBodyCursor('grabbing');
     document.body.style.userSelect = 'none';
+  }
+
+  /**
+   * Writes `document.body.style.cursor` only when it differs from the value
+   * already applied.
+   *
+   * The move handler re-asserted `'grabbing'` on every pointer event, and a style
+   * write on `<body>` invalidates style for the document root — free to skip when
+   * nothing changed.
+   *
+   * @param cursor - The cursor keyword, or `''` to restore the default.
+   */
+  private setBodyCursor(cursor: string): void {
+    if (this.lastBodyCursor === cursor) return;
+    this.lastBodyCursor = cursor;
+    document.body.style.cursor = cursor;
   }
 
   // ─── Live cross-panel move ─────────────────────────────────────────────────
@@ -1416,7 +1722,7 @@ export class HeaderRenderer {
    * 3. After 2 frames (re-render complete), re-capture rects and continue drag
    */
   private moveToPanelLive(newPanel: 'left' | 'center' | 'right', insertIdx: number): void {
-    if (this.livePanelMoveInProgress) return;
+    if (this.livePanelMoveInProgress || this.dragFinishing) return;
     this.livePanelMoveInProgress = true;
 
     const colId = this.draggingColId!;
@@ -1442,7 +1748,7 @@ export class HeaderRenderer {
     }
 
     // Clear any drag transforms during the transition
-    if (this.dragStyleEl) this.dragStyleEl.textContent = '';
+    this.dragStyles.clear();
 
     // Update drag source state immediately
     this.dragSourcePanel = newPanel;
@@ -1469,6 +1775,10 @@ export class HeaderRenderer {
         this.dragStartScrollX = parseFloat(this.draggingGridEl?.style.getPropertyValue('--pg-scroll-x') ?? '0');
         const centerPD = this.panelDragData.find((pd) => pd.panel === 'center');
         this.centerPanelRect = centerPD?.bounds ?? null;
+        // Pinning a column resizes the panels, which can move the grid itself
+        // (a scrollbar appearing, a flex sibling reflowing) — so the cached
+        // bounds are re-read in the same batch as the panel rects.
+        this.dragGridRect = this.draggingGridEl?.getBoundingClientRect() ?? null;
 
         this.livePanelMoveInProgress = false;
       });
@@ -1505,15 +1815,15 @@ export class HeaderRenderer {
     this.autoScrollSpeed = speed;
     if (speed !== 0 && !wasScrolling) this.autoScrollRAF = requestAnimationFrame(this.tickAutoScroll);
     else if (speed === 0 && wasScrolling) this.stopAutoScroll();
-    this.ghostEl?.classList.toggle('pg-col-drag-ghost--scroll-left', speed < 0);
-    this.ghostEl?.classList.toggle('pg-col-drag-ghost--scroll-right', speed > 0);
+    this.dragGhost.setFlag('pg-col-drag-ghost--scroll-left', speed < 0);
+    this.dragGhost.setFlag('pg-col-drag-ghost--scroll-right', speed > 0);
   }
 
   private stopAutoScroll(): void {
     cancelAnimationFrame(this.autoScrollRAF);
     this.autoScrollRAF = 0;
     this.autoScrollSpeed = 0;
-    if (this.isDragging && !this.livePanelMoveInProgress && this.dragStyleEl) {
+    if (this.isDragging && !this.livePanelMoveInProgress && this.dragStyles.isMounted) {
       // Temporarily suppress all column transitions while resetting the drag baseline.
       // Without this guard, sibling columns animate back to zero when their transforms
       // are cleared, then re-animate forward — a visible snap-and-reanimate sequence.
@@ -1521,7 +1831,7 @@ export class HeaderRenderer {
       this.refreshDragAfterScroll();
       this.draggingGridEl?.classList.remove('pg-grid--col-autoscrolling');
     }
-    this.ghostEl?.classList.remove('pg-col-drag-ghost--scroll-left', 'pg-col-drag-ghost--scroll-right');
+    this.dragGhost.clearFlags('pg-col-drag-ghost--scroll-left', 'pg-col-drag-ghost--scroll-right');
   }
 
   /**
@@ -1539,7 +1849,7 @@ export class HeaderRenderer {
 
     // CRITICAL: clear drag transforms before calling getBoundingClientRect.
     // capturePanelDragData reads viewport positions via getBoundingClientRect.
-    // If dragStyleEl still has transforms applied, the captured rects include
+    // If the drag sheet still has transforms applied, the captured rects include
     // those offsets — the next onDragMove then compounds transforms on top of
     // already-transformed positions, creating an oscillating feedback loop that
     // causes blinking and column misalignment.
@@ -1547,7 +1857,7 @@ export class HeaderRenderer {
     // and recapturing immediately gives clean baseline positions.  The clear and
     // re-apply are both in the same JS task, so the browser never paints a
     // transform-less frame.
-    if (this.dragStyleEl) this.dragStyleEl.textContent = '';
+    this.dragStyles.clear();
 
     // Re-apply dragging class — updateCenterVisibleCols may have rebuilt the TH element.
     this.draggingGridEl
@@ -1655,22 +1965,66 @@ export class HeaderRenderer {
 
   // ─── Drag move ────────────────────────────────────────────────────────────
 
-  private onDragMove(clientX: number): void {
-    if (!this.isDragging || !this.draggingColId || !this.panelDragData.length || !this.dragStyleEl) return;
-    if (this.livePanelMoveInProgress) { this.dragStyleEl.textContent = ''; return; }
+  /**
+   * Resolves which panel the cursor is over, with hysteresis at the seam.
+   *
+   * Leaving a panel is what triggers a live cross-panel move — a real
+   * `moveAndPin`, a store write, and a re-render. A pointer resting on a seam
+   * jitters by a pixel or two, and without hysteresis each jitter re-pinned the
+   * column and re-rendered the grid, several times a second. The cursor must now
+   * clear the current panel's edge by {@link PANEL_SEAM_HYSTERESIS} before a
+   * different panel can win, and because the source panel becomes the new panel
+   * after a crossing, coming back costs the same margin.
+   *
+   * @param clientX - Cursor x for this frame.
+   * @returns The panel entry the drag should be treated as being in, or
+   *   `undefined` when the cursor is over no panel at all.
+   */
+  private resolveTargetPanel(clientX: number): PanelDragEntry | undefined {
+    const source = this.panelDragData.find((pd) => pd.panel === this.dragSourcePanel);
+    const sourceBounds = source?.bounds;
 
-    // Which panel is the cursor over?
-    let targetPD = this.panelDragData.find((pd) => {
+    // Still within the source panel, or inside its hysteresis margin: hold.
+    if (
+      sourceBounds &&
+      clientX >= sourceBounds.left - PANEL_SEAM_HYSTERESIS &&
+      clientX <= sourceBounds.right + PANEL_SEAM_HYSTERESIS
+    ) {
+      return source;
+    }
+
+    return this.panelDragData.find((pd) => {
       if (!pd.bounds) return false;
       return clientX >= pd.bounds.left && clientX <= pd.bounds.right;
     });
+  }
+
+  /**
+   * Recomputes the drop slot and the live column-shift transforms for one frame.
+   *
+   * Every exit path routes its CSS through {@link dragStyles}, which writes the
+   * `<style>` element only when the generated text actually changed. Because the
+   * drop slot changes a handful of times across a gesture while this function
+   * runs once per frame, the overwhelming majority of calls now end in a string
+   * comparison rather than a stylesheet re-parse and a grid-wide style
+   * recalculation.
+   *
+   * @param clientX - Cursor x for this frame.
+   */
+  private onDragMove(clientX: number): void {
+    if (!this.isDragging || !this.draggingColId || !this.panelDragData.length || !this.dragStyles.isMounted) return;
+    if (this.livePanelMoveInProgress) { this.dragStyles.clear(); return; }
+
+    // Which panel is the cursor over?
+    let targetPD = this.resolveTargetPanel(clientX);
     if (!targetPD) targetPD = this.panelDragData.find((pd) => pd.panel === this.dragSourcePanel);
     if (!targetPD) return;
 
     this.dragTargetPanel = targetPD.panel;
     const crossPanel = targetPD.panel !== this.dragSourcePanel;
 
-    // Scroll correction for center panel
+    // Scroll correction for center panel. Reading an inline custom property is
+    // an attribute read, not a layout flush, so this is safe on the frame path.
     const scrollDelta = targetPD.panel === 'center'
       ? parseFloat(this.draggingGridEl?.style.getPropertyValue('--pg-scroll-x') ?? '0') - this.dragStartScrollX
       : 0;
@@ -1686,7 +2040,7 @@ export class HeaderRenderer {
         if (clientX < tRects[i].right + scrollDelta) { insertIdx = i; break; }
       }
       this.moveToPanelLive(targetPD.panel, insertIdx);
-      this.dragStyleEl.textContent = '';
+      this.dragStyles.clear();
       return;
     }
 
@@ -1723,86 +2077,123 @@ export class HeaderRenderer {
       this.rebuildGroupRowsWithPreview(effectiveTarget, sourceIdxInPanel, srcPD);
     }
 
-    // Same-panel: apply CSS transforms
-    const gridId = this.draggingGridEl?.getAttribute('data-photon-grid-id') ?? '';
-    const scope = gridId ? `[data-photon-grid-id="${gridId}"] ` : '';
-    let css = '';
-
-    if (effectiveTarget === sourceIdxInPanel) { this.dragStyleEl.textContent = ''; return; }
+    if (effectiveTarget === sourceIdxInPanel) { this.dragStyles.clear(); return; }
 
     const srcRect = srcPD.rects[sourceIdxInPanel];
     const tgtRect = tRects[effectiveTarget];
     // Defensive: if either rect is missing (e.g. panelDragData captured a frame
     // out of step with the DOM during a live cross-panel move), abort this frame's
     // transform rather than dereferencing undefined. The next mouse move recovers.
-    if (!srcRect || !tgtRect) { this.dragStyleEl.textContent = ''; return; }
+    if (!srcRect || !tgtRect) { this.dragStyles.clear(); return; }
+
+    // Same-panel: build the CSS transforms
+    const gridId = this.draggingGridEl?.getAttribute('data-photon-grid-id') ?? '';
+    const scope = gridId ? `[data-photon-grid-id="${gridId}"] ` : '';
+
     const srcOffset = effectiveTarget > sourceIdxInPanel ? tgtRect.right - srcRect.right : tgtRect.left - srcRect.left;
-    css += `${scope}[data-col-id="${tIds[sourceIdxInPanel]}"] { --pg-drag-x: ${srcOffset}px; z-index: 10; position: relative; transition: none; }\n`;
+    // Assembled into an array and joined once: repeated `+=` on a long string
+    // builds a rope the engine must flatten anyway, and this runs on the frame path.
+    const rules: string[] = [
+      `${scope}[data-col-id="${tIds[sourceIdxInPanel]}"] { --pg-drag-x: ${srcOffset}px; z-index: 10; position: relative; transition: none; }`,
+    ];
 
     for (let i = 0; i < tRects.length; i++) {
       if (i === sourceIdxInPanel) continue;
       let offset = 0;
       if (effectiveTarget > sourceIdxInPanel && i > sourceIdxInPanel && i <= effectiveTarget) offset = -this.draggedColWidth;
       else if (effectiveTarget < sourceIdxInPanel && i >= effectiveTarget && i < sourceIdxInPanel) offset = this.draggedColWidth;
-      if (offset !== 0) css += `${scope}[data-col-id="${tIds[i]}"] { --pg-drag-x: ${offset}px; }\n`;
+      if (offset !== 0) rules.push(`${scope}[data-col-id="${tIds[i]}"] { --pg-drag-x: ${offset}px; }`);
     }
 
-    this.dragStyleEl.textContent = css;
+    this.dragStyles.write(`${rules.join('\n')}\n`);
   }
 
+  /**
+   * Records the pointer sample. Deliberately does no DOM work — see
+   * {@link applyDragFrame}, which the scheduler runs once per painted frame.
+   */
   private onGlobalMouseMove(e: MouseEvent): void {
     if (!this.isDragging || !this.draggingPanelRowEl) return;
+    this.dragFrames.sample(e.clientX, e.clientY);
+  }
 
-    if (this.ghostEl) {
-      this.ghostEl.style.left = `${e.clientX + 14}px`;
-      this.ghostEl.style.top = `${e.clientY}px`;
-    }
+  /**
+   * The column drag's entire per-frame workload.
+   *
+   * Ordering is deliberate: the cheap state tests come first and return early,
+   * the chip transform is written before any geometry is consulted, and every
+   * geometry read comes from a cache populated at drag start or at an explicit
+   * invalidation point — so nothing in this function can force a synchronous
+   * layout.
+   *
+   * @param clientX - Newest cursor x.
+   * @param clientY - Newest cursor y.
+   */
+  private applyDragFrame(clientX: number, clientY: number): void {
+    if (!this.isDragging || !this.draggingPanelRowEl) return;
 
-    // Outside grid → hide-column mode
-    const gridBounds = this.draggingGridEl?.getBoundingClientRect();
+    this.dragGhost.moveTo(clientX, clientY);
+
+    // Outside grid → hide-column mode. Tested against bounds captured at drag
+    // start (and refreshed on panel moves), not a fresh rect read per event.
+    const gridBounds = this.dragGridRect;
     const isOutside = !!gridBounds && (
-      e.clientX < gridBounds.left || e.clientX > gridBounds.right ||
-      e.clientY < gridBounds.top || e.clientY > gridBounds.bottom
+      clientX < gridBounds.left || clientX > gridBounds.right ||
+      clientY < gridBounds.top || clientY > gridBounds.bottom
     );
     if (isOutside) {
       this.dragIsHideMode = true;
       this.stopAutoScroll();
-      this.ghostEl?.classList.add('pg-col-drag-ghost--hide');
-      this.ghostEl?.classList.remove('pg-col-drag-ghost--no-drop', 'pg-col-drag-ghost--scroll-left', 'pg-col-drag-ghost--scroll-right');
-      if (this.dragStyleEl) this.dragStyleEl.textContent = '';
+      this.dragGhost.setFlag('pg-col-drag-ghost--hide', true);
+      this.dragGhost.clearFlags('pg-col-drag-ghost--no-drop', 'pg-col-drag-ghost--scroll-left', 'pg-col-drag-ghost--scroll-right');
+      this.dragStyles.clear();
       return;
     }
     this.dragIsHideMode = false;
-    this.ghostEl?.classList.remove('pg-col-drag-ghost--hide');
+    this.dragGhost.setFlag('pg-col-drag-ghost--hide', false);
 
     // Group zone
-    const overGroupZone = this.groupDropZone?.isOver(e.clientX, e.clientY) ?? false;
+    const overGroupZone = this.groupDropZone?.isOver(clientX, clientY) ?? false;
     if (overGroupZone && !this.draggingIsGroupable) {
       this.stopAutoScroll();
-      this.ghostEl?.classList.add('pg-col-drag-ghost--no-drop');
-      document.body.style.cursor = 'no-drop';
-      if (this.dragStyleEl) this.dragStyleEl.textContent = '';
+      this.dragGhost.setFlag('pg-col-drag-ghost--no-drop', true);
+      this.setBodyCursor('no-drop');
+      this.dragStyles.clear();
       return;
     }
-    this.ghostEl?.classList.remove('pg-col-drag-ghost--no-drop');
-    document.body.style.cursor = 'grabbing';
+    this.dragGhost.setFlag('pg-col-drag-ghost--no-drop', false);
+    this.setBodyCursor('grabbing');
 
     if (this.draggingIsGroupable && this.groupDropZone) {
       this.groupDropZone.highlight(overGroupZone);
       this.isOverGroupZone = overGroupZone;
       if (overGroupZone) {
         this.stopAutoScroll();
-        if (this.dragStyleEl) this.dragStyleEl.textContent = '';
+        this.dragStyles.clear();
         return;
       }
     }
 
-    this.lastDragClientX = e.clientX;
-    this.updateAutoScroll(e.clientX);
-    this.onDragMove(e.clientX);
+    this.lastDragClientX = clientX;
+    this.updateAutoScroll(clientX);
+    this.onDragMove(clientX);
   }
 
   private onGlobalMouseUp(_e: MouseEvent): void {
+    // Apply a sample that is still queued for the next frame so the drop is
+    // resolved against the last position the pointer actually moved through,
+    // rather than one up to a frame stale.
+    //
+    // The pointerup's own coordinates are deliberately NOT fed in as a new
+    // sample. Doing so re-runs the full drag frame — including the cross-panel
+    // branch — at the instant the drop is being committed, so a release whose
+    // coordinates resolve to a different panel than the last move would fire
+    // `moveAndPin` from the frame *and* again from the commit below. The column
+    // then lands somewhere the user never pointed at, and the header visibly
+    // reshuffles. `dragFinishing` closes the same race for a queued sample.
+    this.dragFinishing = true;
+    this.dragFrames.flushNow();
+
     if (!this.isDragging) { this.cleanupDrag(); return; }
     const colId = this.draggingColId;
     if (!colId) { this.cleanupDrag(); return; }
@@ -1829,60 +2220,71 @@ export class HeaderRenderer {
     if (isHide) { this.columnModel.setColumnVisible(colId, false); return; }
     if (isGroup && this.groupDropZone) { this.groupDropZone.dropColumn(colId); return; }
 
-    // When a grouped leaf is dropped onto a DIFFERENT group's header cell, create a
-    // solo clone group rather than doing a plain column reorder.  Dropping on the
-    // leaf's own parent group header is treated as a no-op clone check (no action).
-    if (droppedOnGroupId && this.groupModel && this.groupDragHandler) {
-      const parentGroup = this.groupModel.getParent(colId);
-      if (parentGroup) {
-        // Dropped on its own parent → leave in place (within-group reorder already done)
-        if (droppedOnGroupId !== parentGroup.groupId) {
-          this.groupDragHandler.createLeafClone(colId, droppedOnGroupId);
-          return;
+    // Everything below commits the movement the user has already watched happen
+    // under the pointer. The flag tells the renderer's columns watcher to skip
+    // the structural FLIP for these writes only — see `isCommittingColumnDrop`.
+    // `finally` rather than a trailing assignment: several branches return
+    // early, and a leaked `true` would silently disable the animation for the
+    // next unrelated column change.
+    this.committingDrop = true;
+    try {
+      // When a grouped leaf is dropped onto a DIFFERENT group's header cell, create a
+      // solo clone group rather than doing a plain column reorder.  Dropping on the
+      // leaf's own parent group header is treated as a no-op clone check (no action).
+      if (droppedOnGroupId && this.groupModel && this.groupDragHandler) {
+        const parentGroup = this.groupModel.getParent(colId);
+        if (parentGroup) {
+          // Dropped on its own parent → leave in place (within-group reorder already done)
+          if (droppedOnGroupId !== parentGroup.groupId) {
+            this.groupDragHandler.createLeafClone(colId, droppedOnGroupId);
+            return;
+          }
+          return; // same parent — no clone needed
         }
-        return; // same parent — no clone needed
       }
-    }
 
-    if (sourcePanel === targetPanel) {
-      // Same-panel (or live-moved, then fine-tuned within new panel)
-      const visibleCols = this.columnModel.getVisibleColumns();
-      const globalFrom = visibleCols.findIndex((c) => c.colId === colId);
-      if (globalFrom === -1) return;
-      const targetColId = targetLocalIdx !== -1 && targetPD ? targetPD.colIds[targetLocalIdx] : null;
-      const globalTo = targetColId ? visibleCols.findIndex((c) => c.colId === targetColId) : globalFrom;
-      // Always call moveColumn to trigger the full header rebuild (even if same position)
-      this.columnModel.moveColumn(globalFrom, globalTo !== -1 ? globalTo : globalFrom);
+      if (sourcePanel === targetPanel) {
+        // Same-panel (or live-moved, then fine-tuned within new panel)
+        const visibleCols = this.columnModel.getVisibleColumns();
+        const globalFrom = visibleCols.findIndex((c) => c.colId === colId);
+        if (globalFrom === -1) return;
+        const targetColId = targetLocalIdx !== -1 && targetPD ? targetPD.colIds[targetLocalIdx] : null;
+        const globalTo = targetColId ? visibleCols.findIndex((c) => c.colId === targetColId) : globalFrom;
+        // Always call moveColumn to trigger the full header rebuild (even if same position)
+        this.columnModel.moveColumn(globalFrom, globalTo !== -1 ? globalTo : globalFrom);
 
-      // If the leaf left its parent group's contiguous span, extract it into a
-      // solo clone group so a group header appears at the new position.
-      if (this.groupModel && this.groupDragHandler) {
-        const parent = this.groupModel.getParent(colId);
-        if (parent) {
-          const updatedCols = (this.store.get('columns') as ColumnDef[]).filter((c) => c.visible !== false);
-          const newIdx      = updatedCols.findIndex((c) => c.colId === colId);
-          if (newIdx !== -1 && this.isLeafOutsideGroup(colId, newIdx, updatedCols)) {
-            // insertBeforeId: the column that now follows the leaf in the flat list
-            const insertBeforeId = updatedCols[newIdx + 1]?.colId ?? null;
-            this.groupDragHandler.extractLeafToSoloGroup(colId, insertBeforeId);
+        // If the leaf left its parent group's contiguous span, extract it into a
+        // solo clone group so a group header appears at the new position.
+        if (this.groupModel && this.groupDragHandler) {
+          const parent = this.groupModel.getParent(colId);
+          if (parent) {
+            const updatedCols = (this.store.get('columns') as ColumnDef[]).filter((c) => c.visible !== false);
+            const newIdx      = updatedCols.findIndex((c) => c.colId === colId);
+            if (newIdx !== -1 && this.isLeafOutsideGroup(colId, newIdx, updatedCols)) {
+              // insertBeforeId: the column that now follows the leaf in the flat list
+              const insertBeforeId = updatedCols[newIdx + 1]?.colId ?? null;
+              this.groupDragHandler.extractLeafToSoloGroup(colId, insertBeforeId);
+            }
+          }
+        }
+      } else {
+        // Cursor dropped in a different panel than dragSourcePanel (fast move before live rects update)
+        const targetPin          = targetPanel === 'left' ? ('left' as const) : targetPanel === 'right' ? ('right' as const) : null;
+        const insertBeforeColId  = targetPD ? (targetPD.colIds[targetLocalIdx] ?? null) : null;
+        this.columnModel.moveAndPin(colId, targetPin, insertBeforeColId);
+
+        // Moving a grouped leaf cross-panel always places it outside its original
+        // group — create a solo clone group in the target panel so the group
+        // header follows the column.
+        if (this.groupModel && this.groupDragHandler) {
+          const parent = this.groupModel.getParent(colId);
+          if (parent) {
+            this.groupDragHandler.extractLeafToSoloGroup(colId, insertBeforeColId);
           }
         }
       }
-    } else {
-      // Cursor dropped in a different panel than dragSourcePanel (fast move before live rects update)
-      const targetPin          = targetPanel === 'left' ? ('left' as const) : targetPanel === 'right' ? ('right' as const) : null;
-      const insertBeforeColId  = targetPD ? (targetPD.colIds[targetLocalIdx] ?? null) : null;
-      this.columnModel.moveAndPin(colId, targetPin, insertBeforeColId);
-
-      // Moving a grouped leaf cross-panel always places it outside its original
-      // group — create a solo clone group in the target panel so the group
-      // header follows the column.
-      if (this.groupModel && this.groupDragHandler) {
-        const parent = this.groupModel.getParent(colId);
-        if (parent) {
-          this.groupDragHandler.extractLeafToSoloGroup(colId, insertBeforeColId);
-        }
-      }
+    } finally {
+      this.committingDrop = false;
     }
     void srcLocalIdx;
   }
@@ -1890,26 +2292,29 @@ export class HeaderRenderer {
   private cleanupDrag(): void {
     this.isDragging = false;
     this.livePanelMoveInProgress = false;
+    this.dragFinishing = false;
     this.draggingIsGroupable = false;
     this.isOverGroupZone = false;
     this.dragIsHideMode = false;
     this.groupDropZone?.highlight(false);
     this.draggingPanelRowEl?.querySelector<HTMLElement>('.pg-th--dragging')?.classList.remove('pg-th--dragging');
-    this.ghostEl?.remove();
-    this.ghostEl = null;
-    this.dragStyleEl?.remove();
-    this.dragStyleEl = null;
+    // Discards any sample queued for the next frame: a cancelled drag must not
+    // apply one last move after its state has been torn down.
+    this.dragFrames.reset();
+    this.dragGhost.detach();
+    this.dragStyles.dispose();
     this.draggingGridEl?.classList.remove('pg-grid--col-dragging', 'pg-grid--col-autoscrolling');
     this.draggingGridEl = null;
     this.draggedColWidth = 0;
     this.panelDragData = [];
+    this.dragGridRect = null;
     this.dragStartScrollX = 0;
     this.stopAutoScroll();
     this.centerPanelRect = null;
     this.draggingColId = null;
     this.dragTargetLocalIdx = -1;
     this.draggingPanelRowEl = null;
-    document.body.style.cursor = '';
+    this.setBodyCursor('');
     document.body.style.userSelect = '';
     document.removeEventListener('pointermove', this.boundMouseMove);
     document.removeEventListener('pointerup', this.boundMouseUp);

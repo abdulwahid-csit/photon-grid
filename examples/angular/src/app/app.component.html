@@ -29,9 +29,44 @@
     </photon-grid-angular>
   </section> -->
 
+  <!-- Timeline scheduler: employees as pinned grid columns, the timeline as a
+       plugin-owned virtualized layer beside them. Events live in their own
+       index, not inside row data. -->
+  <!-- <app-scheduler-demo></app-scheduler-demo> -->
+
+  <!-- One column per built-in renderer, so the whole set is visible side by
+       side. Two columns declare only a `type` and let the grid infer their
+       renderer — the path most real columns take. -->
+  <!-- <app-renderer-showcase-grid></app-renderer-showcase-grid> -->
+
+  <!-- One column per built-in cell editor, plus a custom editor registered at
+       runtime. Also demonstrates type-inferred editors and validation, an
+       `editable` predicate, an async uniqueness rule and a row validator. -->
+  <!-- <app-editing-showcase-grid></app-editing-showcase-grid> -->
+
+  <!-- Spreadsheet: 100 lettered columns (A … CV) over a row count you choose,
+       up to millions. Rows carry only their index; every cell value is derived
+       from its coordinates as it is painted, so the sheet costs one small
+       object per row instead of one value per cell. Cells are editable and the
+       headers are real A1 references — type `=A1+B1` anywhere. -->
+  <app-excel-grid></app-excel-grid>
+
+  <!-- Summary Rows: four aggregate rows over one grid, each with its own scope
+       (visible page / selection / filtered) and anchoring. Three are docked at
+       the bottom; the "This page" row is `sticky: false`, so it sits at the end
+       of the scrollable content and scrolls away with the rows. The buttons
+       drive setSummaryRows / updateSummaryRow / removeSummaryRow at runtime. -->
+  <!-- <app-summary-grid></app-summary-grid> -->
+
+  <!-- Customer Orders: every column drawn by a custom cell renderer, with a
+       theme picker in its top-right corner. Because the renderers are composed
+       from Photon theme tokens rather than literal colours, switching between
+       ion / neon / photon / quantum restyles the cell contents too. -->
+  <!-- <app-customer-orders-grid></app-customer-orders-grid> -->
+
   <!-- Streaming demo for the viewport Virtual DOM: custom cell renderers fed by
        a setInterval market simulation, patched cell-by-cell with no re-render. -->
-  <app-realtime-grid></app-realtime-grid>
+  <!-- <app-realtime-grid></app-realtime-grid> -->
 
   <!-- Master/Detail: each account row expands into its own nested Photon Grid
        of orders — lazily fetched, auto-sized, independently sortable, and
@@ -58,16 +93,16 @@
     </p>
   </header>
 
-  <section class="grid-wrapper grid-wrapper--formula">
-    <photon-grid-angular
-      [columns]="formulaColumns"
-      [dataSet]="formulaData"
-      [options]="formulaOptions"
-      (gridReady)="onFormulaGridReady($event)"
-      (toolbarTabChanged)="onToolbarTabChanged($event)"
-      (toolbarSearchChanged)="onToolbarSearchChanged($event)"
-      >
-    </photon-grid-angular>
+    <section class="grid-wrapper grid-wrapper--formula">
+      <photon-grid-angular
+        [columns]="formulaColumns"
+        [dataSet]="formulaData"
+        [options]="formulaOptions"
+        (gridReady)="onFormulaGridReady($event)"
+        (toolbarTabChanged)="onToolbarTabChanged($event)"
+        (toolbarSearchChanged)="onToolbarSearchChanged($event)"
+        >
+      </photon-grid-angular>
   </section>
 
   <header class="page__header page__header--formula">

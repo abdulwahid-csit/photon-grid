@@ -27,6 +27,7 @@ import { IconRenderer } from '../icons/icon-renderer';
 import { ToastQueueManager } from './toast-queue-manager';
 import { ToastContainer } from './toast-container';
 import { ToastAnimationManager } from './toast-animation-manager';
+import { portalHostFor } from '../theme/overlay-portal';
 import { ToastComponent, type ResolvedToastSettings } from './toast-component';
 import {
   ToastAnimation,
@@ -59,6 +60,16 @@ export interface ToastServiceDeps {
   readonly iconRenderer?: IconRenderer;
   /** Host element for the toast layer (default `document.body`). */
   readonly host?: HTMLElement;
+  /**
+   * Any element inside the owning grid — normally its container. When given, the
+   * toast layer mounts into that grid's portal host instead of `document.body`,
+   * so toasts wear the grid's mode and variant on a page with several
+   * differently-themed grids. Resolved lazily on the first toast, because the
+   * host does not exist until the grid's theme has been applied.
+   *
+   * Ignored when {@link host} is set explicitly.
+   */
+  readonly owner?: HTMLElement;
 }
 
 /** An inert handle returned when there is no DOM (SSR) or the service is destroyed. */
@@ -74,6 +85,8 @@ export class ToastService {
   private config: ToastServiceConfig;
   private readonly iconRenderer: IconRenderer;
   private readonly host: HTMLElement | null;
+  /** Owning grid element, resolved to a portal host on first use. */
+  private readonly owner: HTMLElement | null;
 
   private readonly queue: ToastQueueManager;
   private readonly animation: ToastAnimationManager;
@@ -89,7 +102,11 @@ export class ToastService {
   constructor(config: ToastServiceConfigInput = {}, deps: ToastServiceDeps = {}) {
     this.config = { ...DEFAULT_TOAST_CONFIG, ...config };
     this.iconRenderer = deps.iconRenderer ?? ToastService.createDefaultIconRenderer();
-    this.host = deps.host ?? (typeof document !== 'undefined' ? document.body : null);
+    this.owner = deps.owner ?? null;
+    // An explicit host wins; an owner defers to the portal host resolved on the
+    // first toast; neither falls back to <body> as before.
+    this.host =
+      deps.host ?? (this.owner ? null : typeof document !== 'undefined' ? document.body : null);
     this.queue = new ToastQueueManager(this.config.maxVisible);
     this.animation = new ToastAnimationManager(this.config.animation, this.config.respectReducedMotion);
   }
@@ -289,11 +306,18 @@ export class ToastService {
     };
   }
 
-  /** Lazily creates the container once a DOM host is available. */
+  /**
+   * Lazily creates the container once a DOM host is available.
+   *
+   * The host is resolved here rather than in the constructor: a grid's portal
+   * host is created when its theme is applied, which happens after the service
+   * itself is constructed.
+   */
   private ensureContainer(): ToastContainer | null {
     if (this.container) return this.container;
-    if (!this.host) return null;
-    this.container = new ToastContainer(this.host, this.config.gap, this.config.newestOnTop);
+    const host = this.host ?? (this.owner ? portalHostFor(this.owner) : null);
+    if (!host) return null;
+    this.container = new ToastContainer(host, this.config.gap, this.config.newestOnTop);
     return this.container;
   }
 

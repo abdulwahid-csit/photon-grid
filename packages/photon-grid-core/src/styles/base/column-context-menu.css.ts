@@ -28,6 +28,11 @@ export const columnContextMenuCss = `/* ─────────────�
   box-shadow: var(--pg-shadows-dropdown, 0 8px 24px rgba(15, 23, 42, 0.12));
   font-family: var(--pg-typography-font-family, system-ui, sans-serif);
   font-size: var(--pg-typography-font-size-sm, 13px);
+  /* Pinned rather than inherited: the menu is attached to the portal host in
+     <body>, so an un-set line-height would resolve against the host page's and
+     change the menu's row height from one application to the next. The fly-out
+     restates the same value. */
+  line-height: 1.4;
   color: var(--pg-colors-text-primary, #0f172a);
   user-select: none;
   outline: none;
@@ -153,10 +158,23 @@ export const columnContextMenuCss = `/* ─────────────�
   border: 1px solid var(--pg-colors-border, #e2e8f0);
   border-radius: var(--pg-borders-radius-md, 6px);
   box-shadow: var(--pg-shadows-dropdown, 0 8px 24px rgba(15, 23, 42, 0.12));
-  /* Portaled to <body>, so it no longer inherits the parent menu's text color
-     (set on .pg-column-context-menu) — declare it explicitly, or items fall
-     back to the browser default black and are unreadable in dark mode. */
+  /* Portaled to <body>, so it no longer inherits *anything* from the menu that
+     opened it (.pg-col-ctx-menu) — every inherited property it relies on has to
+     be restated here or the fly-out silently falls back to the host page's
+     defaults and stops matching the menu it flew out of:
+
+     - color      → browser default black, unreadable in dark mode.
+     - font-family→ the host document's font, so the same label is drawn in a
+                    different typeface one pixel away from its parent.
+     - font-size  → the host document's size (typically 16px), a visible jump.
+     - line-height→ the host document's, so rows sit at a different height.
+
+     Same tokens and same values as .pg-col-ctx-menu above; a fly-out is the same
+     menu one level deeper, not a surface of its own. */
   color: var(--pg-colors-text-primary, #0f172a);
+  font-family: var(--pg-typography-font-family, system-ui, sans-serif);
+  font-size: var(--pg-typography-font-size-sm, 13px);
+  line-height: 1.4;
   z-index: 10000;
 }
 

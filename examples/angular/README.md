@@ -1,27 +1,33 @@
-# Angular
+# Photon Grid — Angular example
 
-This project was generated with [Angular CLI](https://github.com/angular/angular-cli) version 18.2.14.
+<p align="center">
+  <img src="../../assets/logo.svg" alt="Photon Grid" width="180"/>
+</p>
 
-## Development server
+A runnable Angular 18 app demonstrating [`photon-grid-angular`](../../packages/photon-grid-angular): the editor showcase, renderer showcase, master/detail, summary rows, infinite scrolling, a scheduler plugin, and a 100-column × 1,000,000-row spreadsheet.
 
-Run `ng serve` for a dev server. Navigate to `http://localhost:4200/`. The application will automatically reload if you change any of the source files.
+## Run it
 
-## Code scaffolding
+From the **repository root** — this builds the core and the Angular wrapper in watch mode alongside the app, so a change to either is picked up live:
 
-Run `ng generate component component-name` to generate a new component. You can also use `ng generate directive|pipe|service|class|guard|interface|enum|module`.
+```bash
+npm run setup        # once: installs workspaces + example apps
+npm run dev:angular
+```
 
-## Build
+Then open http://localhost:5000.
 
-Run `ng build` to build the project. The build artifacts will be stored in the `dist/` directory.
+To run only the app against whatever is already built:
 
-## Running unit tests
+```bash
+npm --prefix examples/angular start
+```
 
-Run `ng test` to execute the unit tests via [Karma](https://karma-runner.github.io).
+## Switching demos
 
-## Running end-to-end tests
+Each demo is one component, toggled by commenting it in or out in
+[`src/app/app.component.html`](src/app/app.component.html).
 
-Run `ng e2e` to execute the end-to-end tests via a platform of your choice. To use this command, you need to first add a package that implements end-to-end testing capabilities.
+## How it resolves the packages
 
-## Further help
-
-To get more help on the Angular CLI use `ng help` or go check out the [Angular CLI Overview and Command Reference](https://angular.dev/tools/cli) page.
+[`tsconfig.json`](tsconfig.json) maps `photon-grid-core` and `photon-grid-angular` to each package's **`dist`** folder — so after changing library source you must rebuild (`npm run build:core`, `npm run build:angular`), or use `npm run dev:angular`, which watches both for you.

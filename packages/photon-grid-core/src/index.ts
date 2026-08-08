@@ -27,9 +27,135 @@ export { PaginationEngine } from './engines/pagination/pagination-engine';
 export { GroupingEngine } from './engines/grouping/grouping-engine';
 export { AggregationEngine } from './engines/aggregation/aggregation-engine';
 export { RowSelectionEngine } from './engines/selection/row-selection-engine';
+/**
+ * @deprecated Facade over the editing system. Use `GridContext.editorManager`
+ * and the exports from `./editing` below.
+ */
 export { CellEditorEngine } from './engines/editing/cell-editor-engine';
+
+// ─── Editing system ──────────────────────────────────────────────────────────
+// The framework-agnostic cell editing architecture: editor registry, resolution
+// chain, validation engine, built-in editors, and the services that mount and
+// drive them. See `src/editing/index.ts` for the guided tour.
+export * from './editing';
+
 export { SummaryEngine } from './engines/summary/summary-engine';
 export { ExportEngine } from './engines/export/export-engine';
+
+// ── Export System ────────────────────────────────────────────────────────────
+// The pluggable export architecture behind `GridApi.export()`. CSV and JSON are
+// implemented here; Excel and PDF are host-registered adapters, which is what
+// keeps Photon Grid Core at zero runtime dependencies.
+//
+// The optional adapters are deliberately NOT re-exported here — importing this
+// barrel must never be able to pull `xlsx` or `jspdf` into a bundle. Reach for
+// them on their own entry points:
+//
+//   import { createExcelExporter } from 'photon-grid-core/export/excel';
+//   import { createPdfExporter }   from 'photon-grid-core/export/pdf';
+export {
+  BuiltInExportFormat,
+  DEFAULT_EXPORT_FORMATS,
+  EXPORTER_REQUIREMENTS,
+  EXPORT_MIME_TYPES,
+  ExportDataPreparer,
+  ExportError,
+  ExportErrorCode,
+  ExportService,
+  ExporterRegistry,
+  PdfOrientation,
+  csvExporter,
+  downloadExportFile,
+  escapeCsvValue,
+  getExporter,
+  getRegisteredExportFormats,
+  globalExporterRegistry,
+  hasExporter,
+  jsonExporter,
+  registerExporter,
+  serializeCsv,
+  serializeJson,
+  toJsonRecords,
+  unregisterExporter,
+  withExtension,
+} from './export';
+export type {
+  ExcelExportOptions,
+  ExportCell,
+  ExportCellParams,
+  ExportColumn,
+  ExportDataSource,
+  ExportFeatureConfig,
+  ExportFormat,
+  ExportHeaderParams,
+  ExportMenuItemId,
+  ExportOptions,
+  ExportRow,
+  ExportServiceDeps,
+  ExportSuccessInfo,
+  ExporterRequirement,
+  GridExporter,
+  JsonExportOptions,
+  JsonExportRecord,
+  PdfExportOptions,
+  PreparedExportData,
+  ResolvedExportOptions,
+} from './export';
+export { ExportMenu, resolveExportConfig } from './renderer/export-menu';
+export type { ExportMenuDeps } from './renderer/export-menu';
+
+
+// ── Summary Rows ─────────────────────────────────────────────────────────────
+// Configurable aggregate rows docked above/below the body (or flowing with its
+// content). See `GridOptions.summary` and the `GridApi` summary methods.
+export {
+  SummaryAggregation,
+  SummaryAggregationEngine,
+  SummaryModel,
+  SummaryPosition,
+  SummaryRowRenderer,
+  SummaryScope,
+  SummaryService,
+  DERIVED_SUMMARY_ROW_ID,
+} from './summary';
+export type {
+  ResolvedSummaryRow,
+  SummaryAggregateFn,
+  SummaryApi,
+  SummaryBandLayout,
+  SummaryBandRow,
+  SummaryCellContext,
+  SummaryCellDef,
+  SummaryCellRendererParams,
+  SummaryCellSnapshot,
+  SummaryComputedCellContext,
+  SummaryConfig,
+  SummaryDataPort,
+  SummaryFormatterFn,
+  SummaryRendererFn,
+  SummaryRowDef,
+  SummaryRowSnapshot,
+  SummaryTooltipFn,
+  SummaryValueFn,
+} from './summary';
+
+// ── Container resizing ───────────────────────────────────────────────────────
+// Drag the grid's own edges/corners, or drive the same size through the
+// `GridApi` size methods. See `GridOptions.resize`.
+export { GridResizeController } from './renderer/grid-resize-controller';
+export {
+  GridResizeHandle,
+  GridResizeSource,
+  DEFAULT_GRID_RESIZE_HANDLES,
+} from './types/grid-resize.types';
+export type {
+  GridResizeConfig,
+  GridResizeEndEvent,
+  GridResizeStartEvent,
+  GridResizedEvent,
+  GridSize,
+  GridSizeApi,
+} from './types/grid-resize.types';
 
 // ── Import Engine ────────────────────────────────────────────────────────────
 export { ImportEngine } from './engines/import/import-engine';
@@ -107,8 +233,21 @@ export type {
   ToolbarTab,
   ToolbarTabsConfig,
   ToolbarSearchConfig,
+  ColumnsManagerConfig,
 } from './types/toolbar.types';
 export type { ToolbarTabChangedEvent, ToolbarSearchChangedEvent } from './types/event.types';
+
+// ── Loading state ───────────────────────────────────────────────────────────
+// `GridOptions.loading` + `GridOptions.loadingOverlay`, driven at runtime by
+// `GridApi.setLoading()`. Two indicators ship in the box: a themed spinner
+// (default) and skeleton placeholder rows aligned to the real column widths.
+export { LoadingBackdrop, LoadingIndicator, resolveLoadingOverlayConfig } from './types/loading.types';
+export type {
+  LoadingChangedEvent,
+  LoadingOverlayConfig,
+  ResolvedLoadingOverlayConfig,
+} from './types/loading.types';
+export type { LoadingGeometry } from './renderer/overlay-renderer';
 
 export type {
   RowModelType,
@@ -155,21 +294,76 @@ export type { CellChange, UndoRedoAction, UndoRedoActionType } from './engines/u
 export { DragDropEngine } from './drag-drop/drag-drop-engine';
 export { DragPreview } from './drag-drop/drag-preview';
 export { DragAutoscroll } from './drag-drop/drag-autoscroll';
+// Reusable drag primitives — frame coalescing, cached geometry, change-guarded
+// style writes, and transform-based chip positioning. Shared by every drag path
+// in the grid and exported so integrations can build on the same foundations.
+export { DragFrameScheduler } from './drag-drop/drag-frame-scheduler';
+export { DragRectCache, NO_SLOT } from './drag-drop/drag-rect-cache';
+export { DragStyleWriter } from './drag-drop/drag-style-writer';
+export { DragGhost, GHOST_X_VAR, GHOST_Y_VAR } from './drag-drop/drag-ghost';
 
 export { CellSelectionEngine } from './cell-selection/cell-selection-engine';
 export { SelectionRenderer } from './cell-selection/selection-renderer';
+export { KEEP_FOCUS_ATTR, isInsideGridUi, resolveGridRoot } from './cell-selection/focus-boundary';
 
 export { ThemeManager } from './theme/theme-manager';
 export { CssVarInjector } from './theme/css-var-injector';
+// Overlay portalling: a custom cell renderer or plugin that appends a floating
+// panel to the page should append it into `portalHostFor(anchorEl)` rather than
+// `document.body`, so the panel resolves the theme of the grid it belongs to.
+export { portalHostFor, PORTAL_HOST_CLASS } from './theme/overlay-portal';
 export { lightTheme } from './theme/themes/light-theme';
 export { darkTheme } from './theme/themes/dark-theme';
 
+// ── Icons ────────────────────────────────────────────────────────────────────
+// Icon resolution is layered: host overrides → the active variant's pack →
+// `coreIcons`. Hosts supply their own through `GridOptions.icons` /
+// `GridOptions.variantIcons`, or at runtime via the icon methods on `GridApi`.
 export { IconRegistry } from './icons/icon-registry';
+export type { IconRegistryOptions } from './icons/icon-registry';
 export { IconRenderer } from './icons/icon-renderer';
+export type { IconOptions } from './icons/icon-renderer';
 export { coreIcons } from './icons/icon-sets/core-icons';
+export { variantIconSets } from './icons/icon-sets/variant-icon-sets';
+export { ionIcons } from './icons/icon-sets/ion-icons';
+export { neonIcons } from './icons/icon-sets/neon-icons';
+export { photonIcons } from './icons/icon-sets/photon-icons';
+export { quantumIcons } from './icons/icon-sets/quantum-icons';
+export { repaintIcons, iconRepaintRoots } from './icons/icon-repainter';
+export type { IconSet, VariantIconSets } from './types/icon.types';
+
+// ── Plugins ──────────────────────────────────────────────────────────────────
+// The extension seam for optional feature subsystems. Only the *contract* is
+// exported here; plugin implementations ship behind their own subpath entries
+// (e.g. `photon-grid-core/plugins/scheduler`) so they stay out of the default
+// module graph and out of bundles that never register them.
+export type {
+  GridPlugin,
+  PluginContext,
+  PluginLayerOptions,
+  RenderWindow,
+  ScrollMetrics,
+} from './plugins/plugin.types';
+
+// -- Scheduler --
+// Types only, deliberately. The framework wrappers need the event-renderer
+// contract to compile their component factories against, but a value export
+// here would pull the scheduler's module graph into the default bundle for every
+// consumer, which is exactly what the subpath entry exists to prevent.
+export type {
+  SchedulerEventComponent,
+  SchedulerEventComponentConstructor,
+  SchedulerEventRenderParams,
+} from './plugins/scheduler/scheduler.config';
 
 export { GridRenderer } from './renderer/grid-renderer';
 export { ColumnChooser } from './renderer/column-chooser';
+// Tools-strip launcher that opens the Column Chooser. See `GridOptions.columnsManager`.
+export {
+  ColumnsManagerLauncher,
+  resolveColumnsManagerConfig,
+} from './renderer/columns-manager-launcher';
+export type { ColumnsManagerDeps } from './renderer/columns-manager-launcher';
 export { FiltersToolPanel } from './renderer/filters-tool-panel';
 export type { FiltersToolPanelDeps } from './renderer/filters-tool-panel';
 export { HeaderRenderer } from './renderer/header-renderer';
@@ -178,9 +372,15 @@ export { FooterRenderer } from './renderer/footer-renderer';
 export { OverlayRenderer } from './renderer/overlay-renderer';
 export { VirtualScrollRenderer } from './renderer/virtual-scroll-renderer';
 export { CellRenderer } from './renderer/cell-renderer';
+// Wheel-input primitives, exported so a host can classify or replay gestures
+// against the same rules the grid scrolls by.
+export { SmoothScrollAnimator, approachFactor } from './renderer/smooth-scroll-animator';
+export type { SmoothScrollAxis, SmoothScrollAnimatorDeps } from './renderer/smooth-scroll-animator';
+export { WheelSourceDetector, classifyWheelSample, WheelInputType, WheelDeltaMode } from './renderer/wheel-source';
+export type { WheelSample } from './renderer/wheel-source';
 
 export { ChartEngine } from './chart/chart-engine';
-export { ChartRenderer } from './chart/chart-renderer';
+export { ChartRenderer, DEFAULT_SERIES_PALETTE, resolveSeriesColors } from './chart/chart-renderer';
 export { ChartDataTransformer } from './chart/chart-data-transformer';
 export { SparklineRenderer } from './chart/sparkline/sparkline-renderer';
 
@@ -378,7 +578,33 @@ export type {
   VirtualRow,
 } from './renderer/vdom/vdom.types';
 
+// ── Toast Notification System ───────────────────────────────────────────────
+// Configured through `GridOptions.toast` and driven at runtime through
+// `GridApi.toasts`. Both reference the enums and types below, so they are part
+// of the public surface: `toast: { position: ToastPosition.TopRight }` cannot
+// be written without them.
+export { ToastService, DEFAULT_TOAST_CONFIG } from './toast/toast-service';
+export {
+  ToastAnimation,
+  ToastDismissReason,
+  ToastPosition,
+  ToastType,
+} from './toast/toast.types';
+export type {
+  Toast,
+  ToastAction,
+  ToastHandle,
+  ToastOptions,
+  ToastServiceConfig,
+  ToastServiceConfigInput,
+  ToastUpdate,
+} from './toast/toast.types';
+
 export type { GridOptions, GridState, GridDimensions, SortConfig, PaginationConfig, SelectionConfig, EditingConfig, CellRange, ColumnGroupConfig, HeaderIconsConfig, FiltersToolPanelConfig } from './types/grid.types';
+// Wheel-scroll tuning: smoothing of notched mouse-wheel steps, notch distance,
+// and the reduced-motion opt-out. See `types/scroll.types.ts`.
+export { WheelScrollMode, resolveScrollConfig, DEFAULT_SMOOTH_WHEEL_DURATION_MS } from './types/scroll.types';
+export type { ScrollConfig, ResolvedScrollConfig } from './types/scroll.types';
 export type { ColumnDef, ColumnDefInput, Column, ColumnState, ColumnGroup, ColumnDropdownOption, ColumnDataType, ColumnPinPosition, AggFunc } from './types/column.types';
 export { HeaderIconDisplay } from './types/column.types';
 export { ColumnMenuSection, AggregateFunction } from './types/column-menu.types';
@@ -410,7 +636,129 @@ export type {
   GroupRendererParams,
   HeaderRendererParams,
   SummaryRendererParams,
+  ColumnRenderer,
+  DisplayRendererFn,
 } from './types/renderer.types';
+
+// ── Built-in cell renderers ─────────────────────────────────────────────────
+export {
+  BuiltInRendererRegistry,
+  createDefaultRenderers,
+  cellRenderers,
+} from './renderer/built-in/registry';
+export { DEFAULT_RENDERER_BY_TYPE } from './renderer/built-in/default-renderer-map';
+export {
+  normalizeCountry,
+  registerCountries,
+  getCountry,
+  getAllCountries,
+  flagEmoji,
+  flagImageUrl,
+  FLAG_CDN_HOST,
+  DEFAULT_FLAG_SIZE,
+} from './renderer/built-in/country/country-registry';
+
+// ── Colour support ───────────────────────────────────────────────────────────
+// Parsing, formatting, naming and contrast for CSS colours — what the `color`
+// cell renderer and the colour editor both read values through. Framework- and
+// DOM-independent, so application code can share one definition of what a
+// colour value means.
+export type { ColorNotation, ParsedColor } from './color';
+export {
+  parseColor,
+  formatColor,
+  isColor,
+  toHsl,
+  composite,
+  contrastColor,
+  relativeLuminance,
+  clearColorParseCache,
+  colorNames,
+  hexForName,
+  nameForHex,
+  isColorName,
+} from './color';
+
+export type {
+  BuiltInRenderer,
+  BuiltInRendererSpec,
+  BuiltInRendererDefinition,
+  BuiltInRenderContext,
+  BuiltInRendererOptionsMap,
+  AnyBuiltInRendererOptions,
+  BaseRendererOptions,
+  CountryEntry,
+  CountryRendererOptions,
+  ColorRendererOptions,
+  ColorRendererVariant,
+  ColorSwatchShape,
+  ColorTextFormat,
+  TextRendererOptions,
+  MultilineRendererOptions,
+  LongTextRendererOptions,
+  LongTextToggleVisibility,
+  NumericRendererOptions,
+  CurrencyRendererOptions,
+  PercentageRendererOptions,
+  BooleanRendererOptions,
+  DateRendererOptions,
+  DurationRendererOptions,
+  LinkRendererOptions,
+  ImageRendererOptions,
+  AvatarRendererOptions,
+  AvatarGroupRendererOptions,
+  AvatarGroupMember,
+  AvatarSize,
+  ProfileRendererOptions,
+  ProfileAvatarOptions,
+  ProfileTextOptions,
+  ProfileSource,
+  ProfileAvatarShape,
+  ProfileAvatarFallback,
+  ProfileLayout,
+  CheckboxRendererOptions,
+  BadgeRendererOptions,
+  ChipRendererOptions,
+  TagRendererOptions,
+  IconRendererOptions,
+  ProgressRendererOptions,
+  RatingRendererOptions,
+  ListRendererOptions,
+  JsonRendererOptions,
+  ButtonRendererOptions,
+  HtmlRendererOptions,
+} from './types/built-in-renderer.types';
+
+// ── Actions cell renderer ───────────────────────────────────────────────────
+// Row-scoped commands in a cell: buttons, an overflow menu, or a split of the
+// two. See `ActionsRendererOptions` and `GridOptions.context`.
+export type {
+  GridAction,
+  ActionsRendererOptions,
+  ActionsLayout,
+  ActionsSize,
+  ActionVariant,
+  ActionIconConfig,
+  ActionIconPosition,
+  CellActionIcon,
+  CellActionValue,
+  CellActionParams,
+  CellActionController,
+  CellActionConfirmOptions,
+  CellActionConfirmRequest,
+  CellActionConfirmHandler,
+} from './types/cell-action.types';
+export { actionsRenderer, CELL_ACTION_ATTR, CELL_ACTION_MENU_ATTR } from './renderer/built-in/actions/actions';
+export type { ResolvedAction, ActionSplit } from './renderer/built-in/actions/action-resolver';
+export {
+  resolveAction,
+  resolveActions,
+  splitActions,
+  findAction,
+} from './renderer/built-in/actions/action-resolver';
+export { runCellAction, setActionBusy } from './renderer/built-in/actions/action-executor';
+export type { CellActionRequest } from './renderer/built-in/actions/action-executor';
+
 export type {
   IColumnGroupNode,
   IColumnLeafNode,
@@ -432,7 +780,10 @@ export type { ColumnGroupStateDiff } from './column-groups/column-group-state-ma
 export type { RowNode, RowGroupNode, RowGroupFooterNode, RowDataNode, RowDropPayload, RowClickPayload, RowEditPayload } from './types/row.types';
 export type { RowDragOptions, RowDragStartPayload, RowDragEndPayload } from './types/row-drag.types';
 export type { FilterModel, ColumnFilter, FilterCondition, FilterOperator, QuickFilterConfig, FilterSetOption } from './types/filter.types';
-export type { Theme, ThemeTokens, ColorTokens, BuiltInThemeName } from './types/theme.types';
+// `ThemeMode` / `ThemeVariant` name the two theming axes: `GridOptions.mode` /
+// `GridOptions.variant` and `GridApi.setMode` / `GridApi.setVariant` are all
+// typed by them, so a host cannot write a theme switcher without them.
+export type { Theme, ThemeTokens, ColorTokens, BuiltInThemeName, ThemeMode, ThemeVariant } from './types/theme.types';
 export type { GridEvent, GridEventMap } from './types/event.types';
 export type {
   ReadyEvent,
@@ -445,6 +796,11 @@ export type {
   RowMenuItemErrorEvent,
   RowMenuClosedEvent,
   CellSelectionChangedEvent,
+  CellButtonClickedEvent,
+  AvatarGroupMemberClickedEvent,
+  CellTextExpandedEvent,
+  CellActionClickedEvent,
+  CellActionErrorEvent,
   ColumnResizedEvent,
   ColumnMovedEvent,
   ColumnSortedEvent,
@@ -458,10 +814,15 @@ export type {
   RowDetailOpenedEvent,
   RowDetailClosedEvent,
   RowDetailHeightChangedEvent,
+  SummaryChangedEvent,
+  SummaryRowsChangedEvent,
 } from './types/event.types';
 export type { ChartConfig } from './chart/chart-engine';
 export type { ChartData, ChartDataset, ChartTransformOptions } from './chart/chart-data-transformer';
 export type { SparklineType, SparklineConfig, SparklinePoint, OHLCPoint } from './chart/sparkline/sparkline.types';
-export type { DragItem, DragType, DropTarget as DropTargetConfig, DragSession } from './drag-drop/drag-drop-engine';
+export type { DragItem, DragType, DropTarget as DropTargetConfig, DragSession, DropPosition } from './drag-drop/drag-drop-engine';
+export type { DragPreviewOptions } from './drag-drop/drag-preview';
+export type { DragFrameCallback } from './drag-drop/drag-frame-scheduler';
+export type { DragRectLike } from './drag-drop/drag-rect-cache';
 export type { EditSession } from './engines/editing/cell-editor-engine';
 export type { SummaryRow } from './engines/summary/summary-engine';

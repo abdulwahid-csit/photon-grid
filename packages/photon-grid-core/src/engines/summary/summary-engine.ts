@@ -1,6 +1,23 @@
 import type { RowNode } from '../../types/row.types';
 import type { ColumnDef } from '../../types/column.types';
 
+/**
+ * @deprecated Superseded by the Summary Row feature in `src/summary/`.
+ *
+ * This class was never wired into the render pipeline — `compute` has no caller
+ * — so the `ColumnDef.showSummary` / `summaryAggregation` / `summaryLabel`
+ * properties it reads produced no visible output. Those properties are now
+ * honoured by {@link import('../../summary/summary-model').SummaryModel}, which
+ * derives a total row from them when `GridOptions.summary` supplies no explicit
+ * rows.
+ *
+ * Retained only so the `SummaryEngine` / `SummaryRow` / `SummaryCellValue`
+ * exports do not disappear from the public surface. Use `GridOptions.summary`
+ * and the `GridApi` summary methods instead; this will be removed in the next
+ * major version.
+ *
+ * @see {@link import('../../summary/summary-service').SummaryService}
+ */
 export interface SummaryRow {
   [colId: string]: SummaryCellValue;
 }
@@ -12,6 +29,10 @@ export interface SummaryCellValue {
   formatted: string;
 }
 
+/**
+ * @deprecated Superseded by the Summary Row feature in `src/summary/`.
+ * @see {@link SummaryRow} for the full note.
+ */
 export class SummaryEngine {
   compute(rows: RowNode[], columns: ColumnDef[]): SummaryRow {
     const dataRows = rows.filter((r) => r.type === 'data');

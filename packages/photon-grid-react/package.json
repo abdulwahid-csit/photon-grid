@@ -3,6 +3,7 @@
   "version": "3.0.2",
   "description": "A high-performance React data grid built on Photon Grid Core with virtualization, sorting, filtering, editing, grouping, and custom React renderers.",
   "type": "module",
+
   "keywords": [
     "react",
     "react-grid",
@@ -30,37 +31,57 @@
     "photon-grid",
     "photon-grid-react"
   ],
+
   "homepage": "https://github.com/abdulwahid-csit/photon-grid",
+
   "repository": {
     "type": "git",
     "url": "git+https://github.com/abdulwahid-csit/photon-grid.git"
   },
+
   "bugs": {
     "url": "https://github.com/abdulwahid-csit/photon-grid/issues"
   },
+
   "license": "MIT",
   "author": "Abdul Wahid",
-  "main": "./index.cjs",
-  "module": "./index.js",
-  "types": "./index.d.ts",
+
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+
   "files": [
-    "*"
+    "dist"
   ],
+
+  "sideEffects": false,
+
   "scripts": {
-    "dev": "vite",
-    "clean": "npx rimraf dist",
+    "dev": "vite build --watch",
+    "clean": "rimraf dist",
     "build": "tsc -b && vite build && npm run copy-files",
     "copy-files": "node ../../scripts/copy-pkg-to-dist.mjs",
     "lint": "eslint .",
     "preview": "vite preview"
   },
+
   "dependencies": {
     "photon-grid-core": "^3.0.2"
   },
+
   "peerDependencies": {
     "react": ">=18",
     "react-dom": ">=18"
   },
+
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^24.13.2",

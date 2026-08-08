@@ -32,7 +32,7 @@
  */
 import { computed, markRaw, ref } from 'vue';
 
-import PhotonGrid from '../../../../packages/photon-grid-vue/src/photon-grid';
+import PhotonGrid from 'photon-grid-vue';
 import { GridEventType, PhotonAIProviderType } from 'photon-grid-core';
 
 import AccountDetail from './AccountDetail.vue';

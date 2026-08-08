@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { PhotonGrid } from '../../../../packages/photon-grid-react/src/photon-grid';
+import { PhotonGrid } from 'photon-grid-react'
+
 import { GridEventType } from 'photon-grid-core';
 
 import './demos.css';

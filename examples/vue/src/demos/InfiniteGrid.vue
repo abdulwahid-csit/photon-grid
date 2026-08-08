@@ -14,7 +14,7 @@
  */
 import { onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
 
-import PhotonGrid from '../../../../packages/photon-grid-vue/src/photon-grid';
+import PhotonGrid from 'photon-grid-vue';
 import { GridEventType } from 'photon-grid-core';
 
 import {

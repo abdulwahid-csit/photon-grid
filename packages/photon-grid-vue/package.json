@@ -10,9 +10,9 @@
   "types": "./index.d.ts",
   "exports": {
     ".": {
-      "types": "./index.d.ts",
-      "import": "./index.js",
-      "require": "./index.cjs"
+      "main": "./dist/index.cjs",
+      "module": "./dist/index.js",
+      "types": "./dist/index.d.ts"
     },
     "./package.json": "./package.json"
   },
@@ -21,12 +21,13 @@
   ],
   "sideEffects": false,
   "scripts": {
-    "dev": "vite",
-    "clean": "npx rimraf dist",
-    "build": "vite build && npm run copy-files",
-    "copy-files": "node ../../scripts/copy-pkg-to-dist.mjs",
-    "preview": "vite preview"
-  },
+  "clean": "npx rimraf dist",
+  "build": "vite build && npm run copy-files",
+  "dev": "vite build --watch",
+  "build:watch": "vite build --watch",
+  "copy-files": "node ../../scripts/copy-pkg-to-dist.mjs",
+  "preview": "vite preview"
+},
   "peerDependencies": {
     "photon-grid-core": "^3.0.2",
     "vue": "^3.4.0"

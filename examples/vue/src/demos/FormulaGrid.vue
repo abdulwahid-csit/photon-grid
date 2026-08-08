@@ -18,7 +18,7 @@
  * the grid discovers and registers them at load. `GridApi.setCellFormula` still
  * works for runtime changes and overrides any declared formula.
  */
-import PhotonGrid from '../../../../packages/photon-grid-vue/src/photon-grid';
+import PhotonGrid from 'photon-grid-vue';
 import {
   AutoFillDetectorName,
   ColumnGroupResizeStrategy,

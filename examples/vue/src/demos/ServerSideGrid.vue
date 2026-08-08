@@ -15,7 +15,7 @@
  * tokens (never arbitrary CSS) and previews instantly; the Theme button applies
  * saved themes, exports, imports or resets.
  */
-import PhotonGrid from '../../../../packages/photon-grid-vue/src/photon-grid';
+import PhotonGrid from 'photon-grid-vue';
 import { GridEventType, PhotonAIProviderType } from 'photon-grid-core';
 
 import { generateData } from '../lib/employees';

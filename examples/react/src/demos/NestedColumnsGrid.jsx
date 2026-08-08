@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 
-import { PhotonGrid } from '../../../../packages/photon-grid-react/src/photon-grid';
+import { PhotonGrid } from 'photon-grid-react'
+
 import { PhotonAIProviderType } from 'photon-grid-core';
 
 import { environment } from '../environment';

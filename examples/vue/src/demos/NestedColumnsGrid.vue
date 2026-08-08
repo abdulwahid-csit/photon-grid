@@ -12,7 +12,7 @@
  * Also on: row grouping (drag `Sector` into the grouping bar), managed row drag,
  * and the filters tool panel.
  */
-import PhotonGrid from '../../../../packages/photon-grid-vue/src/photon-grid';
+import PhotonGrid from 'photon-grid-vue';
 import { PhotonAIProviderType } from 'photon-grid-core';
 
 import { environment } from '../environment';

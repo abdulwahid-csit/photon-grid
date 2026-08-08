@@ -13,7 +13,7 @@
  * the quick-filter), the Import engine, row grouping, pagination and the Photon
  * AI panel.
  */
-import PhotonGrid from '../../../../packages/photon-grid-vue/src/photon-grid';
+import PhotonGrid from 'photon-grid-vue';
 import {
   HeaderIconDisplay,
   PhotonAIProviderType,

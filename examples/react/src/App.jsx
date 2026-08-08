@@ -1,6 +1,5 @@
 import { useMemo } from 'react';
-import { PhotonGrid } from '../../../packages/photon-grid-react/src/photon-grid';
-import EmployeeCell from './components/EmployeeCell';
+import { PhotonGrid } from 'photon-grid-react';
 import './App.css';
 
 const COUNTRY_FLAGS = {
@@ -76,34 +75,6 @@ function generateData(count) {
   });
 }
 
-function CountryCell(params) {
-  const rawValue = params?.value ?? params?.option?.value ?? params?.option?.label ?? params?.label ?? '';
-  const label = String(rawValue ?? '');
-  const countryCode = COUNTRY_FLAGS[label] ?? label.toLowerCase();
-  const hasCode = Boolean(countryCode && countryCode !== 'undefined' && countryCode !== 'null');
-
-  return (
-    <div className="country-cell">
-      {hasCode ? (
-        <img
-          className="country-cell__flag"
-          src={`https://flagcdn.com/16x12/${countryCode}.png`}
-          srcSet={`
-            https://flagcdn.com/32x24/${countryCode}.png 2x,
-            https://flagcdn.com/48x36/${countryCode}.png 3x
-          `}
-          width={16}
-          height={12}
-          alt={`${label} flag`}
-        />
-      ) : (
-        <span className="country-cell__flag">🌐</span>
-      )}
-      <span>{label}</span>
-    </div>
-  );
-}
-
 function App() {
   const data = useMemo(() => generateData(100), []);
 
@@ -115,9 +86,6 @@ function App() {
       type: 'string',
       width: 220,
       rowDrag: true, 
-      renderer: {
-        display: EmployeeCell,
-      },
     },
     {
       colId: 'email',
@@ -125,19 +93,6 @@ function App() {
       header: 'Email',
       type: 'string',
       width: 240,
-      renderer: {
-      display: (params) => {
-      const link = document.createElement('a');
-
-      const email = String(params.value ?? '');
-
-      link.textContent = email;
-      link.href = `mailto:${email}`;
-      link.target = '_blank';
-
-      return link;
-    },
-    },
     },
     { colId: 'department', field: 'department', header: 'Department', type: 'string', width: 160, groupable: true },
     { colId: 'jobTitle', field: 'jobTitle', header: 'Job Title', type: 'string', width: 180, groupable: true },
@@ -152,10 +107,6 @@ function App() {
       editable: true,
       width: 160,
       groupable: true,
-      renderer: {
-        display: CountryCell,
-        option: CountryCell,
-      },
       enumOptions: Object.keys(COUNTRY_FLAGS),
     },
     { colId: 'city', field: 'city', header: 'City', type: 'string', width: 150, groupable: true },
@@ -166,8 +117,6 @@ function App() {
   ], []);
 
   const options = useMemo(() => ({
-    mode: 'dark',
-    variant: 'quantum',
     showCheckboxes: false,
     showSerialNumber: false,
     rowShading: false,
@@ -184,7 +133,7 @@ function App() {
         </p>
       </header>
       <section className="grid-wrapper">
-        <PhotonGrid columns={columns} dataSet={data} options={options} />
+        <PhotonGrid columns={columns} dataSet={data}  />
       </section>
     </main>
   );

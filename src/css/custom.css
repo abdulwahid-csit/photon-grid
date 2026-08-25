@@ -1,0 +1,350 @@
+/**
+ * ============================================================================
+ * Photon Grid — documentation theme
+ * A Starlight-inspired redesign (à la handsontable.com/docs) built entirely on
+ * Infima variable overrides + targeted component CSS. No swizzling, no JS.
+ * Brand accent: violet -> magenta (matches the Photon Grid landing page).
+ * ============================================================================
+ */
+
+/* ---------------------------------------------------------------------------
+   1. DESIGN TOKENS
+   --------------------------------------------------------------------------- */
+:root {
+  /* Infima primary ramp -> violet */
+  --ifm-color-primary:         #7c3aed;
+  --ifm-color-primary-dark:    #7130e0;
+  --ifm-color-primary-darker:  #6b2ed3;
+  --ifm-color-primary-darkest: #5a26af;
+  --ifm-color-primary-light:   #8b52ef;
+  --ifm-color-primary-lighter: #9a68f1;
+  --ifm-color-primary-lightest:#b48cf5;
+
+  /* Brand extras */
+  --pg-accent:        #7c3aed;
+  --pg-accent-2:      #d946ef;
+  --pg-accent-soft:   #f3ecff;
+  --pg-accent-border: #e4d7fb;
+  --pg-gradient: linear-gradient(120deg, #7c3aed 0%, #a855f7 45%, #d946ef 100%);
+
+  /* Status hues (callouts) */
+  --pg-note:   #7c3aed;
+  --pg-tip:    #16a34a;
+  --pg-info:   #2563eb;
+  --pg-warn:   #d97706;
+  --pg-danger: #e11d48;
+
+  /* Warm-neutral surfaces (Starlight-like) */
+  --ifm-background-color:          #ffffff;
+  --ifm-background-surface-color:  #faf9fc;
+  --ifm-navbar-background-color:   rgba(255, 255, 255, 0.72);
+  --ifm-footer-background-color:   #17122a;
+  --ifm-color-emphasis-100: #f5f3f9;
+  --ifm-color-emphasis-200: #efedf4;
+  --ifm-color-emphasis-300: #e5e1ee;
+  --ifm-toc-border-color:   #eae6f2;
+
+  --ifm-font-color-base:      #211c2b;
+  --ifm-font-color-secondary: #6b6478;
+
+  /* Typography */
+  --ifm-font-family-base: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --ifm-font-family-monospace: "SFMono-Regular", ui-monospace, "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+  --ifm-heading-font-weight: 750;
+  --ifm-font-weight-semibold: 650;
+  --ifm-line-height-base: 1.72;
+  --ifm-h1-font-size: 2.4rem;
+  --ifm-h2-font-size: 1.7rem;
+  --ifm-h3-font-size: 1.32rem;
+  --ifm-heading-color: #17121f;
+
+  /* Shape */
+  --ifm-global-radius: 10px;
+  --ifm-code-font-size: 92%;
+  --ifm-code-border-radius: 6px;
+  --ifm-navbar-height: 3.9rem;
+  --ifm-navbar-shadow: none;
+
+  --pg-shadow-sm: 0 1px 2px rgba(23, 18, 42, .05), 0 1px 3px rgba(23, 18, 42, .07);
+  --pg-shadow-md: 0 6px 20px rgba(88, 28, 135, .10), 0 2px 6px rgba(23, 18, 42, .05);
+  --pg-shadow-lg: 0 22px 48px rgba(88, 28, 135, .16);
+
+  --docusaurus-highlighted-code-line-bg: rgba(124, 58, 237, .10);
+}
+
+/* Dark mode — lighter accent for contrast, deep violet-tinted charcoal surfaces */
+[data-theme='dark'] {
+  --ifm-color-primary:         #a78bfa;
+  --ifm-color-primary-dark:    #9871f8;
+  --ifm-color-primary-darker:  #8e64f7;
+  --ifm-color-primary-darkest: #7842f4;
+  --ifm-color-primary-light:   #b6a5fb;
+  --ifm-color-primary-lighter: #c0b2fc;
+  --ifm-color-primary-lightest:#d9d0fe;
+
+  --pg-accent:        #a78bfa;
+  --pg-accent-2:      #e879f9;
+  --pg-accent-soft:   #241a3d;
+  --pg-accent-border: #362a55;
+  --pg-gradient: linear-gradient(120deg, #8b5cf6 0%, #a855f7 45%, #e879f9 100%);
+
+  --pg-tip:    #34d399;
+  --pg-info:   #60a5fa;
+  --pg-warn:   #fbbf24;
+  --pg-danger: #fb7185;
+
+  --ifm-background-color:          #0e0b16;
+  --ifm-background-surface-color:  #14101f;
+  --ifm-navbar-background-color:   rgba(14, 11, 22, 0.72);
+  --ifm-footer-background-color:   #0a0812;
+  --ifm-color-emphasis-100: #1a1526;
+  --ifm-color-emphasis-200: #221b31;
+  --ifm-color-emphasis-300: #2c2440;
+  --ifm-toc-border-color:   #251d38;
+
+  --ifm-font-color-base:      #ece9f4;
+  --ifm-font-color-secondary: #a79fb8;
+  --ifm-heading-color: #f4f1fb;
+
+  --pg-shadow-sm: 0 1px 2px rgba(0,0,0,.4);
+  --pg-shadow-md: 0 6px 20px rgba(0,0,0,.45);
+  --pg-shadow-lg: 0 22px 48px rgba(0,0,0,.55);
+
+  --docusaurus-highlighted-code-line-bg: rgba(167, 139, 250, .16);
+}
+
+html { scroll-padding-top: calc(var(--ifm-navbar-height) + 1rem); }
+body { -webkit-font-smoothing: antialiased; letter-spacing: -0.003em; }
+
+/* ---------------------------------------------------------------------------
+   2. NAVBAR — translucent, blurred, hairline border
+   --------------------------------------------------------------------------- */
+.navbar {
+  backdrop-filter: saturate(1.5) blur(12px);
+  -webkit-backdrop-filter: saturate(1.5) blur(12px);
+  border-bottom: 1px solid var(--ifm-toc-border-color);
+}
+.navbar__title { font-weight: 800; letter-spacing: -0.02em; }
+.navbar__link { font-weight: 500; color: var(--ifm-font-color-secondary); }
+.navbar__link:hover,
+.navbar__link--active { color: var(--pg-accent); }
+.navbar__link--active { font-weight: 650; }
+
+/* GitHub/npm-style icon buttons stay subtle */
+.navbar__items--right .navbar__link { font-weight: 600; }
+
+/* ---------------------------------------------------------------------------
+   3. LEFT SIDEBAR — refined text + rounded active "pill"
+   --------------------------------------------------------------------------- */
+.theme-doc-sidebar-container {
+  border-right: 1px solid var(--ifm-toc-border-color) !important;
+}
+.menu { padding: 0.75rem !important; font-size: 0.9rem; }
+.menu__list .menu__list { margin-left: 0.35rem; padding-left: 0.35rem; border-left: 1px solid var(--ifm-toc-border-color); }
+
+.menu__link {
+  border-radius: 8px;
+  padding: 0.42rem 0.65rem;
+  font-weight: 500;
+  color: var(--ifm-font-color-secondary);
+  line-height: 1.35;
+  transition: background .15s ease, color .15s ease;
+}
+.menu__link:hover { background: var(--pg-accent-soft); color: var(--ifm-font-color-base); }
+
+.menu__link--active:not(.menu__link--sublist) {
+  background: var(--pg-accent-soft);
+  color: var(--pg-accent);
+  font-weight: 650;
+}
+.menu__link--active:not(.menu__link--sublist):hover { color: var(--pg-accent); }
+
+/* Category header labels: quieter, tracked-out */
+.menu__list-item-collapsible > .menu__link {
+  font-weight: 700;
+  color: var(--ifm-heading-color);
+}
+.menu__caret:before,
+.menu__link--sublist-caret:after { opacity: 0.6; }
+
+/* Sidebar section title / hide button */
+.theme-doc-sidebar-item-category-level-1 > .menu__list-item-collapsible .menu__link {
+  text-transform: none;
+}
+
+/* ---------------------------------------------------------------------------
+   4. RIGHT TABLE OF CONTENTS
+   --------------------------------------------------------------------------- */
+.table-of-contents { font-size: 0.8rem; border-left: 1px solid var(--ifm-toc-border-color); }
+.table-of-contents__link {
+  color: var(--ifm-font-color-secondary);
+  transition: color .15s ease;
+}
+.table-of-contents__link:hover { color: var(--ifm-font-color-base); }
+.table-of-contents__link--active {
+  color: var(--pg-accent);
+  font-weight: 600;
+}
+.table-of-contents__left-border { border-left-color: transparent; }
+
+/* ---------------------------------------------------------------------------
+   5. CONTENT — headings, links, tables, code, callouts, pager
+   --------------------------------------------------------------------------- */
+.markdown { --ifm-h2-vertical-rhythm-top: 2.4; }
+.markdown h1:first-child { font-size: var(--ifm-h1-font-size); letter-spacing: -0.03em; }
+.markdown > h2 { padding-top: 0.4rem; border-top: 1px solid var(--ifm-toc-border-color); }
+.markdown a { font-weight: 550; text-underline-offset: 3px; }
+.markdown a:hover { text-decoration: underline; }
+
+/* Anchor link icon reveals on hover */
+.hash-link { color: var(--pg-accent); }
+
+/* Inline code -> soft violet chip */
+:not(pre) > code {
+  background: var(--pg-accent-soft);
+  border: 1px solid var(--pg-accent-border);
+  color: var(--pg-accent);
+  padding: 0.12em 0.42em;
+}
+
+/* Code blocks — rounded, bordered, soft shadow */
+.theme-code-block,
+div[class^='codeBlockContainer'] {
+  border-radius: 12px !important;
+  border: 1px solid var(--ifm-toc-border-color);
+  box-shadow: var(--pg-shadow-sm);
+  overflow: hidden;
+}
+.theme-code-block pre, pre[class*='language-'] { border-radius: 0 !important; }
+/* Code block title bar */
+div[class*='codeBlockTitle'] {
+  background: var(--ifm-background-surface-color);
+  border-bottom: 1px solid var(--ifm-toc-border-color);
+  font-family: var(--ifm-font-family-monospace);
+  font-weight: 600;
+  color: var(--ifm-font-color-secondary);
+}
+/* Copy button */
+button[class*='copyButton'] { border-radius: 8px; }
+
+/* Tables — full width, rounded, zebra, sticky-feel header */
+.markdown table {
+  display: table;
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--ifm-toc-border-color);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: var(--pg-shadow-sm);
+}
+.markdown table thead { background: var(--pg-accent-soft); }
+.markdown table thead th { font-weight: 700; color: var(--ifm-heading-color); border: none; }
+.markdown table th, .markdown table td {
+  border: none;
+  border-bottom: 1px solid var(--ifm-toc-border-color);
+  padding: 0.62rem 0.9rem;
+}
+.markdown table tbody tr { background: var(--ifm-background-color); }
+.markdown table tbody tr:nth-child(2n) { background: var(--ifm-background-surface-color); }
+.markdown table tbody tr:last-child td { border-bottom: none; }
+
+/* Blockquote */
+.markdown blockquote {
+  border-left: 3px solid var(--pg-accent);
+  background: var(--ifm-background-surface-color);
+  border-radius: 0 8px 8px 0;
+  color: var(--ifm-font-color-secondary);
+}
+
+/* Admonitions -> Starlight-style callouts (colored left bar + tint + title) */
+.theme-admonition,
+.alert {
+  border: 1px solid var(--ifm-toc-border-color);
+  border-left-width: 4px;
+  border-radius: 10px;
+  box-shadow: var(--pg-shadow-sm);
+}
+.theme-admonition .admonitionHeading_node,
+.alert__heading { text-transform: none; font-weight: 700; letter-spacing: -0.01em; }
+
+.theme-admonition-note      { border-left-color: var(--pg-note);   background: color-mix(in srgb, var(--pg-note)   9%, var(--ifm-background-color)); }
+.theme-admonition-tip,
+.theme-admonition-success   { border-left-color: var(--pg-tip);    background: color-mix(in srgb, var(--pg-tip)    9%, var(--ifm-background-color)); }
+.theme-admonition-info      { border-left-color: var(--pg-info);   background: color-mix(in srgb, var(--pg-info)   9%, var(--ifm-background-color)); }
+.theme-admonition-warning,
+.theme-admonition-caution   { border-left-color: var(--pg-warn);   background: color-mix(in srgb, var(--pg-warn)   9%, var(--ifm-background-color)); }
+.theme-admonition-danger    { border-left-color: var(--pg-danger); background: color-mix(in srgb, var(--pg-danger) 9%, var(--ifm-background-color)); }
+
+/* Prev / Next pager -> cards */
+.pagination-nav__link {
+  border: 1px solid var(--ifm-toc-border-color);
+  border-radius: 12px;
+  box-shadow: var(--pg-shadow-sm);
+  transition: transform .15s ease, box-shadow .2s ease, border-color .2s ease;
+}
+.pagination-nav__link:hover {
+  transform: translateY(-2px);
+  border-color: var(--pg-accent);
+  box-shadow: var(--pg-shadow-md);
+}
+.pagination-nav__sublabel { color: var(--ifm-font-color-secondary); }
+.pagination-nav__label { color: var(--pg-accent); font-weight: 700; }
+
+/* Breadcrumbs */
+.breadcrumbs__link { color: var(--ifm-font-color-secondary); border-radius: 7px; }
+.breadcrumbs__item--active .breadcrumbs__link { background: var(--pg-accent-soft); color: var(--pg-accent); }
+.breadcrumbs__link:hover { color: var(--pg-accent); }
+
+/* ---------------------------------------------------------------------------
+   6. GLOBAL SURFACES — hero, cards, buttons (used across the whole site)
+   --------------------------------------------------------------------------- */
+.hero--primary {
+  --ifm-hero-background-color: transparent;
+  color: #fff;
+  background: var(--pg-gradient);
+  position: relative;
+  overflow: hidden;
+}
+.hero--primary::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(50% 60% at 15% 0%, rgba(255,255,255,.25), transparent 70%),
+    radial-gradient(40% 50% at 90% 20%, rgba(217,70,239,.35), transparent 70%);
+  pointer-events: none;
+}
+.hero--primary .hero__title,
+.hero--primary .hero__subtitle { position: relative; z-index: 1; }
+.hero--primary .hero__subtitle { opacity: .95; font-weight: 500; }
+
+/* Buttons */
+.button--primary {
+  background: var(--pg-gradient);
+  border: none;
+  box-shadow: var(--pg-shadow-md);
+}
+.button--primary:hover { box-shadow: var(--pg-shadow-lg); transform: translateY(-1px); }
+.button--secondary { color: var(--pg-accent); font-weight: 650; }
+.button { border-radius: 10px; transition: transform .12s ease, box-shadow .2s ease; }
+.hero--primary .button--secondary { background: #fff; color: var(--pg-accent); border-color: #fff; }
+.hero--primary .button--outline.button--secondary { background: transparent; color: #fff; border-color: rgba(255,255,255,.7); }
+.hero--primary .button--outline.button--secondary:hover { background: #fff; color: var(--pg-accent); }
+
+/* Cards */
+.card {
+  border: 1px solid var(--ifm-toc-border-color);
+  border-radius: 14px;
+  box-shadow: var(--pg-shadow-sm);
+  transition: transform .18s ease, box-shadow .25s ease, border-color .2s ease;
+}
+.card:hover { transform: translateY(-4px); border-color: var(--pg-accent); box-shadow: var(--pg-shadow-lg); }
+
+/* Footer */
+.footer--dark { --ifm-footer-background-color: #17122a; }
+.footer__title { letter-spacing: .04em; text-transform: uppercase; font-size: .8rem; opacity: .7; }
+.footer__link-item:hover { color: var(--pg-accent-2); }
+
+/* Scrollbar accent (WebKit) */
+* ::-webkit-scrollbar-thumb { background: var(--ifm-color-emphasis-300); border-radius: 8px; }

@@ -1,0 +1,1058 @@
+---
+sidebar_position: 6
+title: "GridApi"
+description: "Complete reference for GridApi — the programmatic interface for controlling data, columns, sorting, filtering, selection, grouping, charts, and more in Photon Grid."
+---
+
+# GridApi
+
+`GridApi` is the main programmatic entry point for interacting with a Photon Grid instance after it has been created. It wraps every internal engine — row model, column model, sort/filter engines, selection engines, chart engine, and more — behind a single, stable, typed surface.
+
+You never construct a `GridApi` yourself — the grid instance hands you one, either directly (vanilla JS) or via a `gridReady` callback / ref (React, Angular, Vue).
+
+:::tip
+Most mutating methods (`setData`, `sortColumn`, `setColumnFilter`, etc.) call `refresh()` internally — you don't need to call it yourself after them.
+:::
+
+## Accessing the GridApi
+
+<FrameworkTabs>
+<TabItem value="vanilla" label="Vanilla JS">
+
+`GridCore` returns the API directly from its constructor call:
+
+```js
+const grid = new PhotonGrid.GridCore(
+  document.getElementById("grid"),
+  { columns, data: rowData }
+);
+
+const api = grid.getApi();
+api.sortColumn("name", "asc");
+```
+
+</TabItem>
+<TabItem value="react" label="React">
+
+Use the `onGridReady` callback to capture the API instance:
+
+```tsx
+import { useRef } from 'react';
+import { PhotonGrid } from 'photon-grid-react';
+import type { GridApi } from 'photon-grid-core';
+
+export function App() {
+  const apiRef = useRef<GridApi | null>(null);
+
+  return (
+    <PhotonGrid
+      columns={columns}
+      dataSet={rowData}
+      onGridReady={(api) => {
+        apiRef.current = api;
+      }}
+    />
+  );
+}
+```
+
+</TabItem>
+<TabItem value="angular" label="Angular">
+
+Bind to the `(gridReady)` output:
+
+```ts
+import { Component } from '@angular/core';
+import { PhotonGridComponent } from 'photon-grid-angular';
+import type { GridApi } from 'photon-grid-core';
+
+@Component({
+  selector: 'app-root',
+  standalone: true,
+  imports: [PhotonGridComponent],
+  template: `
+    <photon-grid
+      [columns]="columns"
+      [dataSet]="rowData"
+      (gridReady)="onGridReady($event)">
+    </photon-grid>
+  `,
+})
+export class AppComponent {
+  columns = columns;
+  rowData = rowData;
+  api!: GridApi;
+
+  onGridReady(api: GridApi) {
+    this.api = api;
+  }
+}
+```
+
+</TabItem>
+<TabItem value="vue" label="Vue">
+
+Listen for the `@grid-ready` event:
+
+```vue
+<script setup lang="ts">
+import { ref } from 'vue';
+import { PhotonGrid } from 'photon-grid-vue';
+import type { GridApi } from 'photon-grid-core';
+
+const api = ref<GridApi | null>(null);
+
+function onGridReady(gridApi: GridApi) {
+  api.value = gridApi;
+}
+</script>
+
+<template>
+  <PhotonGrid :columns="columns" :dataSet="rowData" @grid-ready="onGridReady" />
+</template>
+```
+
+</TabItem>
+</FrameworkTabs>
+
+All examples below use `api` from one of the patterns above and work identically regardless of framework — `GridApi` is plain TypeScript from `photon-grid-core`.
+
+## Table of Contents
+
+- [Data](#data)
+- [Columns](#columns)
+- [Sort](#sort)
+- [Filter](#filter)
+- [Row Selection](#row-selection)
+- [Cell Selection](#cell-selection)
+- [Editing](#editing)
+- [Pagination](#pagination)
+- [Row Grouping (Value)](#row-grouping-value)
+- [Tree Data](#tree-data)
+- [Master / Detail](#master--detail)
+- [Photon AI](#photon-ai)
+- [Column Groups](#column-groups)
+- [Export](#export)
+- [Clipboard](#clipboard)
+- [Scroll](#scroll)
+- [Theme](#theme)
+- [Full Screen](#full-screen)
+- [Charts](#charts)
+- [Range Charts](#range-charts)
+- [Grid State (Save / Restore)](#grid-state-save--restore)
+- [Events](#events)
+- [Summary Row](#summary-row)
+- [Lifecycle](#lifecycle)
+- [Transactions](#transactions)
+- [Node Iteration](#node-iteration)
+- [Cell Refresh & Flash](#cell-refresh--flash)
+- [Column Sizing & Layout](#column-sizing--layout)
+- [Focused Cell](#focused-cell)
+- [Ensure Visible](#ensure-visible)
+- [Filter State Queries](#filter-state-queries)
+- [Grid State Reset](#grid-state-reset)
+
+---
+
+## Data
+
+Methods for reading and writing the grid's row data set.
+
+### `setData(data)`
+
+Replaces the entire data set. Clears undo/redo history, since prior history no longer applies to the new data.
+
+| Param | Type | Description |
+|---|---|---|
+| `data` | `Record<string, unknown>[]` | The full new row data array. |
+
+```js
+api.setData([
+  { id: 1, name: "John Smith", department: "Engineering", salary: 85000 },
+  { id: 2, name: "Sarah Johnson", department: "Finance", salary: 72000 },
+]);
+```
+
+### `appendData(data)`
+
+Appends rows to the existing data set without clearing history.
+
+```js
+api.appendData([{ id: 3, name: "Michael Brown", department: "Marketing", salary: 68000 }]);
+```
+
+### `updateRow(nodeId, data)`
+
+Patches a single row in place by node id.
+
+```js
+api.updateRow("row-2", { department: "Operations" });
+```
+
+### `removeRows(nodeIds)`
+
+Removes one or more rows by node id.
+
+```js
+api.removeRows(["row-1", "row-3"]);
+```
+
+### `getRowNode(nodeId)` → `RowNode | undefined`
+
+Looks up a row node by id.
+
+### `getRowByIndex(index)` → `RowNode | undefined`
+
+Looks up a row node by its position in the currently visible rows.
+
+### `getAllRows()` → `RowNode[]`
+
+Returns the unfiltered, unsorted set of all row nodes.
+
+### `getVisibleRows()` → `RowNode[]`
+
+Returns the rows currently rendered, after filter → sort → group → pagination.
+
+```js
+console.log(`Showing ${api.getVisibleRows().length} of ${api.getAllRows().length} rows`);
+```
+
+---
+
+## Columns
+
+### `setColumns(defs)`
+
+Initializes (or replaces) the full column configuration.
+
+```js
+api.setColumns([
+  { colId: "name", field: "name", header: "Employee" },
+  { colId: "department", field: "department", header: "Department", width: 200 },
+]);
+```
+
+### `getColumn(colId)` → `ColumnDef | undefined`
+### `getAllColumns()` → `ColumnDef[]`
+### `getVisibleColumns()` → `ColumnDef[]`
+
+### `setColumnWidth(colId, width)`
+
+```js
+api.setColumnWidth("name", 260);
+```
+
+### `setColumnVisible(colId, visible)`
+
+```js
+api.setColumnVisible("department", false); // hide the column
+```
+
+### `setColumnPin(colId, pinned)`
+
+`pinned` is a `ColumnPinPosition` (`'left' | 'right' | null`).
+
+```js
+api.setColumnPin("name", "left");
+```
+
+### `moveColumn(fromIndex, toIndex)`
+
+```js
+api.moveColumn(2, 0); // move 3rd visible column to the front
+```
+
+### `autoSizeColumn(colId)` / `autoSizeAllColumns()`
+
+Resizes column(s) to fit their content.
+
+```js
+api.autoSizeAllColumns();
+```
+
+### `getColumnStates()` → `ColumnState[]` / `applyColumnStates(states)`
+
+Read or restore width/visibility/pin/order/sort for every column — the building blocks behind [Grid State](#grid-state-save--restore).
+
+```js
+const saved = api.getColumnStates();
+// ...later
+api.applyColumnStates(saved);
+```
+
+---
+
+## Sort
+
+### `sortColumn(colId, order)`
+
+Sorts by a single column. `order` is `'asc' | 'desc'`.
+
+```js
+api.sortColumn("name", "asc");
+```
+
+### `clearSort()`
+
+### `getSortConfig()` → `SortConfig[]`
+
+### `multiSort(configs)`
+
+Applies an ordered multi-column sort, replacing any existing sort.
+
+```js
+api.multiSort([
+  { colId: "department", order: "asc" },
+  { colId: "salary", order: "desc" },
+]);
+```
+
+---
+
+## Filter
+
+### `setFilterModel(model)`
+
+Replaces the entire filter model in one call.
+
+```js
+api.setFilterModel({
+  department: { type: "equals", value: "Engineering" },
+});
+```
+
+### `setColumnFilter(colId, filter)`
+
+Sets (or clears with `null`) the filter for a single column.
+
+```js
+api.setColumnFilter("department", { type: "contains", value: "Eng" });
+api.setColumnFilter("department", null); // clear
+```
+
+### `clearAllFilters()`
+
+### `setQuickFilter(term, fields?)`
+
+Applies a free-text search across all fields, or a restricted list of fields.
+
+```js
+api.setQuickFilter("smith");
+api.setQuickFilter("smith", ["name", "email"]);
+```
+
+### `getFilterModel()` → `FilterModel`
+
+### Filter State Queries
+
+```js
+api.isAnyFilterActive();                // boolean
+api.isColumnFilterActive("department"); // boolean
+```
+
+---
+
+## Row Selection
+
+### `selectRow(nodeId)` / `deselectRow(nodeId)`
+
+```js
+api.selectRow("row-2");
+```
+
+### `selectAll()` / `deselectAll()`
+
+### `getSelectedRows()` → `RowNode[]`
+
+### `getSelectedCount()` → `number`
+
+### `isRowSelected(nodeId)` → `boolean`
+
+### Batch Selection
+
+```js
+api.selectRows(["row-1", "row-2", "row-5"]);
+api.deselectRows(["row-2"]);
+
+// Select programmatically by predicate — evaluated across ALL rows,
+// including ones outside the current filter/page.
+api.selectRowsByFilter((row) => row.data.department === "Engineering");
+```
+
+---
+
+## Cell Selection
+
+### `setCellRange(range)`
+
+```js
+api.setCellRange({
+  startRowIndex: 0,
+  startColIndex: 0,
+  endRowIndex: 4,
+  endColIndex: 2,
+});
+```
+
+### `clearCellSelection()`
+
+### `getCellRanges()` → `CellRange[]`
+
+---
+
+## Editing
+
+### `startCellEditing(rowNodeId, colId)`
+
+Programmatically opens the cell editor for a specific cell.
+
+```js
+api.startCellEditing("row-1", "name");
+```
+
+### `stopEditing(cancel?)`
+
+```js
+api.stopEditing();      // commit the edit
+api.stopEditing(true);  // discard the edit
+```
+
+---
+
+## Pagination
+
+```js
+api.setPageSize(25);
+api.goToPage(3);
+
+api.getCurrentPage(); // 3
+api.getTotalPages();
+```
+
+---
+
+## Row Grouping (Value)
+
+Groups rows by the *value* of one or more columns (mutually exclusive with [Tree Data](#tree-data)).
+
+```js
+api.groupByColumn("department");
+api.expandAllGroups();
+api.collapseGroup("Engineering");
+api.removeGroupColumn("department");
+api.clearGrouping();
+```
+
+### `setRowGroupColumns(colIds)`
+
+Sets the exact ordered set of group columns in one call.
+
+```js
+api.setRowGroupColumns(["department", "role"]);
+```
+
+### `isGroupExpanded(groupKey)` → `boolean`
+
+---
+
+## Tree Data
+
+For hierarchical row data (self-referencing parent/child rows).
+
+```js
+api.expandTreeNode("node-5");
+api.collapseTreeNode("node-5");
+api.toggleTreeNode("node-5");
+
+api.expandAllTreeNodes();
+api.collapseAllTreeNodes();
+
+api.isTreeNodeExpanded("node-5"); // boolean
+api.getTreeNodeChildren("node-5"); // RowNode[]
+```
+
+### `loadTreeNodeChildren(nodeId)`
+
+Triggers lazy-loading of a node's children if `TreeDataConfig.lazyLoadChildren` is configured and the children aren't already loaded or in-flight. The grid refreshes automatically once the fetch resolves.
+
+```js
+api.loadTreeNodeChildren("node-5");
+// No need to call refresh() — it happens for you once data arrives.
+```
+
+---
+
+## Master / Detail
+
+```js
+api.expandDetail("row-7");
+api.collapseDetail("row-7");
+api.toggleDetail("row-7");
+
+api.isDetailExpanded("row-7"); // boolean
+api.collapseAllDetails();
+```
+
+### `getDetailGridApi(nodeId)`
+
+Returns the nested `GridApi` for an expanded detail row, letting you drive the child grid the same way as the parent.
+
+```js
+const detailApi = api.getDetailGridApi("row-7");
+detailApi?.sortColumn("date", "desc");
+```
+
+---
+
+## Photon AI
+
+### `submitAICommand(text)` → `PhotonCommandResult`
+
+Programmatic equivalent of typing into the Photon AI panel and pressing send. Runs the full normalize → parse → resolve → build → execute pipeline. Never throws — returns a graceful failure result when `photonAI.enabled` is falsy.
+
+```js
+const result = api.submitAICommand("sort by name descending, then filter department = Engineering");
+
+if (result.success) {
+  console.log("Applied:", result.summary);
+} else {
+  console.warn("Could not run command:", result.error);
+}
+```
+
+---
+
+## Column Groups
+
+Controls collapsible header groups (a tree of grouped column headers).
+
+```js
+api.collapseColumnGroup("personalInfo");
+api.expandColumnGroup("personalInfo");
+api.toggleColumnGroup("personalInfo");
+```
+
+### `moveColumnGroup(groupId, newParentId, insertBeforeId)`
+
+```js
+// Move "contactInfo" group under "personalInfo", before its "address" child
+api.moveColumnGroup("contactInfo", "personalInfo", "address");
+
+// Move a group to root level, appended at the end
+api.moveColumnGroup("contactInfo", null, null);
+```
+
+### `getColumnGroupState()` → `ColumnGroupSystemState | null` / `applyColumnGroupState(state)`
+
+Serialize and restore the full group tree + leaf column state.
+
+```js
+const groupState = api.getColumnGroupState();
+localStorage.setItem("columnGroups", JSON.stringify(groupState));
+
+// later...
+const restored = JSON.parse(localStorage.getItem("columnGroups"));
+api.applyColumnGroupState(restored);
+```
+
+### `getColumnGroupStates()` → `ColumnGroupSerialState[]`
+
+Just the expand/collapse states, without the full tree.
+
+### `getColumnTree()` → `ColumnTreeNode[] | null`
+
+Root nodes of the column tree (groups and top-level leaves). Returns `null` if no column groups are configured.
+
+---
+
+## Export
+
+```js
+api.exportCsv();              // uses configured/default file name
+api.exportCsv("employees");   // employees.csv
+
+api.exportXlsx("employees");  // employees.xlsx
+```
+
+---
+
+## Clipboard
+
+### `copySelectedRowsToClipboard()` → `Promise<void>`
+
+Copies the current row selection (not cell range) to the clipboard.
+
+```js
+await api.copySelectedRowsToClipboard();
+```
+
+### `copySelectedCellsToClipboard()` → `Promise<void>`
+
+Copies the active cell range(s) as tab-separated text with a header row. No-op if no cell range is active.
+
+```js
+await api.copySelectedCellsToClipboard();
+```
+
+---
+
+## Scroll
+
+```js
+api.scrollToRow(120);
+api.scrollToTop();
+
+api.canScrollUp();   // boolean — used e.g. to chain wheel events into a parent grid
+api.canScrollDown();
+```
+
+---
+
+## Theme
+
+```js
+api.setTheme("dark");
+api.toggleDarkMode();
+```
+
+---
+
+## Full Screen
+
+```js
+api.enterFullScreen();
+api.exitFullScreen();
+```
+
+---
+
+## Charts
+
+Lightweight, non-configurable charts attached to a container element.
+
+### `createChart(parentEl, config)` → `chartId: string`
+
+```js
+const chartId = api.createChart(document.getElementById("chart-container"), {
+  type: "bar",
+  xField: "department",
+  yField: "salary",
+});
+```
+
+### `destroyChart(chartId)`
+
+### `exportChartAsImage(chartId, format?)` → `string | null`
+
+```js
+const dataUrl = api.exportChartAsImage(chartId, "png");
+```
+
+---
+
+## Range Charts
+
+Configurable charts created from a selected cell range, with an editable floating panel.
+
+### `createRangeChart(params)` → `chartId: string`
+
+Returns an empty string if the range has no numeric data.
+
+```js
+const chartId = api.createRangeChart({
+  cellRange: api.getCellRanges()[0],
+  chartType: "line",
+  categoryColId: "month",
+  seriesColIds: ["revenue", "costs"],
+});
+```
+
+### `getChartModels()` → `ChartModel[]`
+
+Serializable models for every live range chart — use to persist chart layout alongside grid state.
+
+### `updateChart(model)`
+
+Applies a full model to an existing chart, matched by `chartId`.
+
+### `restoreChart(model)` → `chartId: string`
+
+Recreates a chart from a previously saved model.
+
+```js
+const savedModels = api.getChartModels();
+// ...persist savedModels somewhere...
+
+// later, on a fresh grid instance:
+for (const model of savedModels) {
+  api.restoreChart(model);
+}
+```
+
+### `getChartImageDataURL(chartId, format?)` → `string | null`
+
+### `downloadChart(chartId, format?)`
+
+Triggers a browser download of the chart image.
+
+```js
+api.downloadChart(chartId, "jpeg");
+```
+
+---
+
+## Grid State (Save / Restore)
+
+Snapshot or restore the grid's entire user-facing state in one call — columns, sort, filters, pagination, grouping, expansion, selection, and charts.
+
+### `getGridState()` → `GridState`
+
+```js
+const state = api.getGridState();
+localStorage.setItem("photon-grid-state", JSON.stringify(state));
+```
+
+### `applyGridState(state)`
+
+Applies a full or **partial** `GridState`. Only the keys present in the object are restored — omit a key to leave that piece of state untouched.
+
+```js
+const saved = JSON.parse(localStorage.getItem("photon-grid-state") ?? "{}");
+api.applyGridState(saved);
+
+// Partial restore — only reapply sort, leave everything else as-is:
+api.applyGridState({ sortConfig: saved.sortConfig });
+```
+
+:::caution
+When `chartModels` is present in the state, all existing range charts are disposed before the saved ones are restored, to avoid duplicate chart ids.
+:::
+
+---
+
+## Events
+
+### `on(event, handler)` → unsubscribe function
+
+Subscribes to a `GridEventType`. Returns a function you can call to unsubscribe.
+
+```js
+const unsubscribe = api.on("rowSelected", (event) => {
+  console.log("Selected row:", event);
+});
+
+// later
+unsubscribe();
+```
+
+### `off(event, handler)`
+
+Alternative explicit unsubscribe, if you kept a reference to the original handler.
+
+```js
+function onSort(event) {
+  console.log("Sort changed", event);
+}
+
+api.on("sortChanged", onSort);
+// ...
+api.off("sortChanged", onSort);
+```
+
+---
+
+## Summary Row
+
+### `getSummaryRow()` → `Record<string, unknown>`
+
+Computes aggregate values (sum/avg/count/etc., as configured per column) across the currently visible rows.
+
+```js
+const totals = api.getSummaryRow();
+console.log(totals.salary); // e.g. 482000
+```
+
+---
+
+## Lifecycle
+
+### `refresh()`
+
+Re-runs the filter/sort/group/pagination pipeline and schedules a render on the next frame. Called automatically by nearly every mutating method above — call it directly only after you've mutated grid state through a lower-level path.
+
+### `forceRefresh()`
+
+Same pipeline, but forces an immediate (non-batched) render.
+
+### `destroy()`
+
+Tears down the grid instance: cancels any pending transaction flush, destroys the renderer, all charts, selection/drag engines, the theme manager, clears the event bus, and destroys the internal store. Always call this when removing the grid from the DOM to avoid leaks.
+
+<FrameworkTabs>
+<TabItem value="vanilla" label="Vanilla JS">
+
+```js
+window.addEventListener("beforeunload", () => api.destroy());
+```
+
+</TabItem>
+<TabItem value="react" label="React">
+
+```tsx
+useEffect(() => {
+  return () => apiRef.current?.destroy();
+}, []);
+```
+
+</TabItem>
+<TabItem value="angular" label="Angular">
+
+```ts
+ngOnDestroy() {
+  this.api?.destroy();
+}
+```
+
+</TabItem>
+<TabItem value="vue" label="Vue">
+
+```vue
+<script setup lang="ts">
+import { onBeforeUnmount } from 'vue';
+
+onBeforeUnmount(() => {
+  api.value?.destroy();
+});
+</script>
+```
+
+</TabItem>
+</FrameworkTabs>
+
+:::info
+The `photon-grid-react`, `photon-grid-angular`, and `photon-grid-vue` wrappers call `destroy()` for you automatically on unmount. The snippets above are only needed when managing `GridCore` directly (vanilla JS) or bypassing the wrapper's lifecycle.
+:::
+
+---
+
+## Transactions
+
+Surgical, delta-based row mutations that preserve undo/redo history (unlike `setData`, which clears it).
+
+### `applyTransaction(txn)` → `RowNode[]`
+
+Applies an add/update/remove transaction immediately and runs the pipeline once. Returns the nodes that were added or updated.
+
+```js
+const changed = api.applyTransaction({
+  add: [{ id: 10, name: "New Hire", department: "Sales" }],
+  update: [{ nodeId: "row-2", department: "Operations" }],
+  remove: ["row-5"],
+});
+```
+
+### `applyTransactionAsync(txn)`
+
+Queues a transaction and coalesces all queued transactions into a **single** pipeline run + render on the next animation frame — ideal for high-frequency streaming updates (e.g. live market data).
+
+```js
+socket.on("tick", (tick) => {
+  api.applyTransactionAsync({ update: [{ nodeId: tick.id, price: tick.price }] });
+});
+```
+
+### `undo()` / `redo()`
+
+```js
+api.undo();
+api.redo();
+
+api.getUndoSize(); // number of undoable steps available
+api.getRedoSize();
+```
+
+---
+
+## Node Iteration
+
+### `forEachNode(callback)`
+
+Iterates every row in the underlying data set — unfiltered, unsorted.
+
+```js
+api.forEachNode((row, index) => {
+  console.log(index, row.data);
+});
+```
+
+### `forEachNodeAfterFilter(callback)`
+
+Iterates rows that pass the current filter model, in data order.
+
+### `forEachNodeAfterFilterAndSort(callback)`
+
+Iterates rows after filter and sort are applied (before grouping/pagination).
+
+```js
+api.forEachNodeAfterFilterAndSort((row, i) => {
+  console.log(`#${i + 1}`, row.data.name);
+});
+```
+
+### `getDisplayedRowCount()` → `number`
+
+The number of rows currently displayed, after the full pipeline (filter/sort/group/pagination).
+
+---
+
+## Cell Refresh & Flash
+
+### `refreshCells(params?)`
+
+Repaints displayed rows from the underlying data model — use after mutating row data in place (where the `visibleRows` array reference hasn't changed, but cell content has).
+
+```js
+// Repaint everything (full render cache clear)
+api.refreshCells({ force: true });
+
+// Repaint only specific rows
+api.refreshCells({ rowNodes: [row1, row2] });
+```
+
+`colIds` is advisory only — the renderer always repaints whole rows.
+
+### `flashCells(params?)`
+
+Briefly highlights cells to draw the user's attention to a change. Purely visual — never mutates data.
+
+```js
+api.flashCells({
+  rowNodes: [changedRow],
+  colIds: ["salary", "department"],
+  flashDelay: 1000, // ms, default 700
+});
+```
+
+---
+
+## Column Sizing & Layout
+
+### `sizeColumnsToFit(containerWidth?)`
+
+Resizes all visible columns to exactly fill the available width (clamped to each column's min/max). Defaults to the grid's current container width.
+
+```js
+api.sizeColumnsToFit();
+```
+
+### `resetColumnState()`
+
+Restores width/visibility/pin/sort/order for all columns to their initial configuration.
+
+### `setColumnsVisible(colIds, visible)`
+
+Batch show/hide.
+
+```js
+api.setColumnsVisible(["email", "phone"], false);
+```
+
+### `moveColumns(colIds, toIndex)`
+
+Batch counterpart to `moveColumn` — moves a block of columns so they sit consecutively at `toIndex`.
+
+```js
+api.moveColumns(["department", "role"], 0); // move both to the front, in that order
+```
+
+---
+
+## Focused Cell
+
+### `setFocusedCell(rowIndex, colId)`
+
+Focuses and starts a single-cell selection, scrolling it into view. No-op if the column is hidden or unknown.
+
+```js
+api.setFocusedCell(0, "name");
+```
+
+### `getFocusedCell()` → `{ rowIndex: number; colId: string } | null`
+
+```js
+const focused = api.getFocusedCell();
+if (focused) {
+  console.log(`Focused on row ${focused.rowIndex}, column ${focused.colId}`);
+}
+```
+
+---
+
+## Ensure Visible
+
+### `ensureNodeVisible(nodeId, position?)`
+
+Scrolls a row into view by node id. No-op if the row isn't currently displayed (e.g. filtered out, or on another page).
+
+```js
+api.ensureNodeVisible("row-42", "middle");
+```
+
+### `ensureColumnVisible(colId)`
+
+Scrolls a center (non-pinned) column horizontally into view.
+
+```js
+api.ensureColumnVisible("email");
+```
+
+---
+
+## Grid State Reset
+
+### `resetGridState()`
+
+A full reset to the grid's initial interactive state in one call: clears sort, filters, and grouping; deselects all rows and cells; returns to page 1; and restores the original column layout. **Row data itself is left untouched.**
+
+```jsx
+<button onClick={() => api.resetGridState()}>Reset view</button>
+```
+
+---
+
+## Quick Reference
+
+| Category | Key Methods |
+|---|---|
+| Data | `setData`, `appendData`, `updateRow`, `removeRows`, `getAllRows`, `getVisibleRows` |
+| Columns | `setColumns`, `setColumnWidth`, `setColumnVisible`, `setColumnPin`, `moveColumn(s)` |
+| Sort | `sortColumn`, `multiSort`, `clearSort`, `getSortConfig` |
+| Filter | `setFilterModel`, `setColumnFilter`, `setQuickFilter`, `clearAllFilters` |
+| Selection | `selectRow(s)`, `deselectRow(s)`, `selectAll`, `getSelectedRows` |
+| Editing | `startCellEditing`, `stopEditing` |
+| Pagination | `goToPage`, `setPageSize` |
+| Grouping | `groupByColumn`, `setRowGroupColumns`, `expandGroup`, `collapseAllGroups` |
+| Tree Data | `expandTreeNode`, `loadTreeNodeChildren`, `getTreeNodeChildren` |
+| Master/Detail | `expandDetail`, `getDetailGridApi` |
+| Column Groups | `collapseColumnGroup`, `moveColumnGroup`, `getColumnGroupState` |
+| Export | `exportCsv`, `exportXlsx` |
+| Charts | `createChart`, `createRangeChart`, `getChartModels`, `restoreChart` |
+| State | `getGridState`, `applyGridState`, `resetGridState` |
+| Events | `on`, `off` |
+| Lifecycle | `refresh`, `forceRefresh`, `destroy` |
+| Transactions | `applyTransaction`, `applyTransactionAsync`, `undo`, `redo` |
+
+---
+
+:::tip
+For high-frequency updates (streaming prices, live sensor data, etc.), always prefer `applyTransactionAsync` over `applyTransaction` or `setData` — it batches many rapid mutations into a single pipeline run and render per animation frame.
+:::
+
+## What's Next?
+
+- Column Definitions
+- Sorting
+- Filtering
+- Row Selection
+- Grid Events
+- Grid State Persistence

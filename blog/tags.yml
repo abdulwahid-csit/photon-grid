@@ -1,0 +1,14 @@
+welcome:
+  label: Welcome
+  permalink: /welcome
+  description: Announcements and updates about Photon Grid
+
+photon-grid:
+  label: Photon Grid
+  permalink: /photon-grid
+  description: Posts about the Photon Grid data grid
+
+release:
+  label: Release
+  permalink: /release
+  description: Release notes and changelog highlights

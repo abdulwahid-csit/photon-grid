@@ -1,0 +1,57 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Background -->
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0B1220"></stop>
+      <stop offset="100%" stop-color="#111827"></stop>
+    </linearGradient>
+
+    <!-- Lightning -->
+    <linearGradient id="bolt" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#22D3EE"></stop>
+      <stop offset="100%" stop-color="#2563EB"></stop>
+    </linearGradient>
+
+    <!-- Glow -->
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="8" result="blur"></feGaussianBlur>
+      <feMerge>
+        <feMergeNode in="blur"></feMergeNode>
+        <feMergeNode in="SourceGraphic"></feMergeNode>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="512" height="512" rx="48" fill="url(#bg)"></rect>
+
+  <!-- Grid -->
+  <g stroke="#2B74FF" stroke-width="5">
+    <!-- Row 1 -->
+    <rect x="88" y="88" width="90" height="90" rx="14"></rect>
+    <rect x="211" y="88" width="90" height="90" rx="14"></rect>
+    <rect x="334" y="88" width="90" height="90" rx="14"></rect>
+
+    <!-- Row 2 -->
+    <rect x="88" y="211" width="90" height="90" rx="14"></rect>
+    <rect x="211" y="211" width="90" height="90" rx="14"></rect>
+    <rect x="334" y="211" width="90" height="90" rx="14"></rect>
+
+    <!-- Row 3 -->
+    <rect x="88" y="334" width="90" height="90" rx="14"></rect>
+    <rect x="211" y="334" width="90" height="90" rx="14"></rect>
+    <rect x="334" y="334" width="90" height="90" rx="14"></rect>
+  </g>
+
+  <!-- Lightning -->
+  <path d="M288 58
+       L190 240
+       L255 240
+       L210 455
+       L333 250
+       L265 250
+       L322 58Z" fill="url(#bolt)" filter="url(#glow)"></path>
+
+  <!-- Subtle glow circle -->
+  <circle cx="256" cy="256" r="130" stroke="#22D3EE" stroke-opacity="0.15" stroke-width="2"></circle>
+</svg>

@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Photon Grid — Range Charts Example</title>
+  <script src="https://cdn.jsdelivr.net/npm/photon-grid-core@latest/photon-grid.min.js"></script>
+  <style>
+    html, body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+    #grid { width: 100%; height: 320px; }
+    .toolbar { padding: 8px 12px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .toolbar button { padding: 6px 12px; border: 1px solid #d0d5dd; background: #fff; border-radius: 6px; cursor: pointer; font-size: 13px; }
+    .toolbar button:hover { background: #f5f7fa; }
+    #chart { width: 100%; height: 220px; box-sizing: border-box; }
+    #log { margin: 0; padding: 8px 12px; height: 84px; overflow: auto; background: #0b1021; color: #cfe3ff; font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; }
+  </style>
+</head>
+<body>
+  <div class="toolbar" id="toolbar"></div>
+  <div id="grid"></div>
+  <div id="chart"></div>
+  <pre id="log"></pre>
+  <script src="./index.js"></script>
+</body>
+</html>

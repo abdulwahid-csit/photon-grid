@@ -5,4 +5,4 @@
 "photon-grid-vue": patch
 ---
 
-Fixed vue js imports issues
+updated examples

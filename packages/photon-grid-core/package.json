@@ -1,6 +1,6 @@
 {
   "name": "photon-grid-core",
-  "version": "2.0.15",
+  "version": "3.0.4",
   "description": "Professional zero-dependency TypeScript data grid with enterprise-grade features.",
   "author": "Abdul Wahid",
   "license": "MIT",
@@ -49,9 +49,7 @@
     "clean": "rimraf dist",
     "build": "npm run clean && tsc && npm run build:cjs && npm run build:cdn && node scripts/make-dist-pkg.mjs",
     "build:cjs": "esbuild src/index.ts --bundle --platform=node --format=cjs --outfile=dist/index.cjs",
-
     "build:cdn": "esbuild src/index.ts --bundle --minify --platform=browser --target=es2020 --format=iife --global-name=PhotonGrid --outfile=dist/photon-grid.min.js",
-
     "build:watch": "tsc --project tsconfig.json --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

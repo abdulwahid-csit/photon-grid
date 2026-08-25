@@ -5,29 +5,28 @@ on:
     branches:
       - main
 
+# Never run two releases at once.
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
-  contents: write
-  pull-requests: write
-  id-token: write
+  contents: write # push the Version PR / tags
+  pull-requests: write # open the "Version Packages" PR
+  id-token: write # npm provenance
 
 jobs:
   release:
     name: Version or Publish
     runs-on: ubuntu-latest
-    environment: production
+    environment: production   
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
@@ -36,12 +35,15 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # User-level .npmrc so `npm publish` authenticates from any package's dist/.
       - name: Configure npm auth
         run: echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > ~/.npmrc
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Create Release PR or publish
+      # When changesets exist on main -> opens/updates a "Version Packages" PR.
+      # When none exist (i.e. that PR was merged) -> runs the publish command.
+      - name: Create Release PR or publish to npm
         uses: changesets/action@v1
         with:
           version: npm run version

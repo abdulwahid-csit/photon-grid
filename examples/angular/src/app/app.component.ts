@@ -36,7 +36,8 @@ import { NestedColComponent } from "./nested-cols-data.component";
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { createPdfExporter, type JsPdfConstructor } from 'photon-grid-core/export/pdf';
-import { registerExcelSupport, type SheetJsModule } from 'photon-grid-core/export/register-excel';
+import { registerExcelSupport } from 'photon-grid-core/export/register-excel';
+import type { SheetJsModule } from 'photon-grid-core/export/excel';
 
 /** Emoji flags for the fixed country list used by `generateData` below. */
 

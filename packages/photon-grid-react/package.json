@@ -61,6 +61,7 @@
     "dev": "vite build --watch",
     "clean": "rimraf dist",
     "build": "tsc -b && vite build && npm run copy-files",
+    "prepare": "node ../../scripts/prepare-pkg.mjs",
     "prepublishOnly": "npm run build",
     "copy-files": "node ../../scripts/copy-pkg-to-dist.mjs",
     "lint": "eslint .",

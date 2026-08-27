@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "photon-grid-react": "file:../.."
+  }
+}

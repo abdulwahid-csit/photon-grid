@@ -18,8 +18,21 @@ for (const pkg of PACKAGES) {
   const manifestPath = resolve(distDir, 'package.json');
 
   if (!existsSync(manifestPath)) {
-    console.error(`✗ ${pkg}: dist/package.json not found. Skipping.`);
-    continue;
+    // Attempt to build the package if dist isn't present. This helps CI
+    // pipelines that forgot to run the root build step — build the package
+    // in-place and then re-check for the dist manifest.
+    console.log(`ℹ ${pkg}: dist not found — attempting to build package...`);
+    try {
+      execSync(`npm --prefix packages/${pkg} run build`, { stdio: 'inherit' });
+    } catch (err) {
+      console.error(`✗ ${pkg}: dist/package.json not found and build failed. Skipping.`);
+      continue;
+    }
+
+    if (!existsSync(manifestPath)) {
+      console.error(`✗ ${pkg}: dist/package.json still not found after build. Skipping.`);
+      continue;
+    }
   }
 
   const { name, version } = JSON.parse(readFileSync(manifestPath, 'utf8'));

@@ -27,6 +27,11 @@
       "import": "./dist/export/excel.js",
       "default": "./dist/export/excel.js"
     },
+    "./export/register-excel": {
+      "types": "./dist/export/register-excel.d.ts",
+      "import": "./dist/export/register-excel.js",
+      "default": "./dist/export/register-excel.js"
+    },
     "./export/pdf": {
       "types": "./dist/export/pdf.d.ts",
       "import": "./dist/export/pdf.js",

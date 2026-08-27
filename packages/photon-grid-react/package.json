@@ -1,6 +1,6 @@
 {
   "name": "photon-grid-react",
-  "version": "3.0.4",
+  "version": "3.0.6",
   "description": "A high-performance React data grid built on Photon Grid Core with virtualization, sorting, filtering, editing, grouping, and custom React renderers.",
   "type": "module",
   "keywords": [
@@ -62,6 +62,7 @@
     "dev": "vite build --watch",
     "clean": "rimraf dist",
     "build": "tsc -b && vite build && npm run copy-files",
+    "prepare": "node ../../scripts/prepare-pkg.mjs",
     "prepublishOnly": "npm run build",
     "copy-files": "node ../../scripts/copy-pkg-to-dist.mjs",
     "lint": "eslint .",

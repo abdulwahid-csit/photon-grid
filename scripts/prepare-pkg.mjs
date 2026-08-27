@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { execSync } from 'node:child_process';
 
@@ -8,12 +8,24 @@ import { execSync } from 'node:child_process';
 // but avoid running the build during a monorepo `npm ci` where the package
 // lives inside the workspace root and core packages are built separately.
 
-const pkgDir = resolve(new URL(import.meta.url).pathname.replace(/^\/*/, ''));
-const rootPkg = resolve(pkgDir, '..', '..', 'package.json');
+const scriptDir = dirname(new URL(import.meta.url).pathname.replace(/^\/*/, ''));
 
-if (existsSync(rootPkg)) {
+function findUpPackageJson(startDir) {
+  let dir = startDir;
+  while (true) {
+    const candidate = resolve(dir, 'package.json');
+    if (existsSync(candidate)) return candidate;
+    const parent = resolve(dir, '..');
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
+}
+
+const rootPkgPath = findUpPackageJson(scriptDir);
+if (rootPkgPath) {
   try {
-    const raw = require('node:fs').readFileSync(rootPkg, 'utf8');
+    const raw = readFileSync(rootPkgPath, 'utf8');
     const content = JSON.parse(raw);
     if (content && content.workspaces) {
       // We're inside the monorepo — skip the per-package prepare to avoid

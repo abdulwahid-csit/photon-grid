@@ -11,7 +11,6 @@
     "datatable",
     "data-grid",
     "grid",
-    
     "table",
     "virtual-scroll",
     "virtualization",
@@ -68,7 +67,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "photon-grid-core": "^3.0.4"
+    "photon-grid-core": "^3.0.7"
   },
   "peerDependencies": {
     "react": ">=18",

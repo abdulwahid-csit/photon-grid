@@ -1,0 +1,44 @@
+const columns = [
+  { field: "id", header: "ID", colId: "id", width: 80, configurable: false },
+  { field: "name", header: "Employee", colId: "name", flex: 1 },
+  { field: "department", header: "Department", colId: "department", flex: 1 },
+  { field: "country", header: "Country", colId: "country", flex: 1 },
+  { field: "salary", header: "Salary", colId: "salary", flex: 1 }
+];
+
+const rowData = [
+  { id: 1, name: "John Smith", department: "Engineering", country: "USA", salary: 85000 },
+  { id: 2, name: "Sarah Johnson", department: "Finance", country: "UK", salary: 72000 },
+  { id: 3, name: "Michael Brown", department: "Marketing", country: "Canada", salary: 68000 },
+  { id: 4, name: "Emma Wilson", department: "Human Resources", country: "USA", salary: 61000 },
+  { id: 5, name: "David Miller", department: "Engineering", country: "Germany", salary: 93000 },
+  { id: 6, name: "Olivia Taylor", department: "Sales", country: "France", salary: 65000 },
+  { id: 7, name: "James Anderson", department: "Operations", country: "USA", salary: 78000 },
+  { id: 8, name: "Sophia Thomas", department: "Customer Support", country: "UK", salary: 54000 }
+];
+
+const grid = new PhotonGrid.GridCore(
+  document.getElementById("grid"),
+  {
+    columns: columns,
+    data: rowData,
+    headerRowHeight: 48,
+    rowHeight: 42
+  }
+);
+
+const api = grid.api;
+const status = document.getElementById("status");
+
+api.on("grid:ready", function () {
+  console.log("grid:ready fired");
+  status.textContent = "Displayed rows: " + api.getDisplayedRowCount();
+});
+
+document.getElementById("check").addEventListener("click", function () {
+  const displayed = api.getDisplayedRowCount();
+  const all = api.getAllRows();
+  console.log("Displayed rows:", displayed);
+  console.log("All rows:", all);
+  status.textContent = "Displayed: " + displayed + " / Total: " + all.length;
+});

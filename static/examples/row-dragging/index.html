@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Photon Grid — Row Dragging Example</title>
+  <script src="https://cdn.jsdelivr.net/npm/photon-grid-core@latest/photon-grid.min.js"></script>
+  <style>
+    html, body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+    #grid { width: 100%; height: 320px; }
+    .hint { padding: 8px 12px; font-size: 13px; color: #475467; }
+    #log { height: 120px; overflow: auto; margin: 8px 12px; padding: 8px; background: #0f172a; color: #e2e8f0; border-radius: 6px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
+    #log div { padding: 1px 0; }
+  </style>
+</head>
+<body>
+  <div class="hint">Drag rows to see the drag and drop lifecycle logged below.</div>
+  <div id="grid"></div>
+  <div id="log"></div>
+  <script src="./index.js"></script>
+</body>
+</html>

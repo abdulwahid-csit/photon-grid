@@ -1,0 +1,42 @@
+const columns = [
+  { field: "id",         header: "ID",         colId: "id",         width: 80, configurable: false },
+  { field: "name",       header: "Employee",   colId: "name",       flex: 1 },
+  { field: "department", header: "Department", colId: "department", flex: 1 },
+  { field: "country",    header: "Country",    colId: "country",    flex: 1 },
+  { field: "salary",     header: "Salary",     colId: "salary",     flex: 1 }
+];
+
+const rowData = [
+  { id: 1, name: "John Smith",     department: "Engineering",      country: "USA",     salary: 85000, active: true },
+  { id: 2, name: "Sarah Johnson",  department: "Finance",          country: "UK",      salary: 72000, active: true },
+  { id: 3, name: "Michael Brown",  department: "Marketing",        country: "Canada",  salary: 68000, active: false },
+  { id: 4, name: "Emma Wilson",    department: "Human Resources",  country: "USA",     salary: 61000, active: true },
+  { id: 5, name: "David Miller",   department: "Engineering",      country: "Germany", salary: 93000, active: true },
+  { id: 6, name: "Olivia Taylor",  department: "Sales",            country: "France",  salary: 65000, active: false },
+  { id: 7, name: "James Anderson", department: "Operations",       country: "USA",     salary: 78000, active: true },
+  { id: 8, name: "Sophia Thomas",  department: "Customer Support", country: "UK",      salary: 54000, active: true }
+];
+
+const statusEl = document.getElementById("status");
+
+function buildGrid(rowHeight, headerRowHeight, label) {
+  const container = document.getElementById("grid");
+  container.innerHTML = "";
+  statusEl.textContent = label + " (rowHeight " + rowHeight + ")";
+  return new PhotonGrid.GridCore(container, {
+    columns: columns,
+    data: rowData,
+    rowHeight: rowHeight,
+    headerRowHeight: headerRowHeight
+  });
+}
+
+let grid = buildGrid(42, 48, "Comfortable");
+
+document.getElementById("compact").addEventListener("click", function () {
+  grid = buildGrid(32, 38, "Compact");
+});
+
+document.getElementById("comfortable").addEventListener("click", function () {
+  grid = buildGrid(48, 56, "Comfortable");
+});

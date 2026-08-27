@@ -1,0 +1,101 @@
+/* ============================================================
+   <LiveGrid> — inline live-grid frame + custom cell renderers.
+   Uses the same violet brand tokens defined in src/css/custom.css.
+   ============================================================ */
+
+.livegrid {
+  margin: 1.6rem 0;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.livegrid__frame {
+  position: relative;
+  /* border: 1px solid var(--ifm-toc-border-color); */
+  /* border-radius: 14px; */
+  overflow: hidden;
+  /* background: var(--ifm-background-color); */
+  /* box-shadow: var(--pg-shadow-md, 0 6px 20px rgba(88, 28, 135, .1)); */
+}
+.livegrid__mount {
+  width: 100%;
+  height: 100%;
+}
+.livegrid__overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--ifm-font-color-secondary);
+  background: var(--ifm-background-surface-color);
+}
+.livegrid__overlay::before {
+  content: "";
+  width: 15px;
+  height: 15px;
+  border: 2px solid var(--pg-accent, #7c3aed);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: livegrid-spin 0.7s linear infinite;
+}
+.livegrid__overlay--error {
+  color: var(--pg-danger, #e11d48);
+}
+.livegrid__overlay--error::before {
+  content: "!";
+  border: none;
+  width: auto;
+  height: auto;
+  animation: none;
+  font-weight: 800;
+}
+@keyframes livegrid-spin {
+  to { transform: rotate(360deg); }
+}
+.livegrid__cap {
+  margin-top: 0.6rem;
+  text-align: center;
+  font-size: 0.82rem;
+  color: var(--ifm-font-color-secondary);
+}
+
+/* ---- custom cell renderers used by presets.js ---- */
+.lg-person { display: flex; align-items: center; gap: 0.6rem; height: 100%; }
+.lg-avatar {
+  width: 30px; height: 30px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: #fff; font-size: 0.72rem; font-weight: 700; flex-shrink: 0;
+}
+.lg-person__info { display: flex; flex-direction: column; line-height: 1.25; overflow: hidden; }
+.lg-person__name { font-weight: 600; font-size: 0.86rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lg-person__sub { font-size: 0.75rem; color: var(--ifm-font-color-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.lg-num { font-variant-numeric: tabular-nums; font-weight: 600; }
+
+.lg-badge {
+  display: inline-flex; align-items: center;
+  padding: 2px 10px; border-radius: 999px;
+  font-size: 0.75rem; font-weight: 650; line-height: 1.5;
+  white-space: nowrap;
+}
+.lg-badge--violet { background: color-mix(in srgb, #7c3aed 14%, transparent); color: #7c3aed; }
+.lg-badge--green  { background: color-mix(in srgb, #16a34a 15%, transparent); color: #16a34a; }
+.lg-badge--red    { background: color-mix(in srgb, #e11d48 14%, transparent); color: #e11d48; }
+.lg-badge--amber  { background: color-mix(in srgb, #d97706 16%, transparent); color: #d97706; }
+.lg-badge--blue   { background: color-mix(in srgb, #2563eb 14%, transparent); color: #2563eb; }
+.lg-badge--pink   { background: color-mix(in srgb, #db2777 14%, transparent); color: #db2777; }
+.lg-badge--cyan   { background: color-mix(in srgb, #0891b2 15%, transparent); color: #0891b2; }
+.lg-badge--slate  { background: color-mix(in srgb, #64748b 16%, transparent); color: #64748b; }
+
+[data-theme='dark'] .lg-badge--violet { color: #c4b5fd; }
+[data-theme='dark'] .lg-badge--green  { color: #6ee7b7; }
+[data-theme='dark'] .lg-badge--red    { color: #fda4af; }
+[data-theme='dark'] .lg-badge--amber  { color: #fcd34d; }
+[data-theme='dark'] .lg-badge--blue   { color: #93c5fd; }
+[data-theme='dark'] .lg-badge--pink   { color: #f9a8d4; }
+[data-theme='dark'] .lg-badge--cyan   { color: #67e8f9; }
+[data-theme='dark'] .lg-badge--slate  { color: #cbd5e1; }

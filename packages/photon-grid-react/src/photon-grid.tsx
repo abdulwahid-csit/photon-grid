@@ -231,7 +231,7 @@ export function PhotonGrid(props: PhotonGridProps): JSX.Element {
     };
   }, []);
 
-  return <div ref={hostRef} className="photon-grid__host" />;
+  return <div style={{height: '100%', width: '100%'}} ref={hostRef} className="photon-grid__host" />;
 }
 
 export default PhotonGrid;

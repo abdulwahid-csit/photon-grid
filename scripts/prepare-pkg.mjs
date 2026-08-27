@@ -10,6 +10,14 @@ import { execSync } from 'node:child_process';
 
 const scriptDir = dirname(new URL(import.meta.url).pathname.replace(/^\/*/, ''));
 
+// If we're running in CI (GitHub Actions, etc.), skip package-level
+// prepare builds. CI workflows should run `npm run build` at the repo root
+// before publishing or packaging.
+if (process.env.CI) {
+  console.log('prepare-pkg: CI environment detected; skipping package build');
+  process.exit(0);
+}
+
 function findUpPackageJson(startDir) {
   let dir = startDir;
   while (true) {
@@ -28,10 +36,17 @@ if (rootPkgPath) {
     const raw = readFileSync(rootPkgPath, 'utf8');
     const content = JSON.parse(raw);
     if (content && content.workspaces) {
-      // We're inside the monorepo — skip the per-package prepare to avoid
-      // triggering builds during `npm ci`.
-      console.log('prepare-pkg: detected monorepo workspace; skipping package build');
-      process.exit(0);
+      const rootDir = resolve(dirname(rootPkgPath));
+      const initCwdRaw = process.env.INIT_CWD;
+      const initCwd = initCwdRaw ? resolve(initCwdRaw) : null;
+      const normalize = (p) => (p || '').replace(/\\/g, '/').toLowerCase();
+      // If INIT_CWD matches the repo root (npm was invoked from the workspace root)
+      // then this prepare is being run as part of a root install/build; skip.
+      if (initCwd && normalize(initCwd) === normalize(rootDir)) {
+        console.log('prepare-pkg: detected monorepo workspace install (INIT_CWD matches); skipping package build');
+        process.exit(0);
+      }
+      // Otherwise fall through and build (e.g., consumer installing from git).
     }
   } catch (e) {
     // Fall through and attempt build.

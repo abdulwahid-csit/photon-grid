@@ -157,7 +157,7 @@ export function PhotonGrid(props: PhotonGridProps): JSX.Element {
         return;
       }
 
-      const dispose = grid.api.on<GridEventMap[E]>(event, (payload) => handler(payload));
+      const dispose = grid.api.on<GridEventMap[E]>(event, (payload: GridEventMap[E]) => handler(payload));
       disposers.push(dispose);
     };
 

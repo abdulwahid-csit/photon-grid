@@ -22,10 +22,10 @@ import type {
   LoadingChangedEvent,
 } from 'photon-grid-core';
 
-import { ReactRendererAdapter, type PhotonGridColumnDef, type PhotonGridOptions } from './react-renderer-adapter';
+import { ReactRendererAdapter, type ColumnDef , type PhotonGridOptions } from './react-renderer-adapter';
 
 export interface PhotonGridProps {
-  columns?: PhotonGridColumnDef[];
+  columns?: ColumnDef [];
   dataSet?: Record<string, unknown>[];
   /**
    * Additional grid options (theme, selection, features…), forwarded verbatim

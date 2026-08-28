@@ -20,7 +20,7 @@ examples/angular/src/environments/
 # examples/angular/src/environments/environment.ts
 # examples/angular/src/environments/environment.prod.ts
 
-dist/
+# dist/
 coverage/
 .cache/
 .turbo/

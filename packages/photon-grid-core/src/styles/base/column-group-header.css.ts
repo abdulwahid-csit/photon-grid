@@ -232,7 +232,7 @@ export const columnGroupHeaderCss = `/* ─────────────�
   left: 0;
   pointer-events: none;
   z-index: 9999;
-  height: var(--pg-drag-ghost-height, 40px);
+  height: var(--pg-drag-ghost-height, 28px);
   display: flex;
   align-items: center;
   gap: var(--pg-drag-ghost-gap, 8px);

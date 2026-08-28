@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { createRoot, type Root } from 'react-dom/client';
 
 import type {
-  ColumnDef,
+  ColumnDef as columnDefCore,
   ColumnDefInput,
   ColumnRenderer,
   DetailComponent,
@@ -63,7 +63,7 @@ type RendererSlotValue = ((params: unknown) => RendererOutput) | ReactRendererSp
  * header from the field in Title Case, `type` defaulting to `'string'`). The
  * `renderer` slots additionally accept React components/specs.
  */
-type PhotonGridColumnDef = Omit<ColumnDefInput, 'renderer'> & {
+type columnDef = Omit<ColumnDefInput, 'renderer'> & {
   /**
    * Accepts everything the core does — a built-in renderer by name
    * (`'country'`), a configured one (`{ name, options }`), a bare display
@@ -86,7 +86,7 @@ type PhotonGridColumnDef = Omit<ColumnDefInput, 'renderer'> & {
  * Runtime probe for the React forms of a renderer slot.
  *
  * Takes `unknown` rather than {@link RendererSlotValue} on purpose: the slot map
- * on {@link PhotonGridColumnDef} is a union with the core's `ColumnRendererMap`
+ * on {@link columnDef} is a union with the core's `ColumnRendererMap`
  * (both lack `name`, so neither the `typeof` nor the `'name' in` narrowing in
  * {@link ReactRendererAdapter.adaptColumns} can separate them), which makes each
  * slot read a union of the core's strongly-typed slot functions *and* the React
@@ -154,11 +154,11 @@ export class ReactRendererAdapter {
     this.observer.observe(host, { childList: true, subtree: true });
   }
 
-  adaptColumns(columns: PhotonGridColumnDef[]): ColumnDef[] {
+  adaptColumns(columns: columnDef[]): columnDefCore[] {
     return columns.map((column) => {
       const { renderer } = column;
       if (!renderer) {
-        return column as ColumnDef;
+        return column as columnDefCore;
       }
 
       // A built-in renderer selected by name (`renderer: 'country'`), a
@@ -171,7 +171,7 @@ export class ReactRendererAdapter {
       // column's inferred renderer. The named renderer would vanish with no
       // error anywhere.
       if (typeof renderer === 'string' || typeof renderer === 'function' || 'name' in renderer) {
-        return column as ColumnDef;
+        return column as columnDefCore;
       }
 
       const adaptedRenderer: Record<string, unknown> = {};
@@ -189,7 +189,7 @@ export class ReactRendererAdapter {
       return {
         ...column,
         renderer: adaptedRenderer,
-      } as ColumnDef;
+      } as columnDefCore;
     });
   }
 
@@ -411,7 +411,7 @@ export class ReactRendererAdapter {
   }
 }
 
-export type { PhotonGridColumnDef };
+export type { columnDef as ColumnDef  };
 
 // ── Master/Detail ────────────────────────────────────────────────────────────
 

@@ -38,6 +38,7 @@ const SPARK_POINTS = 28;
 /** Available feed rates, in milliseconds per tick. */
 const RATES = [
   { value: 500, label: '2 / sec' },
+  { value: 250, label: '4 / sec' },
   { value: 100, label: '10 / sec' },
   { value: 33, label: '30 / sec' },
   { value: 16, label: '60 / sec' },
@@ -131,6 +132,11 @@ const EMPTY_STATS = {
   cellsReRendered: 0, cellsDeferred: 0, flushes: 0, lastFlushMs: 0,
 };
 
+function PandLValue(params){
+ return (
+  <div>P & L</div>
+ )
+}
 export function RealtimeGrid() {
   const [intervalMs, setIntervalMs] = useState(50);
   const [running, setRunning] = useState(false);
@@ -206,7 +212,7 @@ export function RealtimeGrid() {
       filterable: false,
       sparkline: { type: 'column', stroke: '#7bacfa', fill: '#4c8df6' },
     },
-    { colId: 'instrument', field: 'instrument', header: 'Instrument', width: 160, flex: 1, textAlign: 'right' },
+    { colId: 'instrument', field: 'instrument', header: 'Instrument', width: 160, flex: 1, textAlign: 'right',groupable: true },
     {
       colId: 'pnl',
       field: 'pnl',
@@ -214,7 +220,7 @@ export function RealtimeGrid() {
       width: 190,
       textAlign: 'right',
       flex: 1,
-      renderer: { display: (params) => renderSignedPair(params.row.pnl, params.row.roi) },
+      renderer: { display: (params) => <PandLValue params={params} /> },
     },
     {
       colId: 'totalValue',

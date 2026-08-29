@@ -129,8 +129,8 @@ export function FormulaGrid() {
   const columns = useMemo(() => buildColumns(EXTRA_COLUMNS), []);
 
   const options = useMemo(() => ({
-    mode: 'dark',
-    variant: 'neon',
+    // mode: 'dark',
+    // variant: 'neon',
     showCheckboxes: true,
     showSerialNumber: false,
     rowShading: false,

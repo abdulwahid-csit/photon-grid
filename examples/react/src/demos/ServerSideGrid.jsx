@@ -113,8 +113,8 @@ export function ServerSideGrid() {
     const serverData = generateData(SERVER_ROW_COUNT);
 
     return {
-      mode: 'dark',
-      variant: 'quantum',
+      // mode: 'dark',
+      // variant: 'quantum',
       rowModel: 'server',
       showSerialNumber: true,
       rowHeight: 40,

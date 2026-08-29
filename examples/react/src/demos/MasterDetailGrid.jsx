@@ -289,8 +289,8 @@ export function MasterDetailGrid() {
         model: 'llama-3.3-70b-versatile',
       },
     },
-    rowHeight: 46,
-    headerRowHeight: 42,
+    rowHeight: 64,
+    headerRowHeight: 60,
     showSerialNumber: false,
     rowShading: true,
     masterDetail: {

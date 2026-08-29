@@ -1771,8 +1771,15 @@ export class GridRenderer {
     // always exact because it is the same element whose width we need to mirror.
     // Accessing offsetWidth forces a synchronous reflow; safe here because
     // sbVNative is already attached to the live DOM tree.
-    const sbVWidth = sbVNative.offsetWidth;
-    this.wrapperEl!.style.setProperty('--pg-scrollbar-v-width', `${sbVWidth}px`);
+    const updateScrollbarWidth = () => {
+      const sbVWidth = sbVNative.offsetWidth;
+      this.wrapperEl!.style.setProperty('--pg-scrollbar-v-width', `${sbVWidth}px`);
+    };
+
+    updateScrollbarWidth();
+
+    const resizeObserver = new ResizeObserver(updateScrollbarWidth);
+    resizeObserver.observe(sbVNative);
 
     // Horizontal scrollbar row: left spacer | native scroll container | right spacer | v-scroll spacer
     const sbHRowEl = createDiv('pg-scrollbar-h-row');

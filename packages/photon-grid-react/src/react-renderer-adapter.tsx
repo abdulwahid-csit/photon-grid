@@ -1,4 +1,11 @@
-import { createElement, type ComponentType, type JSX } from 'react';
+import {
+  createElement,
+  isValidElement,
+  type ComponentType,
+  type JSX,
+  type ReactElement,
+  type ReactNode,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { createRoot, type Root } from 'react-dom/client';
 
@@ -54,7 +61,7 @@ export type PhotonGridOptions = Omit<GridOptions, 'masterDetail'> & {
   masterDetail?: ReactMasterDetailConfig;
 };
 
-type RendererSlotValue = ((params: unknown) => RendererOutput) | ReactRendererSpec | ComponentType<Record<string, unknown>> | undefined;
+type RendererSlotValue = ((params: unknown) => RendererOutput) | ReactRendererSpec | ComponentType<Record<string, unknown>> | ReactElement | undefined;
 
 /**
  * React column definition. Built on the core's {@link ColumnDefInput}, so it
@@ -69,8 +76,13 @@ type columnDef = Omit<ColumnDefInput, 'renderer'> & {
    * (`'country'`), a configured one (`{ name, options }`), a bare display
    * function — plus the React component/spec forms in the slot map, which the
    * adapter converts to plain functions.
+   *
+   * Also accepts a React component or {@link ReactRendererSpec} directly
+   * (`renderer: MyCell`), which is shorthand for `renderer: { display: MyCell }`,
+   * or an already-instantiated element (`renderer: <MyCell />`), shorthand for
+   * `renderer: { display: <MyCell /> }`.
    */
-  renderer?: ColumnRenderer | {
+  renderer?: ColumnRenderer | ReactRendererSpec | ComponentType<Record<string, unknown>> | ReactElement | {
     display?: RendererSlotValue;
     editor?: RendererSlotValue;
     option?: RendererSlotValue;
@@ -102,7 +114,11 @@ function isComponentRenderer(value: unknown): value is ReactRendererSpec | Compo
     return true;
   }
 
-  if (typeof value === 'object' && value !== null && '$$typeof' in value) {
+  // A memo/forwardRef component definition also carries `$$typeof`, but so
+  // does an actual element instance (`<Foo />`) — excluded here since an
+  // element must be portal-mounted via `mountElement`, not instantiated a
+  // second time via `createElement(spec, props)`.
+  if (typeof value === 'object' && value !== null && '$$typeof' in value && !isValidElement(value)) {
     return true;
   }
 
@@ -116,7 +132,8 @@ function isComponentRenderer(value: unknown): value is ReactRendererSpec | Compo
 type RendererEntry = {
   key: string;
   host: HTMLElement;
-  component: ComponentType<Record<string, unknown>>;
+  component?: ComponentType<Record<string, unknown>>;
+  element?: ReactNode;
   props?: Record<string, unknown>;
 };
 
@@ -161,6 +178,40 @@ export class ReactRendererAdapter {
         return column as columnDefCore;
       }
 
+      // An already-instantiated element used directly as the renderer —
+      // `renderer: <PandLValue />` — is shorthand for
+      // `renderer: { display: <PandLValue /> }`. This must be checked before
+      // `isComponentRenderer`: an element instance carries `$$typeof` too,
+      // so without this branch it would be misread as a component *type*
+      // and re-instantiated via `createElement` in `renderFrame`, which
+      // expects a type/string, not an element that already exists.
+      if (isValidElement(renderer)) {
+        return {
+          ...column,
+          renderer: {
+            display: (params: unknown) => this.mountElement(renderer, params),
+          },
+        } as columnDefCore;
+      }
+
+      // A React component or spec used directly as the renderer —
+      // `renderer: MyCell` — is shorthand for `renderer: { display: MyCell }`.
+      // This MUST be checked before the pass-through guard below: a React
+      // component is `typeof 'function'` too, and that guard would otherwise
+      // treat it as an already-core-compatible display function and hand it
+      // to the core unadapted. The core would then invoke it directly as
+      // `renderer(params)` — outside of React entirely, with no root, no
+      // hooks, no context — and receive back a React element instead of the
+      // HTMLElement/string it expects, so nothing would ever render.
+      if (isComponentRenderer(renderer)) {
+        return {
+          ...column,
+          renderer: {
+            display: (params: unknown) => this.mountComponent(renderer, params),
+          },
+        } as columnDefCore;
+      }
+
       // A built-in renderer selected by name (`renderer: 'country'`), a
       // configured one (`{ name, options }`), or a bare display function passes
       // straight through — there is nothing React-flavoured to adapt.
@@ -179,10 +230,23 @@ export class ReactRendererAdapter {
 
       for (const slot of slots) {
         const value = renderer[slot];
-        if (isComponentRenderer(value)) {
+        if (isValidElement(value)) {
+          adaptedRenderer[slot] = (params: unknown) => this.mountElement(value, params);
+        } else if (isComponentRenderer(value)) {
           adaptedRenderer[slot] = (params: unknown) => this.mountComponent(value, params);
         } else if (typeof value === 'function') {
-          adaptedRenderer[slot] = value;
+          // A function that isn't a named component (e.g. an inline
+          // `display: (params) => <SignedPair />`) can't be classified until
+          // it's actually called: the capitalisation heuristic only applies
+          // to the function *reference* itself, and an arrow function like
+          // this has no useful name. So call it, then decide from the
+          // result: a valid React element gets portal-mounted through
+          // `mountElement`; anything else (an HTMLElement, a string) is
+          // already core-compatible output and is returned untouched.
+          adaptedRenderer[slot] = (params: unknown) => {
+            const result = (value as (p: unknown) => RendererOutput | ReactNode)(params);
+            return isValidElement(result) ? this.mountElement(result, params) : (result as RendererOutput);
+          };
         }
       }
 
@@ -255,6 +319,7 @@ export class ReactRendererAdapter {
 
         existing.component = this.getComponent(spec);
         existing.props = props;
+        existing.element = undefined;
         this.flush();
         return existing.host;
       }
@@ -274,6 +339,45 @@ export class ReactRendererAdapter {
         component: this.getComponent(spec),
         props: this.getRendererProps(spec, params),
       });
+      this.flush();
+    }
+
+    return host;
+  }
+
+  /**
+   * Portal-mounts an already-constructed `ReactNode` — the output of calling
+   * an inline `display`/`editor`/etc. function that returns JSX directly,
+   * as opposed to a component reference invoked via `createElement`.
+   *
+   * There's no `component`/`props` pair to diff against on re-render (the
+   * caller already produced the element), so unlike `mountComponent` this
+   * always re-renders the cached entry on a key hit rather than trying to
+   * skip an unchanged render.
+   */
+  private mountElement(element: ReactNode, params: unknown): HTMLElement {
+    const key = this.getRendererKey(params);
+
+    if (key) {
+      const existing = this.entries.get(key);
+      if (existing) {
+        existing.component = undefined;
+        existing.props = undefined;
+        existing.element = element;
+        this.flush();
+        return existing.host;
+      }
+    }
+
+    const host = document.createElement('div');
+    host.className = 'photon-grid-react__renderer-host';
+    host.style.width = '100%';
+    host.style.height = '100%';
+    host.style.pointerEvents = 'auto';
+    host.style.display = 'block';
+
+    if (key) {
+      this.entries.set(key, { key, host, element });
       this.flush();
     }
 
@@ -304,7 +408,10 @@ export class ReactRendererAdapter {
       props.entries.map((entry) => createElement(
         'div',
         { key: entry.key, style: { display: 'contents' } },
-        createPortal(createElement(entry.component, entry.props ?? {}), entry.host),
+        createPortal(
+          entry.component ? createElement(entry.component, entry.props ?? {}) : entry.element,
+          entry.host,
+        ),
       )),
     );
   }

@@ -100,12 +100,13 @@ export const masterDetailCss = `/* ───────────────
 .pg-sticky-layer::before {
   left: 0;
   width: var(--pg-left-panel-width, 0px);
-  box-shadow: var(--pg-shadows-pinned-left, 2px 0 4px rgba(0,0,0,0.06));
+  box-shadow: inset -1px 0 0 rgba(0, 0, 0, 0.08);
 }
+
 .pg-sticky-layer::after {
   right: 0;
   width: var(--pg-right-panel-width, 0px);
-  box-shadow: var(--pg-shadows-pinned-right, -2px 0 4px rgba(0,0,0,0.06));
+  box-shadow: inset 1px 0 0 rgba(0, 0, 0, 0.08);
 }
 /* z-index: 2 keeps a stuck row's pinned cells above the center region's own
    (z-index: 1) — the same pinned-column elevation .pg-panel--left has. */

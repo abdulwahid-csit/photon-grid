@@ -89,8 +89,8 @@ export function BasicGrid() {
   ], []);
 
   const options = useMemo(() => ({
-    mode: 'dark',
-    variant: 'neon',
+    // mode: 'dark',
+    // variant: 'neon',
     showCheckboxes: false,
     showSerialNumber: true,
     rowShading: false,
